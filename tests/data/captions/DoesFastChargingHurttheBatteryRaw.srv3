@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8" ?><timedtext format="3">
+<head>
+<ws id="0"/>
+<ws id="1" mh="2" ju="0" sd="3"/>
+<wp id="0"/>
+<wp id="1" ap="6" ah="20" av="100" rc="2" cc="40"/>
+</head>
+<body>
+<w t="0" id="1" wp="1" ws="1"/>
+<p t="240" d="6559" w="1"><s ac="0">Does</s><s t="320" ac="0"> fast</s><s t="560" ac="0"> charging</s><s t="959" ac="0"> hurt</s><s t="1199" ac="0"> the</s><s t="1440" ac="0"> battery?</s></p>
+<p t="3750" d="3049" w="1" a="1">
+</p>
+<p t="3760" d="4799" w="1"><s ac="0">We</s><s t="240" ac="0"> tested</s><s t="640" ac="0"> for</s><s t="1440" ac="0"> 167</s><s t="1999" ac="0"> days.</s><s t="2400" ac="0"> We</s><s t="2640" ac="0"> bought</s><s t="2800" ac="0"> 12</s></p>
+<p t="6789" d="1770" w="1" a="1">
+</p>
+<p t="6799" d="3521" w="1"><s ac="0">phones</s><s t="241" ac="0"> and</s><s t="480" ac="0"> split</s><s t="801" ac="0"> them</s><s t="960" ac="0"> into</s><s t="1201" ac="0"> fast</s><s t="1521" ac="0"> charge</s></p>
+<p t="8549" d="1771" w="1" a="1">
+</p>
+<p t="8559" d="3921" w="1"><s ac="0">and</s><s t="161" ac="0"> slow</s><s t="401" ac="0"> charge</s><s t="641" ac="0"> groups.</s><s t="1040" ac="0"> Three</s><s t="1361" ac="0"> iPhones</s></p>
+<p t="10310" d="2170" w="1" a="1">
+</p>
+<p t="10320" d="3760" w="1"><s ac="0">and</s><s t="239" ac="0"> three</s><s t="399" ac="0"> Android</s><s t="800" ac="0"> phones</s><s t="1120" ac="0"> in</s><s t="1359" ac="0"> each.</s><s t="1840" ac="0"> Each</s></p>
+<p t="12470" d="1610" w="1" a="1">
+</p>
+<p t="12480" d="4719" w="1"><s ac="0">phone</s><s t="239" ac="0"> ran</s><s t="400" ac="0"> a</s><s t="560" ac="0"> discharge</s><s t="960" ac="0"> app</s><s t="1119" ac="0"> that</s><s t="1279" ac="0"> drains</s></p>
+<p t="14070" d="3129" w="1" a="1">
+</p>
+<p t="14080" d="4720" w="1"><s ac="0">the</s><s t="160" ac="0"> battery</s><s t="400" ac="0"> to</s><s t="559" ac="0"> 0%.</s><s t="1360" ac="0"> Then</s><s t="1599" ac="0"> recharge</s><s t="2160" ac="0"> to</s><s t="2480" ac="0"> 100%</s></p>
+<p t="17189" d="1611" w="1" a="1">
+</p>
+<p t="17199" d="3920" w="1"><s ac="0">faster</s><s t="401" ac="0"> slow.</s><s t="721" ac="0"> We</s><s t="961" ac="0"> will</s><s t="1121" ac="0"> compare</s><s t="1441" ac="0"> their</s></p>
+<p t="18790" d="2329" w="1" a="1">
+</p>
+<p t="18800" d="4000" w="1"><s ac="0">battery</s><s t="319" ac="0"> capacity</s><s t="800" ac="0"> after</s><s t="1120" ac="0"> 500</s><s t="1600" ac="0"> cycles</s><s t="2080" ac="0"> which</s></p>
+<p t="21109" d="1691" w="1" a="1">
+</p>
+<p t="21119" d="6201" w="1"><s ac="0">will</s><s t="160" ac="0"> take</s><s t="481" ac="0"> 6</s><s t="721" ac="0"> months.</s><s t="1041" ac="0"> To</s><s t="1201" ac="0"> show</s><s t="1441" ac="0"> time</s></p>
+<p t="22790" d="4530" w="1" a="1">
+</p>
+<p t="22800" d="4520" w="1"><s ac="0">passing,</s><s t="479" ac="0"> we</s><s t="719" ac="0"> planted</s><s t="1200" ac="0"> some</s><s t="1520" ac="0"> plants.</s></p>
+<p t="43590" w="1" a="1">
+</p>
+<p t="43600" d="6479" w="1"><s ac="0">Time</s><s t="320" ac="0"> flies.</s><s t="1040" ac="0"> The</s><s t="1360" ac="0"> plants</s><s t="2240" ac="0"> didn&#39;t</s><s t="2639" ac="0"> survive,</s></p>
+<p t="46709" d="3370" w="1" a="1">
+</p>
+<p t="46719" d="6401" w="1"><s ac="0">but</s><s t="320" ac="0"> the</s><s t="481" ac="0"> experiment</s><s t="961" ac="0"> did.</s><s t="1441" ac="0"> After</s><s t="2320" ac="0"> 187</s><s t="2881" ac="0"> days,</s></p>
+<p t="50069" d="3051" w="1" a="1">
+</p>
+<p t="50079" d="6640" w="1"><s ac="0">iPhone</s><s t="320" ac="0"> slow</s><s t="561" ac="0"> charge</s><s t="960" ac="0"> lost</s><s t="1361" ac="0"> 11.8%</s><s t="2401" ac="0"> capacity.</s></p>
+<p t="53110" d="3609" w="1" a="1">
+</p>
+<p t="53120" d="6400" w="1"><s ac="0">Fast</s><s t="240" ac="0"> charge</s><s t="640" ac="0"> lost</s><s t="959" ac="0"> 12.3%</s><s t="2160" ac="0"> 0.5%</s><s t="3119" ac="0"> more.</s></p>
+<p t="56709" d="2811" w="1" a="1">
+</p>
+<p t="56719" d="6561" w="1"><s ac="0">Android</s><s t="480" ac="0"> slow</s><s t="801" ac="0"> charge</s><s t="1121" ac="0"> last</s><s t="1441" ac="0"> 8.8%</s><s t="1840" ac="0"> 8%.</s><s t="2480" ac="0"> Fast</s></p>
+<p t="59510" d="3770" w="1" a="1">
+</p>
+<p t="59520" d="5679" w="1"><s ac="0">charge</s><s t="320" ac="0"> lost</s><s t="640" ac="0"> 8.5%.</s><s t="1600" ac="0"> 0.3%</s><s t="2719" ac="0"> less.</s><s t="3199" ac="0"> So</s><s t="3359" ac="0"> in</s><s t="3600" ac="0"> our</s></p>
+<p t="63270" d="1929" w="1" a="1">
+</p>
+<p t="63280" d="4480" w="1"><s ac="0">test,</s><s t="400" ac="0"> fast</s><s t="720" ac="0"> charging</s><s t="1279" ac="0"> didn&#39;t</s><s t="1519" ac="0"> hurt</s><s t="1760" ac="0"> the</s></p>
+<p t="65189" d="2571" w="1" a="1">
+</p>
+<p t="65199" d="2561" w="1"><s ac="0">battery.</s></p>
+</body>
+</timedtext>

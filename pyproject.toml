@@ -1,0 +1,73 @@
+[build-system]
+requires = ['setuptools>=60,<80', 'wheel']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'lattifai-captions'
+version = '0.1.0'
+description = "Caption/subtitle processing library with multi-format support (SRT, VTT, ASS, TTML, TextGrid, NLE formats)"
+keywords = ['captions', 'subtitles', 'srt', 'vtt', 'ass', 'ttml', 'textgrid', 'forced alignment']
+readme = 'README.md'
+license = {text = 'Apache-2.0'}
+authors = [
+  { name = 'LattifAI Technologies', email = 'tech@lattifai.com' },
+]
+maintainers = [
+  { name = 'Lattice', email = 'tech@lattifai.com' },
+]
+requires-python = '>=3.10,<3.15'
+
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: Apache Software License',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
+    'Programming Language :: Python :: 3.14',
+    'Operating System :: OS Independent',
+    'Topic :: Multimedia :: Sound/Audio',
+    'Topic :: Multimedia :: Video',
+    'Topic :: Text Processing',
+]
+
+dependencies = [
+    "lhotse>=1.26.0",
+    "pysubs2>=1.6.0",
+    "praatio>=6.0.0",
+    "tgt>=1.4.0",
+]
+
+[project.optional-dependencies]
+splitting = [
+    "wtpsplit>=2.1.7",
+    "onnxruntime",
+    "huggingface_hub>=0.20.0",
+    "modelscope>=1.33.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "wtpsplit>=2.1.7",
+    "onnxruntime",
+    "huggingface_hub>=0.20.0",
+    "modelscope>=1.33.0",
+]
+
+[project.urls]
+Homepage = 'https://github.com/lattifai/captions'
+Documentation = 'https://github.com/lattifai/captions/blob/main/README.md'
+'Bug Tracker' = 'https://github.com/lattifai/captions/issues'
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = true
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+addopts = "--durations=10"
+testpaths = ["tests"]

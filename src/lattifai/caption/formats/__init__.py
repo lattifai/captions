@@ -11,28 +11,12 @@ Example:
     >>> writer.write(supervisions, "output.vtt")
 """
 
-from typing import Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Dict, List, Optional, Type
 
-# Import all format modules to trigger registration
-# Standard formats
-from . import gemini  # YouTube/Gemini markdown
-from . import lrc  # Enhanced LRC with word-level timestamps
-from . import pysubs2  # SRT, ASS, SSA, SUB, SAMI
-from . import sbv  # SubViewer
-from . import srv3  # YouTube SRV3/YTT format
-from . import tabular  # CSV, TSV, AUD, TXT, JSON
-from . import textgrid  # Praat TextGrid
-from . import ttml  # TTML, IMSC1, EBU-TT-D
-from . import vtt  # WebVTT with YouTube VTT word-level timestamp support
+# Import base classes first (no dependencies on this module)
 from .base import FormatHandler, FormatReader, FormatWriter
 
-# Professional NLE formats
-from .nle import audition  # Adobe Audition / Pro Tools markers
-from .nle import avid  # Avid DS
-from .nle import fcpxml  # Final Cut Pro XML
-from .nle import premiere  # Adobe Premiere Pro XML
-
-# Global registries
+# Global registries - must be defined before format module imports
 _READERS: Dict[str, Type[FormatReader]] = {}
 _WRITERS: Dict[str, Type[FormatWriter]] = {}
 
@@ -180,6 +164,25 @@ def detect_format(path: str) -> Optional[str]:
 
     return None
 
+
+# Import all format modules to trigger registration
+# These imports MUST come after register_* functions are defined
+# Standard formats
+from . import gemini  # noqa: E402  # YouTube/Gemini markdown
+from . import lrc  # noqa: E402  # Enhanced LRC with word-level timestamps
+from . import pysubs2  # noqa: E402  # SRT, ASS, SSA, SUB, SAMI
+from . import sbv  # noqa: E402  # SubViewer
+from . import srv3  # noqa: E402  # YouTube SRV3/YTT format
+from . import tabular  # noqa: E402  # CSV, TSV, AUD, TXT, JSON
+from . import textgrid  # noqa: E402  # Praat TextGrid
+from . import ttml  # noqa: E402  # TTML, IMSC1, EBU-TT-D
+from . import vtt  # noqa: E402  # WebVTT with YouTube VTT word-level timestamp support
+
+# Professional NLE formats
+from .nle import audition  # noqa: E402  # Adobe Audition / Pro Tools markers
+from .nle import avid  # noqa: E402  # Avid DS
+from .nle import fcpxml  # noqa: E402  # Final Cut Pro XML
+from .nle import premiere  # noqa: E402  # Adobe Premiere Pro XML
 
 __all__ = [
     # Base classes

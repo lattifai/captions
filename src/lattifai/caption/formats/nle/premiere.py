@@ -44,7 +44,7 @@ class PremiereXMLConfig:
     use_word_level: bool = False
     separate_speaker_tracks: bool = True
     font_name: str = "Arial"
-    font_size: int = 60
+    font_size: int = 160
     sequence_name: str = "LattifAI Captions"
 
 

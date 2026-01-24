@@ -37,7 +37,7 @@ class FCPXMLStyle:
     """
 
     font: str = "Helvetica"
-    font_size: int = 40
+    font_size: int = 100
     font_color: str = "1 1 1 1"  # White
     background_color: Optional[str] = None
     alignment: str = "center"

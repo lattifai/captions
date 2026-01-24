@@ -69,7 +69,7 @@ class CaptionStyle:
 
     # Font
     font_name: str = CaptionFonts.ARIAL
-    font_size: int = 48
+    font_size: int = 96
     bold: bool = False
     italic: bool = False
 

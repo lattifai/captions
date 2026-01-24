@@ -424,7 +424,7 @@ class ASSFormat(Pysubs2Format):
         """Create SSAFile and restore global styles from metadata.
 
         Args:
-            metadata: Dict containing ass_info and ass_styles
+            metadata: Dict containing ass_info, ass_styles, play_res_x, play_res_y
 
         Returns:
             pysubs2.SSAFile with restored styles
@@ -437,6 +437,12 @@ class ASSFormat(Pysubs2Format):
         # Restore Script Info
         if "ass_info" in metadata:
             subs.info.update(metadata["ass_info"])
+
+        # Set PlayResX/PlayResY for proper font scaling
+        if "play_res_x" in metadata:
+            subs.info["PlayResX"] = str(metadata["play_res_x"])
+        if "play_res_y" in metadata:
+            subs.info["PlayResY"] = str(metadata["play_res_y"])
 
         # Restore Styles
         if "ass_styles" in metadata:

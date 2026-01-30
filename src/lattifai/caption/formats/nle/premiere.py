@@ -11,15 +11,13 @@ Key features:
 
 import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from xml.dom import minidom
 
-from lhotse.utils import Pathlike
-
-from ...supervision import Supervision
-from .. import register_writer
+from ...supervision import Pathlike, Supervision
+from .. import register_reader, register_writer
 from ..base import FormatReader, FormatWriter
 
 
@@ -543,9 +541,6 @@ class PremiereXMLReader:
                         )
 
         return sorted(supervisions, key=lambda s: s.start)
-
-
-from .. import register_reader
 
 
 @register_reader("premiere_xml")

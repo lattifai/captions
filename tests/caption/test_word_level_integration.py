@@ -1,11 +1,10 @@
 """Integration tests for word-level export across all formats."""
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
-from lattifai.caption.formats import get_writer
-from lattifai.caption.supervision import Supervision
 from lattifai.caption.config import CaptionFonts, CaptionStyle, KaraokeConfig
+from lattifai.caption.formats import get_writer
+from lattifai.caption.supervision import AlignmentItem, Supervision
 
 
 @pytest.fixture

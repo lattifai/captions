@@ -6,9 +6,9 @@ ensuring a consistent interface across different caption formats.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from lhotse.utils import Pathlike
+from ..supervision import Pathlike
 
 if TYPE_CHECKING:
     from ..supervision import Supervision

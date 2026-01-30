@@ -4,10 +4,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
 from lattifai.caption import Caption, Supervision
 from lattifai.caption.formats.srv3 import SRV3Format
+from lattifai.caption.supervision import AlignmentItem
 
 # Test data directory
 TEST_DATA_DIR = Path(__file__).parent.parent / "data" / "captions"

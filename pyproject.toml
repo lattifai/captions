@@ -34,7 +34,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "lhotse>=1.26.0",
     "pysubs2>=1.6.0",
     "praatio>=6.0.0",
     "tgt>=1.4.0",

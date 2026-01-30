@@ -1,11 +1,10 @@
 """Tests for Enhanced LRC format."""
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
-from lattifai.caption.formats.lrc import LRCFormat
-from lattifai.caption.supervision import Supervision
 from lattifai.caption.config import KaraokeConfig
+from lattifai.caption.formats.lrc import LRCFormat
+from lattifai.caption.supervision import AlignmentItem, Supervision
 
 
 class TestLRCFormatWrite:

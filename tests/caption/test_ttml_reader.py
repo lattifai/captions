@@ -1,10 +1,9 @@
 """Tests for TTML reader functionality."""
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
 from lattifai.caption.formats.ttml import TTMLFormat
-from lattifai.caption.supervision import Supervision
+from lattifai.caption.supervision import AlignmentItem, Supervision
 
 
 class TestTTMLReader:

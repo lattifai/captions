@@ -10,15 +10,14 @@ Format specification (Audition CSV):
 """
 
 import csv
+import uuid
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from typing import List, Optional, Union
 
-from lhotse.utils import Pathlike
-
-from ...supervision import Supervision
-from .. import register_writer
+from ...supervision import Pathlike, Supervision
+from .. import register_reader, register_writer
 from ..base import FormatReader, FormatWriter
 
 
@@ -463,11 +462,6 @@ class AuditionCSVReader:
                 )
 
         return sorted(supervisions, key=lambda s: s.start)
-
-
-import uuid
-
-from .. import register_reader
 
 
 @register_reader("audition_csv")

@@ -16,10 +16,8 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Union
 
-from lhotse.supervision import SupervisionSegment
-
 from .config import StandardizationConfig
-from .supervision import Supervision
+from .supervision import Supervision, SupervisionSegment
 
 __all__ = [
     "CaptionStandardizer",

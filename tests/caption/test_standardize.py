@@ -6,7 +6,6 @@ Tests for CaptionStandardizer and CaptionValidator classes.
 """
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
 from lattifai.caption import (
     Caption,
@@ -18,6 +17,7 @@ from lattifai.caption import (
     apply_margins_to_captions,
     standardize_captions,
 )
+from lattifai.caption.supervision import AlignmentItem
 
 
 class TestStandardizationConfig:

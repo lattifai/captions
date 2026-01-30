@@ -10,9 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from lhotse.utils import Pathlike
-
-from ..supervision import Supervision
+from ..supervision import Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
 

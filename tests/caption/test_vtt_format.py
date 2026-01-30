@@ -6,11 +6,11 @@ VTTFormat supports both standard WebVTT and YouTube VTT (with word-level timesta
 """
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
 from lattifai.caption import Caption, SentenceSplitter, Supervision
 from lattifai.caption.config import KaraokeConfig
 from lattifai.caption.formats.vtt import VTTFormat
+from lattifai.caption.supervision import AlignmentItem
 
 # =============================================================================
 # Standard VTT Tests

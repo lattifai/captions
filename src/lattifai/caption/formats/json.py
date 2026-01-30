@@ -70,7 +70,7 @@ class JSONFormat(FormatHandler):
         Supports word-level alignment data in the 'words' field.
         Each word item should have: word, start, duration (or end).
         """
-        from lhotse.supervision import AlignmentItem
+        from ..supervision import AlignmentItem
 
         if cls.is_content(source):
             data = json.loads(source)

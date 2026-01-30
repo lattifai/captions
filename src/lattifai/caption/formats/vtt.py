@@ -13,12 +13,11 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import pysubs2
-from lhotse.supervision import AlignmentItem
 
 from ..config import KaraokeConfig
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text
-from ..supervision import Supervision
+from ..supervision import AlignmentItem, Supervision
 from . import register_format
 from .base import FormatHandler
 

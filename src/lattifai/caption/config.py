@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Literal, Optional, get_args
+from typing import Dict, Literal, Optional, get_args
 
-from lhotse.utils import Pathlike
+from .supervision import Pathlike
 
 # =============================================================================
 # Caption Style Configuration Classes

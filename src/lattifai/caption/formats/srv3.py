@@ -36,11 +36,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from lhotse.supervision import AlignmentItem
-from lhotse.utils import Pathlike
-
 from ..parsers.text_parser import normalize_text as normalize_text_fn
-from ..supervision import Supervision
+from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
 

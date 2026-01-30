@@ -4,7 +4,6 @@ Handles: CSV, TSV, AUD (Audacity labels), TXT, JSON
 """
 
 import csv
-import json
 from io import StringIO
 from pathlib import Path
 from typing import List
@@ -331,8 +330,3 @@ class TXTFormat(FormatHandler):
             lines.append(f"[{sup.start:.2f}-{sup.end:.2f}] {text}")
 
         return "\n".join(lines).encode("utf-8")
-
-
-# JSON format moved to json.py for better organization
-# Import here for backwards compatibility
-from .json import JSONFormat  # noqa: F401

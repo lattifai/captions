@@ -10,13 +10,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, TypeVar, Union
 if TYPE_CHECKING:
     from .config import KaraokeConfig
 
-from lhotse.supervision import AlignmentItem
-from lhotse.utils import Pathlike
 from tgt import TextGrid
 
 from .config import InputCaptionFormat, OutputCaptionFormat  # noqa: F401
 from .formats import detect_format, get_reader, get_writer
-from .supervision import Supervision
+from .supervision import AlignmentItem, Pathlike, Supervision
 
 DiarizationOutput = TypeVar("DiarizationOutput")
 

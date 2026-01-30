@@ -7,9 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from lhotse.utils import Pathlike
-
-from ..supervision import Supervision
+from ..supervision import Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
 
@@ -83,7 +81,6 @@ class TextGridFormat(FormatHandler):
             include_speaker: Whether to include speaker in text
             metadata: Optional metadata (for API consistency)
         """
-        from lhotse.supervision import AlignmentItem
         from tgt import Interval, IntervalTier, TextGrid, write_to_file
 
         output_path = Path(output_path)
@@ -166,7 +163,6 @@ class TextGridFormat(FormatHandler):
             - textgrid_tiers: List of tier names
         """
         import re
-        from pathlib import Path
 
         metadata: Dict[str, Any] = {}
         if cls.is_content(source):

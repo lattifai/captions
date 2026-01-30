@@ -9,15 +9,14 @@ Format specification:
 - Timecodes are frame-based, not millisecond-based
 """
 
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional, Union
 
-from lhotse.utils import Pathlike
-
-from ...supervision import Supervision
-from .. import register_writer
+from ...supervision import Pathlike, Supervision
+from .. import register_reader, register_writer
 from ..base import FormatReader, FormatWriter
 
 
@@ -389,11 +388,6 @@ class AvidDSReader:
                     )
 
         return sorted(supervisions, key=lambda s: s.start)
-
-
-import uuid
-
-from .. import register_reader
 
 
 @register_reader("avid_ds")

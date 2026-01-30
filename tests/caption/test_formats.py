@@ -239,7 +239,7 @@ class TestPysubs2SpeakerFormat:
 
     def test_pysubs2_word_level_with_speaker(self, tmp_path):
         """Test word-level output uses consistent speaker across all words."""
-        from lhotse.supervision import AlignmentItem
+        from lattifai.caption.supervision import AlignmentItem
 
         # Create supervision with word-level alignment
         supervisions = [
@@ -268,7 +268,7 @@ class TestPysubs2SpeakerFormat:
 
     def test_pysubs2_word_level_without_speaker(self, tmp_path):
         """Test word-level output without speaker inclusion."""
-        from lhotse.supervision import AlignmentItem
+        from lattifai.caption.supervision import AlignmentItem
 
         # Create supervision with word-level alignment
         supervisions = [

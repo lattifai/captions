@@ -13,11 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 from xml.dom import minidom
 
-from lhotse.supervision import AlignmentItem
-from lhotse.utils import Pathlike
-
 from ..config import KaraokeConfig
-from ..supervision import Supervision
+from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
 

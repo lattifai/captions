@@ -1,11 +1,10 @@
 """Tests for ASS karaoke tag generation."""
 
 import pytest
-from lhotse.supervision import AlignmentItem
 
-from lattifai.caption.formats.pysubs2 import ASSFormat
-from lattifai.caption.supervision import Supervision
 from lattifai.caption.config import CaptionStyle, KaraokeConfig
+from lattifai.caption.formats.pysubs2 import ASSFormat
+from lattifai.caption.supervision import AlignmentItem, Supervision
 
 
 class TestASSKaraoke:

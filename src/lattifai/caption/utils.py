@@ -133,7 +133,7 @@ def apply_timecode_offset(
 
         # Also offset word-level alignments if present
         if new_sup.alignment and "word" in new_sup.alignment:
-            from lhotse.supervision import AlignmentItem
+            from .supervision import AlignmentItem
 
             new_words = []
             for word in new_sup.alignment["word"]:

@@ -678,6 +678,96 @@ class TestMillisecondTimestamps:
         assert supervisions[1].duration == pytest.approx(4.3)  # 16.8 - 12.5
 
 
+class TestEndOnlyTimestamps:
+    """Tests for parsing format with only end timestamps: text [END]."""
+
+    def test_end_only_timestamps(self):
+        """Test parsing lines with only end timestamps."""
+        content = """## [00:00:00] 开场
+
+ChatGPT以及硅谷AI大战终于升级。 [00:00:30]
+
+[音乐] [00:00:33]
+
+Hello大家好，欢迎来到《硅谷101》。 [00:00:54]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+
+        # Filter segments with timestamps
+        with_ts = [s for s in segments if s.timestamp is not None or s.end_timestamp is not None]
+
+        assert len(with_ts) == 3
+
+        # First segment: only end timestamp
+        assert with_ts[0].timestamp is None
+        assert with_ts[0].end_timestamp == 30.0
+        assert "ChatGPT" in with_ts[0].text
+
+        # Event: has start timestamp (from event pattern)
+        assert with_ts[1].timestamp == 33.0
+        assert with_ts[1].segment_type == "event"
+
+        # Third segment: only end timestamp
+        assert with_ts[2].timestamp is None
+        assert with_ts[2].end_timestamp == 54.0
+
+    def test_extract_for_alignment_end_only(self):
+        """Test extract_for_alignment infers start from previous segment's end."""
+        content = """## [00:00:00] 开场
+
+ChatGPT以及硅谷AI大战终于升级。 [00:00:30]
+
+[音乐] [00:00:33]
+
+Hello大家好，欢迎来到《硅谷101》。 [00:00:54]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 3
+
+        # First segment: start inferred as 0 (beginning), end=30
+        assert supervisions[0].start == pytest.approx(0.0)
+        assert supervisions[0].duration == pytest.approx(30.0)
+
+        # Event [音乐]: start=33 (from timestamp)
+        assert supervisions[1].start == pytest.approx(33.0)
+
+        # Third segment: start inferred from previous end
+        assert supervisions[2].start == pytest.approx(supervisions[1].start + supervisions[1].duration)
+
+    def test_chinese_transcript_full(self):
+        """Test full Chinese transcript with mixed timestamp formats."""
+        content = """# GPT-4o对战谷歌：多模态之战
+
+## Table of Contents
+* [00:00:00] 开场
+* [00:01:15] CHAPTER 1
+
+## [00:00:00] 开场
+
+ChatGPT以及硅谷AI大战终于升级，长出了"眼睛"和"嘴"。 [00:00:30]
+
+[音乐] [00:00:33]
+
+Hello大家好，欢迎来到《硅谷101》，我是陈茜。 [00:00:54]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 3
+
+        # First segment starts at 0
+        assert supervisions[0].start == pytest.approx(0.0)
+        assert supervisions[0].duration == pytest.approx(30.0)
+        assert "ChatGPT" in supervisions[0].text
+
+        # Event
+        assert supervisions[1].start == pytest.approx(33.0)
+        assert "[音乐]" in supervisions[1].text
+
+        # Last segment
+        assert "硅谷101" in supervisions[2].text
+
+
 class TestIntegration:
     """Integration tests for complete workflow."""
 

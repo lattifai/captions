@@ -493,16 +493,10 @@ class GeminiReader:
                         seg_end = seg_start + words * 0.3
 
             elif segment.end_timestamp is not None:
-                # Only has end time, need to infer start
+                # Only has end time, need to infer start from previous segment's end
                 seg_end = segment.end_timestamp
-                # Use previous segment's end time as start, or estimate based on text
-                if prev_end_time > 0:
-                    seg_start = prev_end_time
-                else:
-                    # Estimate start based on text length
-                    words = len(segment.text.split())
-                    estimated_duration = words * 0.3
-                    seg_start = seg_end - estimated_duration
+                # Use previous segment's end time as start (prev_end_time starts at 0.0)
+                seg_start = prev_end_time
 
             if seg_start is not None and seg_end is not None:
                 duration = max(seg_end - seg_start, min_duration)

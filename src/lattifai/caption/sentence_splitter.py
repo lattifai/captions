@@ -1,9 +1,13 @@
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .punctuation import END_PUNCTUATION
 from .supervision import Supervision
 from .utils import _resolve_model_path
+
+# Pre-compiled regex patterns for performance
+_SPECIAL_PATTERN_1 = re.compile(r"^(\[[^\]]+\])\s+(&gt;&gt;|>>)\s+(.+)$")
+_SPECIAL_PATTERN_2 = re.compile(r"^(\[[^\]]+\])\s+([^:]+:)(.*)$")
 
 
 class SentenceSplitter:
@@ -22,7 +26,7 @@ class SentenceSplitter:
         if not lazy_init:
             self._init_splitter()
 
-    def _init_splitter(self):
+    def _init_splitter(self) -> None:
         """Initialize the sentence splitter model on first use."""
         if self._splitter is not None:
             return
@@ -72,11 +76,9 @@ class SentenceSplitter:
         if not input_supervisions:
             return [Supervision(text=text, id="", recording_id="", start=0, duration=0) for text in split_texts]
 
-        # Build concatenated input text
         input_text = " ".join(sup.text for sup in input_supervisions)
 
-        # Pre-compute supervision position mapping for O(1) lookup
-        # Format: [(start_pos, end_pos, supervision), ...]
+        # Pre-compute supervision position mapping: (start_pos, end_pos, supervision)
         sup_ranges = []
         char_pos = 0
         for sup in input_supervisions:
@@ -85,10 +87,9 @@ class SentenceSplitter:
             sup_ranges.append((sup_start, sup_end, sup))
             char_pos = sup_end + 1  # +1 for space separator
 
-        # Process each split text
         result = []
         search_start = 0
-        sup_idx = 0  # Track current supervision index to skip processed ones
+        sup_idx = 0
 
         for split_text in split_texts:
             text_start = input_text.find(split_text, search_start)
@@ -98,27 +99,21 @@ class SentenceSplitter:
             text_end = text_start + len(split_text)
             search_start = text_end
 
-            # Find overlapping supervisions, starting from last used index
             first_sup = None
             last_sup = None
             first_char_idx = None
             last_char_idx = None
-            overlapping_customs = []  # Track all custom dicts for conflict detection
+            overlapping_customs = []
 
-            # Start from sup_idx, which is the first supervision that might overlap
             for i in range(sup_idx, len(sup_ranges)):
                 sup_start, sup_end, sup = sup_ranges[i]
 
-                # Skip if no overlap (before text_start)
                 if sup_end <= text_start:
-                    sup_idx = i + 1  # Update starting point for next iteration
+                    sup_idx = i + 1
                     continue
-
-                # Stop if no overlap (after text_end)
                 if sup_start >= text_end:
                     break
 
-                # Found overlap
                 if first_sup is None:
                     first_sup = sup
                     first_char_idx = max(0, text_start - sup_start)
@@ -126,35 +121,23 @@ class SentenceSplitter:
                 last_sup = sup
                 last_char_idx = min(len(sup.text) - 1, text_end - 1 - sup_start)
 
-                # Collect custom dict for conflict detection
                 if getattr(sup, "custom", None):
                     overlapping_customs.append(sup.custom)
 
             if first_sup is None or last_sup is None:
                 raise ValueError(f"Could not find supervisions for split text: {split_text}")
 
-            # Calculate timing
             start_time = first_sup.start + (first_char_idx / len(first_sup.text)) * first_sup.duration
             end_time = last_sup.start + ((last_char_idx + 1) / len(last_sup.text)) * last_sup.duration
 
-            # Inherit custom from first_sup, mark conflicts if multiple sources
             merged_custom = None
             if overlapping_customs:
-                # Start with first_sup's custom (inherit strategy)
-                merged_custom = overlapping_customs[0].copy() if overlapping_customs[0] else {}
-
-                # Detect conflicts if multiple overlapping supervisions have different custom values
-                if len(overlapping_customs) > 1:
-                    has_conflict = False
-                    for other_custom in overlapping_customs[1:]:
-                        if other_custom and other_custom != overlapping_customs[0]:
-                            has_conflict = True
-                            break
-
-                    if has_conflict:
-                        # Mark that this supervision spans multiple sources with different customs
-                        merged_custom["_split_from_multiple"] = True
-                        merged_custom["_source_count"] = len(overlapping_customs)
+                merged_custom = (overlapping_customs[0] or {}).copy()
+                if len(overlapping_customs) > 1 and any(
+                    c and c != overlapping_customs[0] for c in overlapping_customs[1:]
+                ):
+                    merged_custom["_split_from_multiple"] = True
+                    merged_custom["_source_count"] = len(overlapping_customs)
 
             result.append(
                 Supervision(
@@ -171,64 +154,230 @@ class SentenceSplitter:
 
     @staticmethod
     def _is_event_text(text: str) -> bool:
-        """Check if text is an event marker like [Music], [Applause], etc.
-
-        Event markers start with [ and end with ], containing only event descriptions.
-        Examples: [Music], [Applause], [Laughter], [Writing sounds]
-        """
+        """Check if text is an event marker like [Music], [Applause], etc."""
         text = text.strip()
         return text.startswith("[") and text.endswith("]")
 
     @staticmethod
     def _resplit_special_sentence_types(sentence: str) -> List[str]:
-        """
-        Re-split special sentence types.
+        """Re-split [EVENT] >> SPEAKER: patterns into separate parts."""
+        sentence = sentence.strip()
 
-        Examples:
-        '[APPLAUSE] &gt;&gt; MIRA MURATI:' -> ['[APPLAUSE]', '&gt;&gt; MIRA MURATI:']
-        '[MUSIC] &gt;&gt; SPEAKER:' -> ['[MUSIC]', '&gt;&gt; SPEAKER:']
+        if match := _SPECIAL_PATTERN_1.match(sentence):
+            return [match.group(1), f"{match.group(2)} {match.group(3)}"]
 
-        Special handling patterns:
-        1. Separate special marks at the beginning (e.g., [APPLAUSE], [MUSIC], etc.) from subsequent speaker marks
-        2. Use speaker marks (&gt;&gt; or other separators) as split points
+        if match := _SPECIAL_PATTERN_2.match(sentence):
+            remaining = match.group(3).strip()
+            speaker_part = f"{match.group(2)} {remaining}" if remaining else match.group(2)
+            return [match.group(1), speaker_part]
 
-        Args:
-            sentence: Input sentence string
-
-        Returns:
-            List of re-split sentences. If no special marks are found, returns the original sentence in a list
-        """
-        # Detect special mark patterns: [SOMETHING] &gt;&gt; SPEAKER:
-        # or other forms like [SOMETHING] SPEAKER:
-
-        # Pattern 1: [mark] HTML-encoded separator speaker:
-        pattern1 = r"^(\[[^\]]+\])\s+(&gt;&gt;|>>)\s+(.+)$"
-        match1 = re.match(pattern1, sentence.strip())
-        if match1:
-            special_mark = match1.group(1)
-            separator = match1.group(2)
-            speaker_part = match1.group(3)
-            return [special_mark, f"{separator} {speaker_part}"]
-
-        # Pattern 2: [mark] speaker:
-        pattern2 = r"^(\[[^\]]+\])\s+([^:]+:)(.*)$"
-        match2 = re.match(pattern2, sentence.strip())
-        if match2:
-            special_mark = match2.group(1)
-            speaker_label = match2.group(2)
-            remaining = match2.group(3).strip()
-            if remaining:
-                return [special_mark, f"{speaker_label} {remaining}"]
-            else:
-                return [special_mark, speaker_label]
-
-        # If no special pattern matches, return the original sentence
         return [sentence]
 
-    def split_sentences(self, supervisions: List[Supervision], strip_whitespace=True) -> List[Supervision]:
+    @staticmethod
+    def _ends_with_punctuation(text: str) -> bool:
+        """Check if text ends with sentence-ending punctuation."""
+        return any(text.endswith(p) for p in END_PUNCTUATION)
+
+    @staticmethod
+    def _ends_with_colon(text: str) -> bool:
+        """Check if text ends with a colon (speaker introduction)."""
+        return text.endswith(":") or text.endswith("：")
+
+    def _segment_supervisions(
+        self, supervisions: List[Supervision]
+    ) -> Tuple[List[str], List[Optional[str]], set]:
+        """Segment supervisions into text chunks with speakers.
+
+        Returns:
+            texts: List of concatenated text segments
+            speakers: List of speakers for each segment (parallel to texts)
+            event_indices: Set of indices that are event segments
+        """
+        texts: List[str] = []
+        speakers: List[Optional[str]] = []
+        event_indices: set = set()
+
+        segment_start = 0
+        accumulated_len = 0
+
+        def flush_segment(end_idx: int, speaker: Optional[str]) -> None:
+            nonlocal segment_start, accumulated_len
+            if segment_start <= end_idx:
+                if len(speakers) < len(texts) + 1:
+                    speakers.append(speaker)
+                text = " ".join(sup.text for sup in supervisions[segment_start : end_idx + 1])
+                texts.append(text)
+                segment_start = end_idx + 1
+                accumulated_len = 0
+
+        for idx, sup in enumerate(supervisions):
+            is_last = idx == len(supervisions) - 1
+            is_event = self._is_event_text(sup.text)
+
+            if is_event:
+                if segment_start < idx:
+                    flush_segment(idx - 1, None)
+                flush_segment(idx, sup.speaker)
+                event_indices.add(len(texts) - 1)
+                accumulated_len = 0
+                continue
+
+            accumulated_len += len(sup.text)
+
+            if sup.speaker:
+                if segment_start < idx:
+                    flush_segment(idx - 1, None)
+                    accumulated_len = len(sup.text)
+
+                next_has_speaker = not is_last and supervisions[idx + 1].speaker
+                if is_last or next_has_speaker:
+                    flush_segment(idx, sup.speaker)
+                else:
+                    speakers.append(sup.speaker)
+
+            elif accumulated_len >= 2000 or is_last:
+                flush_segment(idx, None)
+
+        return texts, speakers, event_indices
+
+    def _apply_sentence_splitting(
+        self, texts: List[str], event_indices: set, strip_whitespace: bool
+    ) -> List[List[str]]:
+        """Apply wtpsplit to non-event texts.
+
+        Returns list of split sentence lists, one per input text.
+        """
+        texts_to_split = [t for i, t in enumerate(texts) if i not in event_indices]
+
+        if texts_to_split:
+            split_results = list(
+                self._splitter.split(texts_to_split, threshold=0.15, strip_whitespace=strip_whitespace, batch_size=8)
+            )
+        else:
+            split_results = []
+
+        # Reconstruct with events preserved as single-item lists
+        sentences = []
+        split_idx = 0
+        for i in range(len(texts)):
+            if i in event_indices:
+                sentences.append([texts[i]])
+            else:
+                sentences.append(split_results[split_idx])
+                split_idx += 1
+
+        return sentences
+
+    def _process_special_patterns(self, sentences: List[str]) -> Tuple[List[str], str]:
+        """Process sentences to handle special patterns like [EVENT] >> SPEAKER:.
+
+        Returns:
+            processed: List of processed sentences
+            remainder: Any trailing content that needs to be carried forward
+        """
+        processed: List[str] = []
+        remainder = ""
+
+        for idx, sentence in enumerate(sentences):
+            if remainder:
+                sentence = remainder + sentence
+                remainder = ""
+
+            parts = self._resplit_special_sentence_types(sentence)
+
+            if self._ends_with_colon(parts[-1]):
+                if idx < len(sentences) - 1:
+                    sentences[idx + 1] = parts[-1] + " " + sentences[idx + 1]
+                else:
+                    remainder = parts[-1] + " "
+                processed.extend(parts[:-1])
+            else:
+                processed.extend(parts)
+
+        return processed, remainder
+
+    def _process_sentences_with_speakers(
+        self,
+        speakers: List[Optional[str]],
+        sentences: List[List[str]],
+        event_indices: set,
+    ) -> List[Tuple[str, Optional[str]]]:
+        """Process split sentences with speaker tracking and remainder handling.
+
+        Returns list of (text, speaker) tuples.
+        """
+        results: List[Tuple[str, Optional[str]]] = []
+        remainder = ""
+        remainder_speaker: Optional[str] = None
+
+        for seg_idx, (speaker, seg_sentences) in enumerate(zip(speakers, sentences)):
+            is_event = seg_idx in event_indices
+
+            # Handle remainder from previous segment
+            if remainder:
+                if is_event:
+                    results.append((remainder.strip(), remainder_speaker))
+                elif seg_sentences:
+                    seg_sentences[0] = remainder + seg_sentences[0]
+                    speaker = remainder_speaker or speaker
+                remainder = ""
+                remainder_speaker = None
+
+            if not seg_sentences:
+                continue
+
+            # Event segments: emit as-is
+            if is_event:
+                results.append((seg_sentences[0], speaker))
+                continue
+
+            # Process special patterns
+            processed, pattern_remainder = self._process_special_patterns(seg_sentences)
+            if pattern_remainder:
+                remainder = pattern_remainder
+
+            if not processed:
+                if remainder:
+                    processed = [remainder.strip()]
+                    remainder = ""
+                else:
+                    continue
+
+            # Emit sentences based on whether last one is complete
+            if self._ends_with_punctuation(processed[-1]):
+                for i, text in enumerate(processed):
+                    results.append((text, speaker if i == 0 else None))
+                speaker = None
+            else:
+                for i, text in enumerate(processed[:-1]):
+                    results.append((text, speaker if i == 0 else None))
+
+                remainder = processed[-1] + " " + remainder
+
+                next_has_speaker = seg_idx < len(speakers) - 1 and speakers[seg_idx + 1] is not None
+                if next_has_speaker:
+                    emit_speaker = speaker if len(processed) == 1 else None
+                    results.append((remainder.strip(), emit_speaker))
+                    remainder = ""
+                    remainder_speaker = None
+                elif len(processed) == 1:
+                    remainder_speaker = speaker
+                    if seg_idx < len(speakers) - 1 and speakers[seg_idx + 1] is None:
+                        speakers[seg_idx + 1] = speaker
+                elif len(processed) > 1:
+                    speaker = None
+                    remainder_speaker = None
+
+        if remainder.strip():
+            results.append((remainder.strip(), remainder_speaker))
+
+        return results
+
+    def split_sentences(self, supervisions: List[Supervision], strip_whitespace: bool = True) -> List[Supervision]:
         """Split supervisions into sentences using the sentence splitter.
 
-        Careful about speaker changes.
+        Preserves speaker information across segment boundaries and keeps
+        event supervisions (e.g., [Music], [Applause]) as separate segments.
 
         Args:
             supervisions: List of Supervision objects to split
@@ -239,170 +388,24 @@ class SentenceSplitter:
         """
         self._init_splitter()
 
-        texts, speakers = [], []
-        text_len, sidx = 0, 0
-
-        def flush_segment(end_idx: int, speaker: Optional[str] = None):
-            """Flush accumulated text from sidx to end_idx with given speaker."""
-            nonlocal text_len, sidx
-            if sidx <= end_idx:
-                if len(speakers) < len(texts) + 1:
-                    speakers.append(speaker)
-                text = " ".join(sup.text for sup in supervisions[sidx : end_idx + 1])
-                texts.append(text)
-                sidx = end_idx + 1
-                text_len = 0
-
-        # Track event supervisions separately (they should not be merged)
-        event_indices = set()  # indices of event supervisions to preserve separately
-
-        for s, supervision in enumerate(supervisions):
-            is_last = s == len(supervisions) - 1
-            is_event = self._is_event_text(supervision.text)
-
-            if is_event:
-                # Event supervisions should be kept separate
-                # Flush any accumulated text before this event
-                if sidx < s:
-                    flush_segment(s - 1, None)
-                # Flush the event itself as a standalone segment (preserve speaker if any)
-                flush_segment(s, supervision.speaker)
-                event_indices.add(len(texts) - 1)  # Mark this text index as event
-                text_len = 0
-                continue
-
-            text_len += len(supervision.text)
-
-            if supervision.speaker:
-                # Flush previous segment without speaker (if any)
-                if sidx < s:
-                    flush_segment(s - 1, None)
-                    text_len = len(supervision.text)
-
-                # Check if we should flush this speaker's segment now
-                next_has_speaker = not is_last and supervisions[s + 1].speaker
-                if is_last or next_has_speaker:
-                    flush_segment(s, supervision.speaker)
-                else:
-                    speakers.append(supervision.speaker)
-
-            elif text_len >= 2000 or is_last:
-                flush_segment(s, None)
+        # Phase 1: Segment supervisions by speaker/event boundaries
+        texts, speakers, event_indices = self._segment_supervisions(supervisions)
 
         if len(speakers) != len(texts):
             raise ValueError(f"len(speakers)={len(speakers)} != len(texts)={len(texts)}")
 
-        # Split non-event texts, preserve event texts as-is
-        texts_to_split = [t for i, t in enumerate(texts) if i not in event_indices]
-        if texts_to_split:
-            split_results = list(
-                self._splitter.split(texts_to_split, threshold=0.15, strip_whitespace=strip_whitespace, batch_size=8)
-            )
-        else:
-            split_results = []
+        # Phase 2: Apply sentence splitting to non-event segments
+        sentences = self._apply_sentence_splitting(texts, event_indices, strip_whitespace)
 
-        # Reconstruct sentences list, inserting event texts at their original positions
-        sentences = []
-        split_idx = 0
-        for i in range(len(texts)):
-            if i in event_indices:
-                # Event text: keep as single-item list (no splitting)
-                sentences.append([texts[i]])
-            else:
-                sentences.append(split_results[split_idx])
-                split_idx += 1
+        # Phase 3: Process sentences with speaker tracking
+        texts_with_speakers = self._process_sentences_with_speakers(speakers, sentences, event_indices)
 
-        # First pass: collect all split texts with their speakers
-        split_texts_with_speakers = []
-        remainder = ""
-        remainder_speaker = None
-
-        for k, (_speaker, _sentences) in enumerate(zip(speakers, sentences)):
-            is_event_segment = k in event_indices
-
-            # Handle remainder from previous iteration
-            if remainder:
-                if is_event_segment:
-                    # Don't merge remainder into event - emit remainder first
-                    split_texts_with_speakers.append((remainder.strip(), remainder_speaker))
-                    remainder = ""
-                    remainder_speaker = None
-                elif _sentences:
-                    # Prepend remainder to first sentence (normal case)
-                    _sentences[0] = remainder + _sentences[0]
-                    _speaker = remainder_speaker if remainder_speaker else _speaker
-                    remainder = ""
-                    remainder_speaker = None
-
-            if not _sentences:
-                continue
-
-            # Event segments should be kept as-is, no further processing
-            if is_event_segment:
-                split_texts_with_speakers.append((_sentences[0], _speaker))
-                continue
-
-            # Process and re-split special sentence types
-            processed_sentences = []
-            for s, _sentence in enumerate(_sentences):
-                if remainder:
-                    _sentence = remainder + _sentence
-                    remainder = ""
-                # Detect and split special sentence types: e.g., '[APPLAUSE] &gt;&gt; MIRA MURATI:' -> ['[APPLAUSE]', '&gt;&gt; MIRA MURATI:']  # noqa: E501
-                resplit_parts = self._resplit_special_sentence_types(_sentence)
-                if any(resplit_parts[-1].endswith(sp) for sp in [":", "："]):
-                    if s < len(_sentences) - 1:
-                        _sentences[s + 1] = resplit_parts[-1] + " " + _sentences[s + 1]
-                    else:  # last part
-                        remainder = resplit_parts[-1] + " "
-                    processed_sentences.extend(resplit_parts[:-1])
-                else:
-                    processed_sentences.extend(resplit_parts)
-            _sentences = processed_sentences
-
-            if not _sentences:
-                if remainder:
-                    _sentences, remainder = [remainder.strip()], ""
-                else:
-                    continue
-
-            if any(_sentences[-1].endswith(ep) for ep in END_PUNCTUATION):
-                split_texts_with_speakers.extend(
-                    (text, _speaker if s == 0 else None) for s, text in enumerate(_sentences)
-                )
-                _speaker = None  # reset speaker after use
-            else:
-                split_texts_with_speakers.extend(
-                    (text, _speaker if s == 0 else None) for s, text in enumerate(_sentences[:-1])
-                )
-                remainder = _sentences[-1] + " " + remainder
-                if k < len(speakers) - 1 and speakers[k + 1] is not None:  # next speaker is set
-                    split_texts_with_speakers.append((remainder.strip(), _speaker if len(_sentences) == 1 else None))
-                    remainder = ""
-                    remainder_speaker = None
-                elif len(_sentences) == 1:
-                    remainder_speaker = _speaker
-                    if k == len(speakers) - 1:
-                        pass  # keep _speaker for the last supervision
-                    elif speakers[k + 1] is not None:
-                        raise ValueError(f"Expected speakers[{k + 1}] to be None, got {speakers[k + 1]}")
-                    else:
-                        speakers[k + 1] = _speaker
-                elif len(_sentences) > 1:
-                    _speaker = None  # reset speaker if sentence not ended
-                    remainder_speaker = None
-                else:
-                    raise ValueError(f"Unexpected state: len(_sentences)={len(_sentences)}")
-
-        if remainder.strip():
-            split_texts_with_speakers.append((remainder.strip(), remainder_speaker))
-
-        # Second pass: distribute time information
-        split_texts = [text for text, _ in split_texts_with_speakers]
+        # Phase 4: Distribute time information
+        split_texts = [text for text, _ in texts_with_speakers]
         result_supervisions = self._distribute_time_info(supervisions, split_texts)
 
-        # Third pass: add speaker information
-        for sup, (_, speaker) in zip(result_supervisions, split_texts_with_speakers):
+        # Phase 5: Assign speaker information
+        for sup, (_, speaker) in zip(result_supervisions, texts_with_speakers):
             if speaker:
                 sup.speaker = speaker
 

@@ -84,7 +84,7 @@ class GeminiReader:
     def read(
         cls,
         transcript_path: Union[Pathlike, str],
-        include_events: bool = False,
+        include_events: bool = True,
         include_sections: bool = False,
     ) -> List[GeminiSegment]:
         """Parse YouTube transcript file or content and return list of transcript segments.
@@ -420,16 +420,15 @@ class GeminiReader:
 
             if seg_start is not None and seg_end is not None:
                 duration = max(seg_end - seg_start, min_duration)
-                if segment.segment_type == "dialogue":
-                    supervisions.append(
-                        Supervision(
-                            text=segment.text.strip(),
-                            start=seg_start,
-                            duration=duration,
-                            id=f"segment_{i:05d}",
-                            speaker=segment.speaker,
-                        )
+                supervisions.append(
+                    Supervision(
+                        text=segment.text.strip(),
+                        start=seg_start,
+                        duration=duration,
+                        id=f"segment_{i:05d}",
+                        speaker=segment.speaker,
                     )
+                )
                 prev_end_time = seg_start + duration
 
         # Optionally merge consecutive segments from same speaker

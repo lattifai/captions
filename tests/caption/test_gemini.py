@@ -583,6 +583,101 @@ class TestStartEndTimestamps:
         assert dialogue[1].end_timestamp == 30
 
 
+class TestMillisecondTimestamps:
+    """Tests for parsing timestamps with milliseconds: [HH:MM:SS.mmm]."""
+
+    def test_parse_timestamp_with_milliseconds(self):
+        """Test parse_timestamp with milliseconds."""
+        # HH:MM:SS.mmm format
+        ts = GeminiReader.parse_timestamp("00", "00", "11", "750")
+        assert ts == 11.75
+
+        ts = GeminiReader.parse_timestamp("00", "01", "30", "500")
+        assert ts == 90.5
+
+        # MM:SS.mmm format (using ms keyword)
+        ts = GeminiReader.parse_timestamp("01", "30", ms="500")
+        assert ts == 90.5
+
+        # Without milliseconds (backward compatibility)
+        ts = GeminiReader.parse_timestamp("00", "00", "11")
+        assert ts == 11.0
+
+    def test_inline_both_timestamps_with_ms(self):
+        """Test parsing lines with both start and end timestamps including milliseconds."""
+        content = """[00:00:11.750] Hi everyone. [00:00:12.500]
+
+[00:00:12.500] [Applause] [00:00:16.800]
+
+[00:00:16.800] Thank you. [00:00:20.400]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
+
+        assert len(dialogue) == 3
+
+        # Check millisecond precision
+        assert dialogue[0].timestamp == 11.75
+        assert dialogue[0].end_timestamp == 12.5
+        assert dialogue[1].timestamp == 12.5
+        assert dialogue[1].end_timestamp == 16.8
+        assert dialogue[2].timestamp == 16.8
+        assert dialogue[2].end_timestamp == 20.4
+
+    def test_speaker_with_milliseconds(self):
+        """Test speaker dialogue with millisecond timestamps."""
+        content = """**Mira Murati:** [00:00:11.750] Hi everyone. [00:00:12.500]
+
+**Mark Chen:** [00:00:12.500] Hello there! [00:00:14.200]
+"""
+        segments = GeminiReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+
+        assert len(dialogue) == 2
+        assert dialogue[0].speaker == "Mira Murati:"
+        assert dialogue[0].timestamp == 11.75
+        assert dialogue[0].end_timestamp == 12.5
+        assert dialogue[0].text == "Hi everyone."
+
+        assert dialogue[1].speaker == "Mark Chen:"
+        assert dialogue[1].timestamp == 12.5
+        assert dialogue[1].end_timestamp == 14.2
+
+    def test_real_precise_end_file(self):
+        """Test with real gemini-3-flash-preview_PreciseEnd.md file."""
+        from pathlib import Path
+
+        test_file = Path("tests/data/gemini-3-flash-preview_PreciseEnd.md")
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        segments = GeminiReader.read(test_file, include_events=True)
+
+        # Should have many segments
+        assert len(segments) > 100
+
+        # Check first few segments have millisecond precision
+        dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
+
+        # First segment should be "Hi everyone." with precise timing
+        assert dialogue[0].timestamp == 11.75  # 00:00:11.750
+        assert dialogue[0].end_timestamp == 12.5  # 00:00:12.500
+
+    def test_extract_for_alignment_with_ms(self):
+        """Test extract_for_alignment preserves millisecond precision."""
+        content = """[00:00:11.750] First segment. [00:00:12.500]
+
+[00:00:12.500] Second segment. [00:00:16.800]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 2
+        assert supervisions[0].start == pytest.approx(11.75)
+        assert supervisions[0].duration == pytest.approx(0.75)  # 12.5 - 11.75
+        assert supervisions[1].start == pytest.approx(12.5)
+        assert supervisions[1].duration == pytest.approx(4.3)  # 16.8 - 12.5
+
+
 class TestIntegration:
     """Integration tests for complete workflow."""
 

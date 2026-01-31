@@ -47,46 +47,68 @@ class GeminiReader:
     # Pattern to remove <thinking>...</thinking> blocks (including nested content)
     THINKING_PATTERN = re.compile(r"<thinking>.*?</thinking>", re.DOTALL)
 
-    # Regex patterns for parsing (supports both [HH:MM:SS] and [MM:SS] formats)
-    TIMESTAMP_PATTERN = re.compile(r"\[(\d{1,2}):(\d{2}):(\d{2})\]|\[(\d{1,2}):(\d{2})\]")
-    SECTION_HEADER_PATTERN = re.compile(r"^##\s*\[(\d{1,2}):(\d{2}):(\d{2})\]\s*(.+)$")
+    # Regex patterns for parsing (supports [HH:MM:SS], [HH:MM:SS.mmm], [MM:SS], [MM:SS.mmm])
+    TIMESTAMP_PATTERN = re.compile(r"\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]|\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]")
+    SECTION_HEADER_PATTERN = re.compile(r"^##\s*\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.+)$")
     SPEAKER_PATTERN = re.compile(r"^\*\*(.+?[:：])\*\*\s*(.+)$")
-    # Event pattern: [Event] [HH:MM:SS] or [Event] [MM:SS] - prioritize HH:MM:SS format
-    EVENT_PATTERN = re.compile(r"^\[([^\]]+)\]\s*\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]$")
-    # Timestamp at the end indicates end time
-    INLINE_TIMESTAMP_END_PATTERN = re.compile(r"^(.+?)\s*\[(?:(\d{1,2}):(\d{2}):(\d{2})|(\d{1,2}):(\d{2}))\]$")
-    # Timestamp at the beginning indicates start time
-    INLINE_TIMESTAMP_START_PATTERN = re.compile(r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})|(\d{1,2}):(\d{2}))\]\s*(.+)$")
-    # Both start and end timestamps: [HH:MM:SS] text [HH:MM:SS] or mixed formats
-    INLINE_BOTH_TIMESTAMPS_PATTERN = re.compile(
-        r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})|(\d{1,2}):(\d{2}))\]\s*(.+?)\s*\[(?:(\d{1,2}):(\d{2}):(\d{2})|(\d{1,2}):(\d{2}))\]$"
+    # Event pattern: [Event] [HH:MM:SS.mmm] or [Event] [MM:SS.mmm] - prioritize HH:MM:SS format
+    EVENT_PATTERN = re.compile(r"^\[([^\]]+)\]\s*\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$")
+    # Timestamp at the end indicates end time (with optional milliseconds)
+    INLINE_TIMESTAMP_END_PATTERN = re.compile(
+        r"^(.+?)\s*\[(?:(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?|(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?)\]$"
     )
-    # Standalone timestamp on its own line
-    STANDALONE_TIMESTAMP_PATTERN = re.compile(r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})|(\d{1,2}):(\d{2}))\]$")
+    # Timestamp at the beginning indicates start time (with optional milliseconds)
+    INLINE_TIMESTAMP_START_PATTERN = re.compile(
+        r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?|(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?)\]\s*(.+)$"
+    )
+    # Both start and end timestamps: [HH:MM:SS.mmm] text [HH:MM:SS.mmm] or mixed formats
+    INLINE_BOTH_TIMESTAMPS_PATTERN = re.compile(
+        r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?|(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?)\]\s*"
+        r"(.+?)\s*"
+        r"\[(?:(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?|(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?)\]$"
+    )
+    # Standalone timestamp on its own line (with optional milliseconds)
+    STANDALONE_TIMESTAMP_PATTERN = re.compile(
+        r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?|(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?)\]$"
+    )
 
     # New patterns for YouTube link format: [[MM:SS](URL&t=seconds)]
     YOUTUBE_SECTION_PATTERN = re.compile(r"^##\s*\[\[(\d{1,2}):(\d{2})\]\([^)]*&t=(\d+)\)\]\s*(.+)$")
     YOUTUBE_INLINE_PATTERN = re.compile(r"^(.+?)\s*\[\[(\d{1,2}):(\d{2})\]\([^)]*&t=(\d+)\)\]$")
 
     @classmethod
-    def parse_timestamp(cls, *args) -> float:
+    def parse_timestamp(cls, *args, ms: str = None) -> float:
         """Convert timestamp to seconds.
 
-        Supports both HH:MM:SS and MM:SS formats.
+        Supports [HH:MM:SS], [HH:MM:SS.mmm], [MM:SS], and [MM:SS.mmm] formats.
         Args can be (hours, minutes, seconds) or (minutes, seconds).
         Can also accept a single argument which is seconds.
+        Optional ms parameter for milliseconds (as string, e.g., "500" for 0.5s).
         """
-        if len(args) == 3:
-            # HH:MM:SS format
+        ms_value = 0.0
+        if ms is not None:
+            # Normalize milliseconds: "5" -> 0.5, "50" -> 0.5, "500" -> 0.5
+            ms_str = ms.ljust(3, "0")[:3]  # Pad to 3 digits or truncate
+            ms_value = int(ms_str) / 1000.0
+
+        if len(args) == 4:
+            # HH:MM:SS.mmm format (ms passed as 4th arg)
+            hours, minutes, seconds, ms_arg = args
+            if ms_arg is not None:
+                ms_str = str(ms_arg).ljust(3, "0")[:3]
+                ms_value = int(ms_str) / 1000.0
+            return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + ms_value
+        elif len(args) == 3:
+            # HH:MM:SS format (or MM:SS.mmm with ms as 3rd arg)
             hours, minutes, seconds = args
-            return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
+            return int(hours) * 3600 + int(minutes) * 60 + int(seconds) + ms_value
         elif len(args) == 2:
             # MM:SS format
             minutes, seconds = args
-            return int(minutes) * 60 + int(seconds)
+            return int(minutes) * 60 + int(seconds) + ms_value
         elif len(args) == 1:
             # Direct seconds (from YouTube &t= parameter)
-            return int(args[0])
+            return float(args[0])
         else:
             raise ValueError(f"Invalid timestamp args: {args}")
 
@@ -147,8 +169,8 @@ class GeminiReader:
             # Parse section headers
             section_match = cls.SECTION_HEADER_PATTERN.match(line)
             if section_match:
-                hours, minutes, seconds, section_title = section_match.groups()
-                timestamp = cls.parse_timestamp(hours, minutes, seconds)
+                hours, minutes, seconds, ms, section_title = section_match.groups()
+                timestamp = cls.parse_timestamp(hours, minutes, seconds, ms)
                 current_section = section_title.strip()
                 if include_sections:
                     segments.append(
@@ -180,15 +202,16 @@ class GeminiReader:
                     )
                 continue
 
-            # Parse standalone timestamp [HH:MM:SS]
+            # Parse standalone timestamp [HH:MM:SS] or [HH:MM:SS.mmm]
             # Often used as an end timestamp for the preceding block
             standalone_match = cls.STANDALONE_TIMESTAMP_PATTERN.match(line)
             if standalone_match:
                 groups = standalone_match.groups()
+                # Groups: (h, m, s, ms1, m2, s2, ms2)
                 if groups[0] is not None:
-                    ts = cls.parse_timestamp(groups[0], groups[1], groups[2])
+                    ts = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
                 else:
-                    ts = cls.parse_timestamp(groups[3], groups[4])
+                    ts = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
 
                 # Assign to previous dialogue segment if it doesn't have an end time
                 if segments and segments[-1].segment_type == "dialogue":
@@ -200,19 +223,21 @@ class GeminiReader:
                         segments[-1].timestamp = ts
                 continue
 
-            # Parse event descriptions [event] [HH:MM:SS]
+            # Parse event descriptions [event] [HH:MM:SS] or [event] [HH:MM:SS.mmm]
             event_match = cls.EVENT_PATTERN.match(line)
             if event_match:
                 groups = event_match.groups()
+                # Groups: (event_text, h_or_m, m_or_s, s_opt, ms)
                 event_text = groups[0]
                 hours_or_minutes = groups[1]
                 minutes_or_seconds = groups[2]
                 seconds_optional = groups[3]
+                ms = groups[4]
 
                 if seconds_optional is not None:
-                    timestamp = cls.parse_timestamp(hours_or_minutes, minutes_or_seconds, seconds_optional)
+                    timestamp = cls.parse_timestamp(hours_or_minutes, minutes_or_seconds, seconds_optional, ms)
                 else:
-                    timestamp = cls.parse_timestamp(hours_or_minutes, minutes_or_seconds)
+                    timestamp = cls.parse_timestamp(hours_or_minutes, minutes_or_seconds, ms=ms)
 
                 if include_events and timestamp is not None:
                     segments.append(
@@ -226,12 +251,13 @@ class GeminiReader:
                     )
                 continue
 
-            # Parse speaker dialogue: **Speaker:** Text [HH:MM:SS]
+            # Parse speaker dialogue: **Speaker:** [START] Text [END] or **Speaker:** Text [END]
             speaker_match = cls.SPEAKER_PATTERN.match(line)
             if speaker_match:
                 speaker, text_with_timestamp = speaker_match.groups()
                 current_speaker = speaker.strip()
 
+                both_match = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(text_with_timestamp.strip())
                 start_match = cls.INLINE_TIMESTAMP_START_PATTERN.match(text_with_timestamp.strip())
                 end_match = cls.INLINE_TIMESTAMP_END_PATTERN.match(text_with_timestamp.strip())
                 youtube_match = cls.YOUTUBE_INLINE_PATTERN.match(text_with_timestamp.strip())
@@ -240,20 +266,34 @@ class GeminiReader:
                 end_timestamp = None
                 text = text_with_timestamp.strip()
 
-                if start_match:
-                    groups = start_match.groups()
+                if both_match:
+                    groups = both_match.groups()
+                    # Groups: (h1, m1, s1, ms1, m1_2, s1_2, ms1_2, text, h2, m2, s2, ms2, m2_2, s2_2, ms2_2)
                     if groups[0] is not None:
-                        start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2])
-                    elif groups[3] is not None:
-                        start_timestamp = cls.parse_timestamp(groups[3], groups[4])
-                    text = groups[5]
+                        start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
+                    else:
+                        start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
+                    text = groups[7]
+                    if groups[8] is not None:
+                        end_timestamp = cls.parse_timestamp(groups[8], groups[9], groups[10], groups[11])
+                    else:
+                        end_timestamp = cls.parse_timestamp(groups[12], groups[13], ms=groups[14])
+                elif start_match:
+                    groups = start_match.groups()
+                    # Groups: (h, m, s, ms1, m2, s2, ms2, text)
+                    if groups[0] is not None:
+                        start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
+                    elif groups[4] is not None:
+                        start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
+                    text = groups[7]
                 elif end_match:
                     groups = end_match.groups()
+                    # Groups: (text, h, m, s, ms1, m2, s2, ms2)
                     text = groups[0]
                     if groups[1] is not None:
-                        end_timestamp = cls.parse_timestamp(groups[1], groups[2], groups[3])
-                    elif groups[4] is not None:
-                        end_timestamp = cls.parse_timestamp(groups[4], groups[5])
+                        end_timestamp = cls.parse_timestamp(groups[1], groups[2], groups[3], groups[4])
+                    elif groups[5] is not None:
+                        end_timestamp = cls.parse_timestamp(groups[5], groups[6], ms=groups[7])
                 elif youtube_match:
                     groups = youtube_match.groups()
                     text = groups[0]
@@ -280,21 +320,22 @@ class GeminiReader:
             end_match = cls.INLINE_TIMESTAMP_END_PATTERN.match(line)
             youtube_inline_match = cls.YOUTUBE_INLINE_PATTERN.match(line)
 
-            # Check for both start and end timestamps first: [HH:MM:SS] text [HH:MM:SS]
+            # Check for both start and end timestamps first: [HH:MM:SS.mmm] text [HH:MM:SS.mmm]
             if both_match:
                 groups = both_match.groups()
-                # Parse start timestamp (groups 0-4)
+                # Groups: (h1, m1, s1, ms1, m1_2, s1_2, ms1_2, text, h2, m2, s2, ms2, m2_2, s2_2, ms2_2)
+                # Parse start timestamp (groups 0-6)
                 if groups[0] is not None:
-                    start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2])
+                    start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
                 else:
-                    start_timestamp = cls.parse_timestamp(groups[3], groups[4])
-                # Text content (group 5)
-                text = groups[5]
-                # Parse end timestamp (groups 6-10)
-                if groups[6] is not None:
-                    end_timestamp = cls.parse_timestamp(groups[6], groups[7], groups[8])
+                    start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
+                # Text content (group 7)
+                text = groups[7]
+                # Parse end timestamp (groups 8-14)
+                if groups[8] is not None:
+                    end_timestamp = cls.parse_timestamp(groups[8], groups[9], groups[10], groups[11])
                 else:
-                    end_timestamp = cls.parse_timestamp(groups[9], groups[10])
+                    end_timestamp = cls.parse_timestamp(groups[12], groups[13], ms=groups[14])
                 segments.append(
                     GeminiSegment(
                         text=text.strip(),
@@ -308,11 +349,12 @@ class GeminiReader:
                 )
             elif start_match:
                 groups = start_match.groups()
+                # Groups: (h, m, s, ms1, m2, s2, ms2, text)
                 if groups[0] is not None:
-                    start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2])
+                    start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
                 else:
-                    start_timestamp = cls.parse_timestamp(groups[3], groups[4])
-                text = groups[5]
+                    start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
+                text = groups[7]
                 segments.append(
                     GeminiSegment(
                         text=text.strip(),
@@ -325,11 +367,12 @@ class GeminiReader:
                 )
             elif end_match:
                 groups = end_match.groups()
+                # Groups: (text, h, m, s, ms1, m2, s2, ms2)
                 text = groups[0]
                 if groups[1] is not None:
-                    end_timestamp = cls.parse_timestamp(groups[1], groups[2], groups[3])
+                    end_timestamp = cls.parse_timestamp(groups[1], groups[2], groups[3], groups[4])
                 else:
-                    end_timestamp = cls.parse_timestamp(groups[4], groups[5])
+                    end_timestamp = cls.parse_timestamp(groups[5], groups[6], ms=groups[7])
                 segments.append(
                     GeminiSegment(
                         text=text.strip(),

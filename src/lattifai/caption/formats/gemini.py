@@ -41,6 +41,12 @@ class GeminiSegment:
 class GeminiReader:
     """Parser for YouTube transcript format with speaker labels and timestamps."""
 
+    # Pattern to remove YAML front matter (---\n...\n---)
+    FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
+
+    # Pattern to remove <thinking>...</thinking> blocks (including nested content)
+    THINKING_PATTERN = re.compile(r"<thinking>.*?</thinking>", re.DOTALL)
+
     # Regex patterns for parsing (supports both [HH:MM:SS] and [MM:SS] formats)
     TIMESTAMP_PATTERN = re.compile(r"\[(\d{1,2}):(\d{2}):(\d{2})\]|\[(\d{1,2}):(\d{2})\]")
     SECTION_HEADER_PATTERN = re.compile(r"^##\s*\[(\d{1,2}):(\d{2}):(\d{2})\]\s*(.+)$")
@@ -111,6 +117,12 @@ class GeminiReader:
             else:
                 # Fallback: treat as content if path doesn't exist
                 content = str(transcript_path)
+
+        # Remove YAML front matter (---\n...\n---)
+        content = cls.FRONTMATTER_PATTERN.sub("", content)
+
+        # Remove <thinking>...</thinking> blocks (e.g., from Gemini thinking models)
+        content = cls.THINKING_PATTERN.sub("", content)
 
         segments: List[GeminiSegment] = []
         current_section = None

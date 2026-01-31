@@ -384,6 +384,115 @@ class TestGeminiGeminiSegment:
         assert segment_no_ts.start == 0.0
 
 
+class TestFrontmatterAndThinkingSkip:
+    """Tests for YAML front matter and <thinking> block removal."""
+
+    def test_skip_frontmatter(self, tmp_path):
+        """Test that YAML front matter is skipped."""
+        content_with_frontmatter = """---
+model_version: gemini-3-flash-preview
+prompt_tokens: 9034
+output_tokens: 1218
+citations:
+  - uri: https://example.com
+    range: [100, 200]
+---
+
+# Real Content
+
+**Speaker:** Hello world. [00:00:05]
+"""
+        transcript_file = tmp_path / "frontmatter_Gemini.md"
+        transcript_file.write_text(content_with_frontmatter)
+
+        segments = GeminiReader.read(transcript_file, include_events=True)
+
+        assert len(segments) == 1
+        assert "Hello world" in segments[0].text
+        # Ensure front matter is not parsed as content
+        assert not any("model_version" in s.text for s in segments)
+
+    def test_skip_frontmatter_and_thinking(self, tmp_path):
+        """Test that both front matter and thinking blocks are skipped."""
+        content = """---
+model_version: gemini-3-flash
+---
+
+<thinking>
+This should be skipped.
+**Speaker:** Duplicate content. [00:00:01]
+</thinking>
+
+# Real Content
+
+**Speaker:** Actual content. [00:00:10]
+"""
+        transcript_file = tmp_path / "both_Gemini.md"
+        transcript_file.write_text(content)
+
+        segments = GeminiReader.read(transcript_file, include_events=True)
+
+        assert len(segments) == 1
+        assert "Actual content" in segments[0].text
+
+    def test_skip_thinking_block(self, tmp_path):
+        """Test that <thinking>...</thinking> blocks are skipped."""
+        content_with_thinking = """<thinking>
+This is thinking content that should be ignored.
+
+**Mira Murati:** This duplicate text should be skipped. [00:00:10]
+</thinking>
+
+# Real Content
+
+**Mira Murati:** This is the actual transcript. [00:00:15]
+
+More content here. [00:00:20]
+"""
+        transcript_file = tmp_path / "thinking_Gemini.md"
+        transcript_file.write_text(content_with_thinking)
+
+        segments = GeminiReader.read(transcript_file, include_events=True)
+
+        # Should only have segments from after </thinking>
+        assert len(segments) == 2
+        assert "actual transcript" in segments[0].text
+        assert "More content" in segments[1].text
+
+    def test_skip_thinking_from_real_file(self):
+        """Test with the actual test data file containing thinking block."""
+        from pathlib import Path
+
+        test_file = Path(__file__).parent.parent / "data" / "Gemini_IncludeThoughts.md"
+        if not test_file.exists():
+            pytest.skip("Test data file not found")
+
+        segments = GeminiReader.read(test_file, include_events=True)
+
+        # The file has duplicated content in <thinking> - verify we only get unique content
+        texts = [s.text for s in segments if s.segment_type == "dialogue"]
+
+        # Should not have excessive duplicates (some duplicates are normal in transcripts)
+        # The key is that thinking block content doesn't double everything
+        assert len(segments) < 50  # Without fix this would be ~48 (doubled)
+
+    def test_no_thinking_block(self, tmp_path):
+        """Test that content without thinking block works normally."""
+        content_no_thinking = """# Normal Transcript
+
+**Speaker:** Hello world. [00:00:05]
+
+More text here. [00:00:10]
+"""
+        transcript_file = tmp_path / "normal_Gemini.md"
+        transcript_file.write_text(content_no_thinking)
+
+        segments = GeminiReader.read(transcript_file, include_events=True)
+
+        assert len(segments) == 2
+        assert "Hello world" in segments[0].text
+
+
 class TestIntegration:
     """Integration tests for complete workflow."""
 

@@ -493,6 +493,96 @@ More text here. [00:00:10]
         assert "Hello world" in segments[0].text
 
 
+class TestStartEndTimestamps:
+    """Tests for parsing format with both start and end timestamps: [START] text [END]."""
+
+    def test_inline_both_timestamps(self):
+        """Test parsing lines with both start and end timestamps."""
+        content = """## [00:00:00] Introduction
+
+[00:00:00] [Music starts] [00:00:11]
+
+[00:00:11] Hello world this is a test. [00:00:19]
+
+[00:00:20] Another line with timestamps. [00:00:28]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+
+        # Filter dialogue segments with timestamps
+        dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
+
+        assert len(dialogue) == 3
+
+        # Check first segment: [Music starts]
+        assert dialogue[0].timestamp == 0
+        assert dialogue[0].end_timestamp == 11
+        assert dialogue[0].text == "[Music starts]"
+
+        # Check second segment
+        assert dialogue[1].timestamp == 11
+        assert dialogue[1].end_timestamp == 19
+        assert "Hello world" in dialogue[1].text
+
+        # Check third segment
+        assert dialogue[2].timestamp == 20
+        assert dialogue[2].end_timestamp == 28
+
+    def test_extract_for_alignment_with_both_timestamps(self):
+        """Test extract_for_alignment with start+end format."""
+        content = """[00:00:00] First segment here. [00:00:05]
+
+[00:00:05] Second segment. [00:00:10]
+
+[00:00:10] Third segment with more text. [00:00:18]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 3
+
+        # Check durations are calculated from start-end
+        assert supervisions[0].start == 0
+        assert supervisions[0].duration == 5  # 5-0
+        assert supervisions[1].start == 5
+        assert supervisions[1].duration == 5  # 10-5
+        assert supervisions[2].start == 10
+        assert supervisions[2].duration == 8  # 18-10
+
+    def test_real_gemini_startend_file(self):
+        """Test with real Gemini_StartEnd.md file."""
+        from pathlib import Path
+
+        test_file = Path("tests/data/Gemini_StartEnd.md")
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        segments = GeminiReader.read(test_file, include_events=True)
+
+        # Should have multiple segments with both timestamps
+        dialogue_with_both = [
+            s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None and s.end_timestamp is not None
+        ]
+        assert len(dialogue_with_both) > 10  # Should have many segments
+
+        # Check first few segments have correct timing
+        for seg in dialogue_with_both[:5]:
+            assert seg.timestamp < seg.end_timestamp, f"Start should be before end: {seg.timestamp} vs {seg.end_timestamp}"
+
+    def test_mixed_format_mm_ss(self):
+        """Test with MM:SS format timestamps."""
+        content = """[00:00] Short format start. [00:15]
+
+[00:15] Another MM:SS format. [00:30]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
+
+        assert len(dialogue) == 2
+        assert dialogue[0].timestamp == 0
+        assert dialogue[0].end_timestamp == 15
+        assert dialogue[1].timestamp == 15
+        assert dialogue[1].end_timestamp == 30
+
+
 class TestIntegration:
     """Integration tests for complete workflow."""
 

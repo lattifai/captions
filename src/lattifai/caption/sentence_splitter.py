@@ -170,6 +170,16 @@ class SentenceSplitter:
         return result
 
     @staticmethod
+    def _is_event_text(text: str) -> bool:
+        """Check if text is an event marker like [Music], [Applause], etc.
+
+        Event markers start with [ and end with ], containing only event descriptions.
+        Examples: [Music], [Applause], [Laughter], [Writing sounds]
+        """
+        text = text.strip()
+        return text.startswith("[") and text.endswith("]")
+
+    @staticmethod
     def _resplit_special_sentence_types(sentence: str) -> List[str]:
         """
         Re-split special sentence types.
@@ -243,9 +253,25 @@ class SentenceSplitter:
                 sidx = end_idx + 1
                 text_len = 0
 
+        # Track event supervisions separately (they should not be merged)
+        event_indices = set()  # indices of event supervisions to preserve separately
+
         for s, supervision in enumerate(supervisions):
-            text_len += len(supervision.text)
             is_last = s == len(supervisions) - 1
+            is_event = self._is_event_text(supervision.text)
+
+            if is_event:
+                # Event supervisions should be kept separate
+                # Flush any accumulated text before this event
+                if sidx < s:
+                    flush_segment(s - 1, None)
+                # Flush the event itself as a standalone segment (preserve speaker if any)
+                flush_segment(s, supervision.speaker)
+                event_indices.add(len(texts) - 1)  # Mark this text index as event
+                text_len = 0
+                continue
+
+            text_len += len(supervision.text)
 
             if supervision.speaker:
                 # Flush previous segment without speaker (if any)
@@ -265,7 +291,26 @@ class SentenceSplitter:
 
         if len(speakers) != len(texts):
             raise ValueError(f"len(speakers)={len(speakers)} != len(texts)={len(texts)}")
-        sentences = self._splitter.split(texts, threshold=0.15, strip_whitespace=strip_whitespace, batch_size=8)
+
+        # Split non-event texts, preserve event texts as-is
+        texts_to_split = [t for i, t in enumerate(texts) if i not in event_indices]
+        if texts_to_split:
+            split_results = list(
+                self._splitter.split(texts_to_split, threshold=0.15, strip_whitespace=strip_whitespace, batch_size=8)
+            )
+        else:
+            split_results = []
+
+        # Reconstruct sentences list, inserting event texts at their original positions
+        sentences = []
+        split_idx = 0
+        for i in range(len(texts)):
+            if i in event_indices:
+                # Event text: keep as single-item list (no splitting)
+                sentences.append([texts[i]])
+            else:
+                sentences.append(split_results[split_idx])
+                split_idx += 1
 
         # First pass: collect all split texts with their speakers
         split_texts_with_speakers = []
@@ -273,14 +318,28 @@ class SentenceSplitter:
         remainder_speaker = None
 
         for k, (_speaker, _sentences) in enumerate(zip(speakers, sentences)):
-            # Prepend remainder from previous iteration to the first sentence
-            if _sentences and remainder:
-                _sentences[0] = remainder + _sentences[0]
-                _speaker = remainder_speaker if remainder_speaker else _speaker
-                remainder = ""
-                remainder_speaker = None
+            is_event_segment = k in event_indices
+
+            # Handle remainder from previous iteration
+            if remainder:
+                if is_event_segment:
+                    # Don't merge remainder into event - emit remainder first
+                    split_texts_with_speakers.append((remainder.strip(), remainder_speaker))
+                    remainder = ""
+                    remainder_speaker = None
+                elif _sentences:
+                    # Prepend remainder to first sentence (normal case)
+                    _sentences[0] = remainder + _sentences[0]
+                    _speaker = remainder_speaker if remainder_speaker else _speaker
+                    remainder = ""
+                    remainder_speaker = None
 
             if not _sentences:
+                continue
+
+            # Event segments should be kept as-is, no further processing
+            if is_event_segment:
+                split_texts_with_speakers.append((_sentences[0], _speaker))
                 continue
 
             # Process and re-split special sentence types

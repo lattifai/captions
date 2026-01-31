@@ -213,10 +213,6 @@ def test_split_sentences_retains_speaker_for_final_remainder():
     assert result_text == expected_text
 
 
-import pytest
-
-
-@pytest.mark.xfail(reason="sentence_splitter merges adjacent event supervisions - needs fix")
 def test_split_sentences_preserves_event_supervisions_from_gemini():
     """Test that standalone [event] supervisions remain separate after splitting.
 

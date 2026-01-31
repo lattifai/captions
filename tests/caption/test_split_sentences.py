@@ -213,6 +213,73 @@ def test_split_sentences_retains_speaker_for_final_remainder():
     assert result_text == expected_text
 
 
+import pytest
+
+
+@pytest.mark.xfail(reason="sentence_splitter merges adjacent event supervisions - needs fix")
+def test_split_sentences_preserves_event_supervisions_from_gemini():
+    """Test that standalone [event] supervisions remain separate after splitting.
+
+    Events like [Music], [Applause], [Laughter] should stay as individual supervisions
+    and not be merged with dialogue text or each other.
+    """
+    import re
+    from pathlib import Path
+
+    from lattifai.caption.formats.gemini import GeminiReader
+
+    splitter = SentenceSplitter()
+
+    # Read from Gemini format file
+    test_file = Path(__file__).parent.parent / "data" / "gemini-3-flash-preview.md"
+    # Extract supervisions using GeminiReader
+    supervisions = GeminiReader.extract_for_alignment(test_file)
+
+    # Find event supervisions before splitting (exact text match)
+    events_before = set()
+    for sup in supervisions:
+        text = sup.text.strip()
+        # Event pattern: starts with [ and ends with ]
+        if text.startswith("[") and text.endswith("]"):
+            events_before.add(text)
+
+    assert len(events_before) > 0, "Test data should contain event supervisions"
+
+    # Split sentences
+    splits = splitter.split_sentences(supervisions)
+
+    # Find event supervisions after splitting
+    events_after = set()
+    for sup in splits:
+        text = sup.text.strip()
+        if text.startswith("[") and text.endswith("]"):
+            events_after.add(text)
+
+    # Strict check: all original events must be preserved exactly
+    missing_events = events_before - events_after
+    assert not missing_events, (
+        f"Events should be preserved exactly after splitting.\n"
+        f"Missing events: {missing_events}\n"
+        f"Before: {sorted(events_before)}\n"
+        f"After: {sorted(events_after)}"
+    )
+
+    # Check for unwanted merges (e.g., [Music] [Applause] merged from [Music] and [Applause])
+    for event_after in events_after:
+        # If an event contains multiple [...] patterns, it might be a merge
+        brackets = re.findall(r"\[[^\]]+\]", event_after)
+        if len(brackets) > 1:
+            # Check if this multi-bracket event existed before
+            if event_after not in events_before:
+                # This is a new merged event - check if components existed separately
+                for bracket in brackets:
+                    if bracket in events_before:
+                        raise AssertionError(
+                            f"Event '{bracket}' was merged into '{event_after}'. "
+                            f"Events should remain separate."
+                        )
+
+
 def test_split_sentences_text_integrity():
     import tempfile
     import zipfile
@@ -256,3 +323,8 @@ def test_split_sentences_text_integrity():
                 open(str(caption_file) + ".debug.splits_text", "w", encoding="utf-8").write(split_text)
 
             assert origin_text == split_text, "Text integrity check failed after sentence splitting."
+
+
+if __name__ == "__main__":
+    test_split_sentences_preserves_event_supervisions_from_gemini()
+

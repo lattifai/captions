@@ -125,6 +125,17 @@ class SupervisionSegment:
     the language, etc.
 
     Copied from lhotse.supervision.SupervisionSegment with CustomFieldMixin inlined.
+
+    Supports both attribute-style and dict-style access to custom fields:
+        # Attribute access (via custom dict)
+        segment.my_field = value     # sets custom["my_field"]
+        value = segment.my_field     # gets custom["my_field"]
+        del segment.my_field         # deletes custom["my_field"]
+
+        # Dict-style access (to dataclass fields AND custom fields)
+        segment["text"] = "hello"    # sets dataclass field
+        segment["my_field"] = value  # sets custom["my_field"]
+        value = segment["my_field"]  # gets from dataclass field or custom
     """
 
     id: str
@@ -138,6 +149,129 @@ class SupervisionSegment:
     gender: Optional[str] = None
     custom: Optional[Dict[str, Any]] = None
     alignment: Optional[Dict[str, List[AlignmentItem]]] = None
+
+    # =========================================================================
+    # CustomFieldMixin-style attribute access (from lhotse.custom)
+    # =========================================================================
+
+    def __setattr__(self, key: str, value: Any) -> None:
+        """
+        Store custom attributes in self.custom dict for serialization.
+        Setting None removes the attribute from custom.
+        """
+        if key in self.__dataclass_fields__:
+            super().__setattr__(key, value)
+        else:
+            custom = self.custom if self.custom is not None else {}
+            if value is None:
+                custom.pop(key, None)
+            else:
+                custom[key] = value
+            if custom:
+                object.__setattr__(self, "custom", custom)
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Access custom fields via attribute syntax.
+        Raises AttributeError if not found.
+        """
+        custom = object.__getattribute__(self, "custom")
+        if custom is not None and name in custom:
+            return custom[name]
+        raise AttributeError(f"No such attribute: {name}")
+
+    def __delattr__(self, key: str) -> None:
+        """Support del segment.custom_attr syntax."""
+        if key in self.__dataclass_fields__:
+            super().__delattr__(key)
+            return
+        if self.custom is None or key not in self.custom:
+            raise AttributeError(f"No such member: '{key}'")
+        del self.custom[key]
+
+    # =========================================================================
+    # Dict-style access methods
+    # =========================================================================
+
+    def __getitem__(self, key: str) -> Any:
+        """Get field value by key (dataclass fields or custom)."""
+        if key in self.__dataclass_fields__:
+            return getattr(self, key)
+        if self.custom is not None and key in self.custom:
+            return self.custom[key]
+        raise KeyError(key)
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set field value by key (dataclass fields or custom)."""
+        if key in self.__dataclass_fields__:
+            setattr(self, key, value)
+        else:
+            if self.custom is None:
+                object.__setattr__(self, "custom", {})
+            self.custom[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        """Delete custom field by key."""
+        if key in self.__dataclass_fields__:
+            raise KeyError(f"Cannot delete dataclass field: {key}")
+        if self.custom is None or key not in self.custom:
+            raise KeyError(key)
+        del self.custom[key]
+
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists (in dataclass fields or custom)."""
+        if key in self.__dataclass_fields__:
+            return True
+        return self.custom is not None and key in self.custom
+
+    def keys(self):
+        """Return all keys (dataclass fields + custom keys)."""
+        result = list(self.__dataclass_fields__.keys())
+        if self.custom:
+            result.extend(self.custom.keys())
+        return result
+
+    def values(self):
+        """Return all values (dataclass fields + custom values)."""
+        result = [getattr(self, k) for k in self.__dataclass_fields__]
+        if self.custom:
+            result.extend(self.custom.values())
+        return result
+
+    def items(self):
+        """Return all (key, value) pairs."""
+        result = [(k, getattr(self, k)) for k in self.__dataclass_fields__]
+        if self.custom:
+            result.extend(self.custom.items())
+        return result
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get value by key with default."""
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def has_custom(self, name: str) -> bool:
+        """Check if custom attribute exists."""
+        return self.custom is not None and name in self.custom
+
+    def with_custom(self, name: str, value: Any) -> "SupervisionSegment":
+        """Return a copy with an extra custom field."""
+        cpy = _fastcopy(self, custom=self.custom.copy() if self.custom is not None else {})
+        cpy.custom[name] = value
+        return cpy
+
+    def drop_custom(self, name: str) -> Optional["SupervisionSegment"]:
+        """Remove custom attribute and return self."""
+        if self.custom is None or name not in self.custom:
+            return None
+        del self.custom[name]
+        return self
+
+    # =========================================================================
+    # Existing methods
+    # =========================================================================
 
     @property
     def end(self) -> Seconds:

@@ -169,11 +169,12 @@ def detect_format(path: str) -> Optional[str]:
 # These imports MUST come after register_* functions are defined
 # Standard formats
 from . import gemini  # noqa: E402  # YouTube/Gemini markdown
+from . import json as json_format  # noqa: E402  # JSON structured format
 from . import lrc  # noqa: E402  # Enhanced LRC with word-level timestamps
 from . import pysubs2  # noqa: E402  # SRT, ASS, SSA, SUB, SAMI
 from . import sbv  # noqa: E402  # SubViewer
 from . import srv3  # noqa: E402  # YouTube SRV3/YTT format
-from . import tabular  # noqa: E402  # CSV, TSV, AUD, TXT, JSON
+from . import tabular  # noqa: E402  # CSV, TSV, AUD, TXT
 from . import textgrid  # noqa: E402  # Praat TextGrid
 from . import ttml  # noqa: E402  # TTML, IMSC1, EBU-TT-D
 from . import vtt  # noqa: E402  # WebVTT with YouTube VTT word-level timestamp support

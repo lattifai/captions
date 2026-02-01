@@ -35,7 +35,7 @@ class TestCaptionStyle:
         assert style.primary_color == "#FFFFFF"
         assert style.secondary_color == "#00FFFF"
         assert style.font_name == CaptionFonts.ARIAL
-        assert style.font_size == 48
+        assert style.font_size == 128
         assert style.bold is False
 
     def test_custom_values(self):

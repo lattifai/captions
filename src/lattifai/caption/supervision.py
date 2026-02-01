@@ -118,13 +118,13 @@ class AlignmentItem(NamedTuple):
 
 
 @dataclass
-class SupervisionSegment:
+class Supervision:
     """
-    SupervisionSegment represents a time interval (segment) annotated with some
+    Supervision represents a time interval (segment) annotated with some
     supervision labels and/or metadata, such as the transcription, the speaker identity,
     the language, etc.
 
-    Copied from lhotse.supervision.SupervisionSegment with CustomFieldMixin inlined.
+    Based on lhotse.supervision.SupervisionSegment with CustomFieldMixin inlined.
 
     Supports both attribute-style and dict-style access to custom fields:
         # Attribute access (via custom dict)
@@ -136,17 +136,31 @@ class SupervisionSegment:
         segment["text"] = "hello"    # sets dataclass field
         segment["my_field"] = value  # sets custom["my_field"]
         value = segment["my_field"]  # gets from dataclass field or custom
+
+    Structure of alignment field:
+        {
+            'word': [
+                AlignmentItem(symbol='hello', start=0.0, duration=0.5, score=0.95),
+                AlignmentItem(symbol='world', start=0.6, duration=0.4, score=0.92),
+                ...
+            ]
+        }
     """
 
-    id: str
-    recording_id: str
-    start: Seconds
-    duration: Seconds
-    channel: Union[int, List[int]] = 0
+    # Primary fields (with defaults for simplified initialization)
     text: Optional[str] = None
+    start: Seconds = 0.0
+    duration: Seconds = 0.0
+
+    # Metadata fields
+    id: str = ""
+    recording_id: str = ""
+    channel: Union[int, List[int]] = 0
     language: Optional[str] = None
     speaker: Optional[str] = None
     gender: Optional[str] = None
+
+    # Extension fields
     custom: Optional[Dict[str, Any]] = None
     alignment: Optional[Dict[str, List[AlignmentItem]]] = None
 
@@ -256,13 +270,13 @@ class SupervisionSegment:
         """Check if custom attribute exists."""
         return self.custom is not None and name in self.custom
 
-    def with_custom(self, name: str, value: Any) -> "SupervisionSegment":
+    def with_custom(self, name: str, value: Any) -> "Supervision":
         """Return a copy with an extra custom field."""
         cpy = _fastcopy(self, custom=self.custom.copy() if self.custom is not None else {})
         cpy.custom[name] = value
         return cpy
 
-    def drop_custom(self, name: str) -> Optional["SupervisionSegment"]:
+    def drop_custom(self, name: str) -> Optional["Supervision"]:
         """Remove custom attribute and return self."""
         if self.custom is None or name not in self.custom:
             return None
@@ -270,23 +284,23 @@ class SupervisionSegment:
         return self
 
     # =========================================================================
-    # Existing methods
+    # Core methods
     # =========================================================================
 
     @property
     def end(self) -> Seconds:
         return round(self.start + self.duration, ndigits=8)
 
-    def with_alignment(self, kind: str, alignment: List[AlignmentItem]) -> "SupervisionSegment":
+    def with_alignment(self, kind: str, alignment: List[AlignmentItem]) -> "Supervision":
         alis = self.alignment
         if alis is None:
             alis = {}
         alis[kind] = alignment
         return _fastcopy(self, alignment=alis)
 
-    def with_offset(self, offset: Seconds) -> "SupervisionSegment":
-        """Return an identical SupervisionSegment, but with the offset added to the start field."""
-        return SupervisionSegment(
+    def with_offset(self, offset: Seconds) -> "Supervision":
+        """Return an identical Supervision, but with the offset added to the start field."""
+        return Supervision(
             id=self.id,
             recording_id=self.recording_id,
             start=round(self.start + offset, ndigits=8),
@@ -300,9 +314,9 @@ class SupervisionSegment:
             alignment=self.alignment,
         )
 
-    def trim(self, end: Seconds, start: Seconds = 0) -> "SupervisionSegment":
+    def trim(self, end: Seconds, start: Seconds = 0) -> "Supervision":
         """
-        Return an identical SupervisionSegment, but ensure that self.start is not negative
+        Return an identical Supervision, but ensure that self.start is not negative
         and self.end does not exceed the end parameter.
         """
         assert start >= 0
@@ -319,7 +333,7 @@ class SupervisionSegment:
             ),
         )
 
-    def transform_text(self, transform_fn: Callable[[str], str]) -> "SupervisionSegment":
+    def transform_text(self, transform_fn: Callable[[str], str]) -> "Supervision":
         """Return a copy of the current segment with transformed text field."""
         if self.text is None:
             return self
@@ -327,7 +341,7 @@ class SupervisionSegment:
 
     def transform_alignment(
         self, transform_fn: Callable[[str], str], type: Optional[str] = "word"
-    ) -> "SupervisionSegment":
+    ) -> "Supervision":
         """Return a copy of the current segment with transformed alignment field."""
         if self.alignment is None:
             return self
@@ -349,36 +363,13 @@ class SupervisionSegment:
             return data
 
     @staticmethod
-    def from_dict(data: dict) -> "SupervisionSegment":
+    def from_dict(data: dict) -> "Supervision":
         if "alignment" in data:
             data["alignment"] = {k: [AlignmentItem.deserialize(x) for x in v] for k, v in data["alignment"].items()}
-        return SupervisionSegment(**data)
+        return Supervision(**data)
 
 
-@dataclass
-class Supervision(SupervisionSegment):
-    """
-    Extended SupervisionSegment with simplified initialization.
+# Backwards compatibility alias
+SupervisionSegment = Supervision
 
-    Note: The `alignment` field is inherited from SupervisionSegment:
-        alignment: Optional[Dict[str, List[AlignmentItem]]] = None
-
-    Structure of alignment when return_details=True:
-        {
-            'word': [
-                AlignmentItem(symbol='hello', start=0.0, duration=0.5, score=0.95),
-                AlignmentItem(symbol='world', start=0.6, duration=0.4, score=0.92),
-                ...
-            ]
-        }
-    """
-
-    text: Optional[str] = None
-    speaker: Optional[str] = None
-    id: str = ""
-    recording_id: str = ""
-    start: Seconds = 0.0
-    duration: Seconds = 0.0
-
-
-__all__ = ["Pathlike", "Seconds", "AlignmentItem", "SupervisionSegment", "Supervision"]
+__all__ = ["Pathlike", "Seconds", "AlignmentItem", "Supervision", "SupervisionSegment"]

@@ -5,18 +5,14 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from .config import KaraokeConfig
 
-from tgt import TextGrid
-
 from .config import InputCaptionFormat, OutputCaptionFormat  # noqa: F401
 from .formats import detect_format, get_reader, get_writer
 from .supervision import AlignmentItem, Pathlike, Supervision
-
-DiarizationOutput = TypeVar("DiarizationOutput")
 
 
 @dataclass
@@ -38,14 +34,6 @@ class Caption:
 
     # read from subtitle file
     supervisions: List[Supervision] = field(default_factory=list)
-    # Transcription results
-    transcription: List[Supervision] = field(default_factory=list)
-    # Audio Event Detection results
-    audio_events: Optional[TextGrid] = None
-    # Speaker Diarization results
-    speaker_diarization: Optional[DiarizationOutput] = None
-    # Alignment results
-    alignments: List[Supervision] = field(default_factory=list)
 
     language: Optional[str] = None
     kind: Optional[str] = None
@@ -55,7 +43,7 @@ class Caption:
 
     def __len__(self) -> int:
         """Return the number of supervision segments."""
-        return len(self.supervisions or self.transcription)
+        return len(self.supervisions)
 
     def __iter__(self):
         """Iterate over supervision segments."""
@@ -256,16 +244,8 @@ class Caption:
         """
         from .standardize import apply_margins_to_captions
 
-        # Determine which supervisions to use
-        if self.alignments:
-            source_sups = self.alignments
-        elif self.supervisions:
-            source_sups = self.supervisions
-        else:
-            source_sups = self.transcription
-
         adjusted_sups = apply_margins_to_captions(
-            source_sups,
+            self.supervisions,
             start_margin=start_margin,
             end_margin=end_margin,
             min_gap=min_gap,
@@ -274,10 +254,6 @@ class Caption:
 
         return Caption(
             supervisions=adjusted_sups,
-            transcription=self.transcription,
-            audio_events=self.audio_events,
-            speaker_diarization=self.speaker_diarization,
-            alignments=[],  # Clear alignments since we've applied them
             language=self.language,
             kind=self.kind,
             source_format=self.source_format,
@@ -427,41 +403,6 @@ class Caption:
         )
 
     @classmethod
-    def from_transcription_results(
-        cls,
-        transcription: List[Supervision],
-        audio_events: Optional[TextGrid] = None,
-        speaker_diarization: Optional[DiarizationOutput] = None,
-        language: Optional[str] = None,
-        source_path: Optional[Pathlike] = None,
-        metadata: Optional[Dict[str, str]] = None,
-    ) -> "Caption":
-        """
-        Create Caption from transcription results including audio events and diarization.
-
-        Args:
-            transcription: List of transcription supervision segments
-            audio_events: Optional TextGrid with audio event detection results
-            speaker_diarization: Optional DiarizationOutput with speaker diarization results
-            language: Language code
-            source_path: Source file path
-            metadata: Additional metadata
-
-        Returns:
-            New Caption instance with transcription data
-        """
-        return cls(
-            transcription=transcription,
-            audio_events=audio_events,
-            speaker_diarization=speaker_diarization,
-            language=language,
-            kind="transcription",
-            source_format="asr",
-            source_path=source_path,
-            metadata=metadata or {},
-        )
-
-    @classmethod
     def read(
         cls,
         path: Union[Pathlike, io.BytesIO, io.StringIO],
@@ -559,12 +500,7 @@ class Caption:
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
         """
-        if self.alignments:
-            supervisions = self.alignments
-        elif self.supervisions:
-            supervisions = self.supervisions
-        else:
-            supervisions = self.transcription
+        supervisions = self.supervisions
 
         # Merge external metadata with self.metadata (external takes precedence)
         effective_metadata = dict(self.metadata) if self.metadata else {}
@@ -622,36 +558,11 @@ class Caption:
             path.seek(0)
         return content
 
-    def read_speaker_diarization(
-        self,
-        path: Pathlike,
-    ) -> "DiarizationOutput":
-        """
-        Read speaker diarization TextGrid from file.
-        """
-        from lattifai_core.diarization import DiarizationOutput
-
-        self.speaker_diarization = DiarizationOutput.read(path)
-        return self.speaker_diarization
-
-    def write_speaker_diarization(
-        self,
-        path: Pathlike,
-    ) -> Pathlike:
-        """
-        Write speaker diarization TextGrid to file.
-        """
-        if not self.speaker_diarization:
-            raise ValueError("No speaker diarization data to write.")
-
-        self.speaker_diarization.write(path)
-        return path
-
     def __repr__(self) -> str:
         """String representation of Caption."""
         lang = f"lang={self.language}" if self.language else "lang=unknown"
         kind_str = f"kind={self.kind}" if self.kind else ""
-        parts = [f"Caption({len(self.supervisions or self.transcription)} segments", lang]
+        parts = [f"Caption({len(self.supervisions)} segments", lang]
         if kind_str:
             parts.append(kind_str)
         if self.duration:

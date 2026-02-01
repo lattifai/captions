@@ -814,25 +814,3 @@ class TestCaptionWithMargins:
 
         assert caption is not adjusted
         assert caption.supervisions[0].start == 1.0  # Original unchanged
-
-    def test_caption_with_margins_uses_alignments(self):
-        """Test that with_margins prefers alignments over supervisions."""
-        original_seg = Supervision(id="1", start=0.0, duration=5.0, text="original")
-        aligned_seg = Supervision(
-            id="1",
-            start=1.0,
-            duration=2.0,
-            text="aligned",
-            alignment={
-                "word": [
-                    AlignmentItem(symbol="aligned", start=1.1, duration=0.5, score=0.95),
-                ]
-            },
-        )
-
-        caption = Caption(supervisions=[original_seg], alignments=[aligned_seg])
-        adjusted = caption.with_margins(start_margin=0.05, end_margin=0.10)
-
-        # Should use aligned_seg, not original_seg
-        assert adjusted.supervisions[0].text == "aligned"
-        assert adjusted.supervisions[0].start == pytest.approx(1.05, abs=0.001)

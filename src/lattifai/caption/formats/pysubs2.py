@@ -3,6 +3,7 @@
 Handles: SRT, VTT, ASS, SSA, SUB (MicroDVD), SAMI/SMI
 """
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -22,6 +23,22 @@ class Pysubs2Format(FormatHandler):
     # Subclasses should set these
     pysubs2_format: str = ""
 
+    # Patterns to filter Gemini-style thinking/meta blocks
+    FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
+    THINKING_PATTERN = re.compile(r"<thinking>.*?</thinking>", re.DOTALL)
+
+    @classmethod
+    def _preprocess_content(cls, content: str) -> str:
+        """Remove Gemini-style thinking/meta blocks from content.
+
+        Filters out:
+        - YAML front matter (---\\n...\\n---)
+        - <thinking>...</thinking> blocks
+        """
+        content = cls.FRONTMATTER_PATTERN.sub("", content)
+        content = cls.THINKING_PATTERN.sub("", content)
+        return content
+
     @classmethod
     def read(
         cls,
@@ -29,18 +46,24 @@ class Pysubs2Format(FormatHandler):
         normalize_text: bool = True,
         **kwargs,
     ) -> List[Supervision]:
-        """Read caption using pysubs2."""
+        """Read caption using pysubs2.
+
+        Preprocesses content to remove Gemini-style thinking/meta blocks
+        before parsing with pysubs2.
+        """
+        # Preprocess content to remove thinking/meta blocks
+        if cls.is_content(source):
+            content = cls._preprocess_content(source)
+        else:
+            path = Path(source)
+            with open(path, "r", encoding="utf-8") as f:
+                content = cls._preprocess_content(f.read())
+
         try:
-            if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source, format_=cls.pysubs2_format)
-            else:
-                subs = pysubs2.load(str(source), encoding="utf-8", format_=cls.pysubs2_format)
+            subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
         except Exception:
             # Fallback: auto-detect format
-            if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source)
-            else:
-                subs = pysubs2.load(str(source), encoding="utf-8")
+            subs = pysubs2.SSAFile.from_string(content)
 
         supervisions = []
         for event in subs.events:

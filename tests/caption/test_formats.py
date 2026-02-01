@@ -311,5 +311,132 @@ class TestPysubs2SpeakerFormat:
         assert "None No speaker" not in content
 
 
+class TestPysubs2Preprocessing:
+    """Test preprocessing of Gemini-style thinking/meta blocks in pysubs2 formats."""
+
+    def test_srt_with_yaml_frontmatter(self, tmp_path):
+        """Test SRT file with YAML front matter is parsed correctly."""
+        srt_with_frontmatter = """---
+title: Test Video
+language: en
+---
+1
+00:00:01,000 --> 00:00:03,000
+Hello world
+
+2
+00:00:04,000 --> 00:00:06,000
+Second line
+"""
+        srt_file = tmp_path / "frontmatter.srt"
+        srt_file.write_text(srt_with_frontmatter)
+
+        caption = Caption.read(srt_file)
+        assert len(caption.supervisions) == 2
+        assert caption.supervisions[0].text == "Hello world"
+        assert caption.supervisions[1].text == "Second line"
+        print("✓ SRT with YAML front matter parsed correctly")
+
+    def test_srt_with_thinking_block(self, tmp_path):
+        """Test SRT file with thinking block is parsed correctly."""
+        srt_with_thinking = """<thinking>
+This is internal reasoning that should be filtered out.
+Let me analyze the content...
+</thinking>
+1
+00:00:01,000 --> 00:00:03,000
+Hello world
+
+2
+00:00:04,000 --> 00:00:06,000
+Second line
+"""
+        srt_file = tmp_path / "thinking.srt"
+        srt_file.write_text(srt_with_thinking)
+
+        caption = Caption.read(srt_file)
+        assert len(caption.supervisions) == 2
+        assert caption.supervisions[0].text == "Hello world"
+        assert "thinking" not in caption.supervisions[0].text.lower()
+        print("✓ SRT with thinking block parsed correctly")
+
+    def test_srt_with_both_frontmatter_and_thinking(self, tmp_path):
+        """Test SRT file with both front matter and thinking block."""
+        srt_mixed = """---
+title: Mixed Test
+---
+<thinking>
+Internal analysis...
+</thinking>
+1
+00:00:01,000 --> 00:00:03,000
+First subtitle
+
+2
+00:00:05,000 --> 00:00:07,000
+Second subtitle
+"""
+        srt_file = tmp_path / "mixed.srt"
+        srt_file.write_text(srt_mixed)
+
+        caption = Caption.read(srt_file)
+        assert len(caption.supervisions) == 2
+        assert caption.supervisions[0].text == "First subtitle"
+        assert caption.supervisions[1].text == "Second subtitle"
+        print("✓ SRT with both front matter and thinking block parsed correctly")
+
+    def test_vtt_with_thinking_block(self, tmp_path):
+        """Test VTT file with thinking block is parsed correctly."""
+        vtt_with_thinking = """<thinking>
+Gemini reasoning content...
+</thinking>
+WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+Hello world
+"""
+        vtt_file = tmp_path / "thinking.vtt"
+        vtt_file.write_text(vtt_with_thinking)
+
+        caption = Caption.read(vtt_file)
+        assert len(caption.supervisions) == 1
+        assert caption.supervisions[0].text == "Hello world"
+        print("✓ VTT with thinking block parsed correctly")
+
+    def test_srt_content_string_with_frontmatter(self):
+        """Test parsing SRT content string with front matter."""
+        from lattifai.caption.formats.pysubs2 import SRTFormat
+
+        srt_content = """---
+meta: data
+---
+1
+00:00:01,000 --> 00:00:02,000
+Test line
+"""
+        supervisions = SRTFormat.read(srt_content)
+        assert len(supervisions) == 1
+        assert supervisions[0].text == "Test line"
+        print("✓ SRT content string with front matter parsed correctly")
+
+    def test_normal_srt_unaffected(self, tmp_path):
+        """Test that normal SRT without meta blocks still works."""
+        normal_srt = """1
+00:00:01,000 --> 00:00:03,000
+Normal subtitle
+
+2
+00:00:04,000 --> 00:00:06,000
+Another line
+"""
+        srt_file = tmp_path / "normal.srt"
+        srt_file.write_text(normal_srt)
+
+        caption = Caption.read(srt_file)
+        assert len(caption.supervisions) == 2
+        assert caption.supervisions[0].text == "Normal subtitle"
+        print("✓ Normal SRT still works correctly")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

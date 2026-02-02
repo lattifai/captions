@@ -14,10 +14,10 @@ Reference Standards:
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from .config import StandardizationConfig
-from .supervision import Supervision, SupervisionSegment
+from .supervision import Supervision
 
 __all__ = [
     "CaptionStandardizer",
@@ -106,7 +106,7 @@ class CaptionStandardizer:
             max_chars_per_line=max_chars_per_line,
         )
 
-    def process(self, segments: List[Union[Supervision, SupervisionSegment]]) -> List[Supervision]:
+    def process(self, segments: List[Supervision]) -> List[Supervision]:
         """
         Main processing entry point.
 
@@ -130,7 +130,7 @@ class CaptionStandardizer:
 
         return processed
 
-    def _sanitize_timeline(self, segments: List[Union[Supervision, SupervisionSegment]]) -> List[Supervision]:
+    def _sanitize_timeline(self, segments: List[Supervision]) -> List[Supervision]:
         """
         Timeline cleanup.
 
@@ -306,7 +306,7 @@ class CaptionStandardizer:
 
     def _copy_segment(
         self,
-        seg: Union[Supervision, SupervisionSegment],
+        seg: Supervision,
         **overrides,
     ) -> Supervision:
         """
@@ -335,7 +335,7 @@ class CaptionStandardizer:
 
     def apply_margins(
         self,
-        segments: List[Union[Supervision, SupervisionSegment]],
+        segments: List[Supervision],
         start_margin: Optional[float] = None,
         end_margin: Optional[float] = None,
     ) -> List[Supervision]:
@@ -402,7 +402,7 @@ class CaptionStandardizer:
 
         return result
 
-    def _get_word_alignment(self, seg: Union[Supervision, SupervisionSegment]) -> List:
+    def _get_word_alignment(self, seg: Supervision) -> List:
         """
         Safely get word alignment data.
 
@@ -487,7 +487,7 @@ class CaptionValidator:
                 max_chars_per_line=max_chars_per_line,
             )
 
-    def validate(self, segments: List[Union[Supervision, SupervisionSegment]]) -> ValidationResult:
+    def validate(self, segments: List[Supervision]) -> ValidationResult:
         """
         Validate subtitles and return quality metrics.
 
@@ -563,7 +563,7 @@ class CaptionValidator:
 
 
 def standardize_captions(
-    segments: List[Union[Supervision, SupervisionSegment]],
+    segments: List[Supervision],
     min_duration: float = 0.8,
     max_duration: float = 7.0,
     min_gap: float = 0.08,
@@ -599,7 +599,7 @@ def standardize_captions(
 
 
 def apply_margins_to_captions(
-    segments: List[Union[Supervision, SupervisionSegment]],
+    segments: List[Supervision],
     start_margin: float = 0.08,
     end_margin: float = 0.20,
     min_gap: float = 0.08,

@@ -339,9 +339,7 @@ class Supervision:
             return self
         return _fastcopy(self, text=transform_fn(self.text))
 
-    def transform_alignment(
-        self, transform_fn: Callable[[str], str], type: Optional[str] = "word"
-    ) -> "Supervision":
+    def transform_alignment(self, transform_fn: Callable[[str], str], type: Optional[str] = "word") -> "Supervision":
         """Return a copy of the current segment with transformed alignment field."""
         if self.alignment is None:
             return self
@@ -369,7 +367,4 @@ class Supervision:
         return Supervision(**data)
 
 
-# Backwards compatibility alias
-SupervisionSegment = Supervision
-
-__all__ = ["Pathlike", "Seconds", "AlignmentItem", "Supervision", "SupervisionSegment"]
+__all__ = ["Pathlike", "Seconds", "AlignmentItem", "Supervision"]

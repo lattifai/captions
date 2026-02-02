@@ -8,7 +8,7 @@ on:
 jobs:
   build_and_publish:
     name: Build source distribution and publish
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     environment: pypi
     permissions:
       id-token: write

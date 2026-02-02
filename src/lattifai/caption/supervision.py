@@ -55,6 +55,25 @@ def _add_durations(*durs: Seconds, sampling_rate: int = 48000) -> Seconds:
     return tot_num_samples / sampling_rate
 
 
+def _to_native(value: Any) -> Any:
+    """
+    Convert numpy types to Python native types for JSON serialization.
+    """
+    if value is None:
+        return None
+    # Check for numpy types without importing numpy
+    val_type = type(value).__name__
+    if val_type in ("float32", "float64", "float16"):
+        return float(value)
+    if val_type in ("int32", "int64", "int16", "int8", "uint32", "uint64", "uint16", "uint8"):
+        return int(value)
+    if val_type == "bool_":
+        return bool(value)
+    if val_type == "ndarray":
+        return value.tolist()
+    return value
+
+
 class AlignmentItem(NamedTuple):
     """
     This class contains an alignment item, for example a word, along with its
@@ -172,6 +191,7 @@ class Supervision:
         """
         Store custom attributes in self.custom dict for serialization.
         Setting None removes the attribute from custom.
+        Numpy types are auto-converted to Python native types.
         """
         if key in self.__dataclass_fields__:
             super().__setattr__(key, value)
@@ -180,7 +200,7 @@ class Supervision:
             if value is None:
                 custom.pop(key, None)
             else:
-                custom[key] = value
+                custom[key] = _to_native(value)
             if custom:
                 object.__setattr__(self, "custom", custom)
 
@@ -216,13 +236,15 @@ class Supervision:
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: Any) -> None:
-        """Set field value by key (dataclass fields or custom)."""
+        """Set field value by key (dataclass fields or custom).
+        Numpy types are auto-converted to Python native types.
+        """
         if key in self.__dataclass_fields__:
             setattr(self, key, value)
         else:
             if self.custom is None:
                 object.__setattr__(self, "custom", {})
-            self.custom[key] = value
+            self.custom[key] = _to_native(value)
 
     def __delitem__(self, key: str) -> None:
         """Delete custom field by key."""

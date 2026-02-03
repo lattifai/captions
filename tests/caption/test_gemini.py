@@ -353,6 +353,64 @@ class TestGeminiWriter:
         # Should not contain word-level details
         assert "Words:" not in content
 
+    def test_write_aligned_transcript_extra_kwargs(self, tmp_path):
+        """Test write_aligned_transcript accepts extra kwargs for Caption.write() compatibility."""
+        supervisions = [
+            Supervision(id="test_001", text="Hello world", start=0.0, duration=2.0),
+            Supervision(id="test_002", text="Goodbye world", start=2.0, duration=2.0),
+        ]
+
+        output_file = tmp_path / "output.md"
+        # Should not raise TypeError when passing extra kwargs
+        GeminiWriter.write_aligned_transcript(
+            supervisions,
+            output_file,
+            include_word_timestamps=False,
+            include_speaker=True,  # Extra kwarg
+            word_level=True,  # Extra kwarg
+            some_unknown_param="value",  # Extra kwarg
+        )
+
+        assert output_file.exists()
+        content = output_file.read_text()
+        assert "Hello world" in content
+        assert "Goodbye world" in content
+
+    def test_write_with_extra_kwargs(self, tmp_path):
+        """Test GeminiWriter.write() accepts extra kwargs."""
+        supervisions = [
+            Supervision(id="test_001", text="Test content", start=0.0, duration=1.5),
+        ]
+
+        output_file = tmp_path / "output_write.md"
+        # Should not raise TypeError
+        result = GeminiWriter.write(
+            supervisions,
+            output_file,
+            include_speaker=True,
+            word_level=False,
+        )
+
+        assert result == output_file
+        assert output_file.exists()
+
+    def test_to_bytes_with_extra_kwargs(self):
+        """Test GeminiWriter.to_bytes() accepts extra kwargs."""
+        supervisions = [
+            Supervision(id="test_001", text="Bytes test", start=0.0, duration=1.0),
+        ]
+
+        # Should not raise TypeError
+        result = GeminiWriter.to_bytes(
+            supervisions,
+            include_word_timestamps=False,
+            include_speaker=True,
+            custom_param="ignored",
+        )
+
+        assert isinstance(result, bytes)
+        assert b"Bytes test" in result
+
 
 class TestGeminiGeminiSegment:
     """Tests for GeminiSegment dataclass (shared)."""
@@ -559,13 +617,17 @@ class TestStartEndTimestamps:
 
         # Should have multiple segments with both timestamps
         dialogue_with_both = [
-            s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None and s.end_timestamp is not None
+            s
+            for s in segments
+            if s.segment_type == "dialogue" and s.timestamp is not None and s.end_timestamp is not None
         ]
         assert len(dialogue_with_both) > 10  # Should have many segments
 
         # Check first few segments have correct timing
         for seg in dialogue_with_both[:5]:
-            assert seg.timestamp < seg.end_timestamp, f"Start should be before end: {seg.timestamp} vs {seg.end_timestamp}"
+            assert (
+                seg.timestamp < seg.end_timestamp
+            ), f"Start should be before end: {seg.timestamp} vs {seg.end_timestamp}"
 
     def test_mixed_format_mm_ss(self):
         """Test with MM:SS format timestamps."""
@@ -766,6 +828,87 @@ Hello大家好，欢迎来到《硅谷101》，我是陈茜。 [00:00:54]
 
         # Last segment
         assert "硅谷101" in supervisions[2].text
+
+
+class TestPreserveOriginalOrder:
+    """Tests for preserving original text order (not sorting by timestamp).
+
+    Gemini timestamps are often inaccurate, so we must preserve the original
+    text order from the transcript rather than sorting by timestamp.
+    """
+
+    def test_preserve_order_with_out_of_order_timestamps(self):
+        """Test that segments preserve original order even when timestamps are out of order."""
+        # Timestamps are intentionally out of order (30 > 20 > 25)
+        # But text order should be preserved: First -> Second -> Third
+        content = """First sentence here. [00:00:30]
+
+Second sentence here. [00:00:20]
+
+Third sentence here. [00:00:25]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 3
+        # Order should match original text order, NOT timestamp order
+        assert "First" in supervisions[0].text
+        assert "Second" in supervisions[1].text
+        assert "Third" in supervisions[2].text
+
+    def test_preserve_order_with_start_timestamps(self):
+        """Test order preservation with start timestamps out of order."""
+        content = """[00:00:50] First segment. [00:00:55]
+
+[00:00:10] Second segment. [00:00:15]
+
+[00:00:30] Third segment. [00:00:35]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 3
+        # Should preserve original order: First -> Second -> Third
+        # NOT sorted by timestamp: Second (10) -> Third (30) -> First (50)
+        assert "First" in supervisions[0].text
+        assert "Second" in supervisions[1].text
+        assert "Third" in supervisions[2].text
+
+    def test_preserve_order_mixed_timestamp_formats(self):
+        """Test order preservation with mixed timestamp formats."""
+        content = """**Speaker A:** Last chronologically but first in text. [00:05:00]
+
+**Speaker B:** [00:00:30] Middle chronologically, second in text. [00:00:35]
+
+**Speaker A:** First chronologically but last in text. [00:00:10]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        assert len(supervisions) == 3
+        # Preserve text order, ignore chronological order
+        assert "first in text" in supervisions[0].text
+        assert "second in text" in supervisions[1].text
+        assert "last in text" in supervisions[2].text
+
+    def test_preserve_order_real_world_scenario(self):
+        """Test with realistic Gemini output where timestamps jump around."""
+        # Simulates Gemini's common behavior of producing non-sequential timestamps
+        content = """## [00:00:00] Introduction
+
+Hello everyone, welcome to the show. [00:00:45]
+
+[音乐] [00:00:30]
+
+Today we're going to discuss AI. [00:00:50]
+
+But first, let me introduce myself. [00:00:15]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+
+        texts = [s.text for s in supervisions]
+
+        # Verify original text order is preserved
+        assert texts.index("Hello everyone, welcome to the show.") < texts.index("[音乐]")
+        assert texts.index("[音乐]") < texts.index("Today we're going to discuss AI.")
+        assert texts.index("Today we're going to discuss AI.") < texts.index("But first, let me introduce myself.")
 
 
 class TestIntegration:

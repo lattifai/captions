@@ -48,7 +48,9 @@ class GeminiReader:
     THINKING_PATTERN = re.compile(r"<thinking>.*?</thinking>", re.DOTALL)
 
     # Regex patterns for parsing (supports [HH:MM:SS], [HH:MM:SS.mmm], [MM:SS], [MM:SS.mmm])
-    TIMESTAMP_PATTERN = re.compile(r"\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]|\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]")
+    TIMESTAMP_PATTERN = re.compile(
+        r"\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]|\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"
+    )
     SECTION_HEADER_PATTERN = re.compile(r"^##\s*\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.+)$")
     SPEAKER_PATTERN = re.compile(r"^\*\*(.+?[:：])\*\*\s*(.+)$")
     # Event pattern: [Event] [HH:MM:SS.mmm] or [Event] [MM:SS.mmm] - prioritize HH:MM:SS format
@@ -455,9 +457,6 @@ class GeminiReader:
 
         if not dialogue_segments:
             raise ValueError(f"No dialogue segments with timestamps found in {transcript_path}")
-
-        # Sort by timestamp (use start time if available, otherwise end time)
-        dialogue_segments.sort(key=lambda x: x.timestamp if x.timestamp is not None else x.end_timestamp)
 
         # Convert to Supervision objects
         supervisions: List[Supervision] = []

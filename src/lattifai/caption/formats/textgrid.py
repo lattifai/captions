@@ -12,6 +12,47 @@ from . import register_format
 from .base import FormatHandler
 
 
+def _is_event(sup: Supervision) -> bool:
+    """Detect if a supervision is an event type.
+
+    Event detection via:
+    1. custom["segment_type"] == "event"
+    2. Text format [xxx] (e.g., [Applause], [Music])
+    """
+    if sup.custom and sup.custom.get("segment_type") == "event":
+        return True
+    text = (sup.text or "").strip()
+    return text.startswith("[") and text.endswith("]") and len(text) > 2
+
+
+def _assign_event_tiers(events: List[Supervision]) -> Dict[str, List]:
+    """Assign events to non-overlapping tiers using greedy algorithm.
+
+    Returns dict mapping tier names to lists of (start, end, text) tuples.
+    Tier names: "Event", "Event2", "Event3", ...
+    """
+    tiers: Dict[str, List] = {}
+
+    for event in sorted(events, key=lambda x: x.start):
+        assigned = False
+        tier_num = 1
+
+        while not assigned:
+            tier_name = "Event" if tier_num == 1 else f"Event{tier_num}"
+
+            if tier_name not in tiers:
+                tiers[tier_name] = []
+
+            # Check overlap with last interval in this tier
+            if not tiers[tier_name] or tiers[tier_name][-1][1] <= event.start:
+                tiers[tier_name].append((event.start, event.end, event.text or ""))
+                assigned = True
+            else:
+                tier_num += 1
+
+    return tiers
+
+
 @register_format("textgrid")
 class TextGridFormat(FormatHandler):
     """Praat TextGrid format for phonetic analysis."""
@@ -80,6 +121,10 @@ class TextGridFormat(FormatHandler):
             output_path: Output file path
             include_speaker: Whether to include speaker in text
             metadata: Optional metadata (for API consistency)
+
+        Note:
+            Events (text like [Applause] or segment_type="event") are placed
+            in separate tiers (Event, Event2, ...) to handle overlaps.
         """
         from tgt import Interval, IntervalTier, TextGrid, write_to_file
 
@@ -87,10 +132,16 @@ class TextGridFormat(FormatHandler):
         tg = TextGrid()
 
         utterances = []
+        events = []
         words = []
         scores = {"utterances": [], "words": []}
 
         for sup in sorted(supervisions, key=lambda x: x.start):
+            # Separate events from utterances
+            if _is_event(sup):
+                events.append(sup)
+                continue
+
             text = sup.text or ""
             if include_speaker and sup.speaker:
                 # Check if speaker should be included
@@ -114,7 +165,16 @@ class TextGridFormat(FormatHandler):
             if hasattr(sup, "custom") and sup.custom and "score" in sup.custom:
                 scores["utterances"].append(Interval(sup.start, sup.end, f"{sup.custom['score']:.2f}"))
 
+        # Add utterances tier
         tg.add_tier(IntervalTier(name="utterances", objects=utterances))
+
+        # Add event tiers (Event, Event2, ...) for overlapping events
+        if events:
+            event_tiers = _assign_event_tiers(events)
+            # Sort tier names: Event, Event2, Event3, ...
+            for tier_name in sorted(event_tiers.keys(), key=lambda x: (len(x), x)):
+                intervals = [Interval(s, e, t) for s, e, t in event_tiers[tier_name]]
+                tg.add_tier(IntervalTier(name=tier_name, objects=intervals))
 
         if words:
             tg.add_tier(IntervalTier(name="words", objects=words))

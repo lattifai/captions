@@ -689,6 +689,7 @@ class GeminiWriter:
         aligned_supervisions: List[Supervision],
         output_path: Pathlike,
         include_word_timestamps: bool = False,
+        **kwargs,  # Accept extra kwargs for Caption.write() compatibility
     ) -> Pathlike:
         """Write a new transcript file from aligned supervisions.
 

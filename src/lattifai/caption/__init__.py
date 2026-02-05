@@ -30,7 +30,7 @@ from .standardize import (
     apply_margins_to_captions,
     standardize_captions,
 )
-from .supervision import AlignmentItem, Pathlike, Seconds, Supervision
+from .supervision import AlignmentItem, Pathlike, Seconds, Supervision, fastcopy
 from .utils import (
     CollisionMode,
     TimecodeOffset,
@@ -52,6 +52,7 @@ __all__ = [
     "SentenceSplitter",
     # Lhotse compat (for external use)
     "AlignmentItem",
+    "fastcopy",
     "Pathlike",
     "Seconds",
     # Standardization

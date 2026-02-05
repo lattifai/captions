@@ -37,7 +37,7 @@ def _asdict_nonull(dclass) -> Dict[str, Any]:
     return asdict(dclass, dict_factory=non_null_dict_factory)
 
 
-def _fastcopy(dataclass_obj, **kwargs):
+def fastcopy(dataclass_obj, **kwargs):
     """
     Returns a new object with the same member values.
     Selected members can be overwritten with kwargs.
@@ -294,7 +294,7 @@ class Supervision:
 
     def with_custom(self, name: str, value: Any) -> "Supervision":
         """Return a copy with an extra custom field."""
-        cpy = _fastcopy(self, custom=self.custom.copy() if self.custom is not None else {})
+        cpy = fastcopy(self, custom=self.custom.copy() if self.custom is not None else {})
         cpy.custom[name] = value
         return cpy
 
@@ -318,7 +318,7 @@ class Supervision:
         if alis is None:
             alis = {}
         alis[kind] = alignment
-        return _fastcopy(self, alignment=alis)
+        return fastcopy(self, alignment=alis)
 
     def with_offset(self, offset: Seconds) -> "Supervision":
         """Return an identical Supervision, but with the offset added to the start field."""
@@ -344,7 +344,7 @@ class Supervision:
         assert start >= 0
         start_exceeds_by = abs(min(0, self.start - start))
         end_exceeds_by = max(0, self.end - end)
-        return _fastcopy(
+        return fastcopy(
             self,
             start=max(start, self.start),
             duration=_add_durations(self.duration, -end_exceeds_by, -start_exceeds_by),
@@ -359,13 +359,13 @@ class Supervision:
         """Return a copy of the current segment with transformed text field."""
         if self.text is None:
             return self
-        return _fastcopy(self, text=transform_fn(self.text))
+        return fastcopy(self, text=transform_fn(self.text))
 
     def transform_alignment(self, transform_fn: Callable[[str], str], type: Optional[str] = "word") -> "Supervision":
         """Return a copy of the current segment with transformed alignment field."""
         if self.alignment is None:
             return self
-        return _fastcopy(
+        return fastcopy(
             self,
             alignment={
                 ali_type: [item.transform(transform_fn=transform_fn) if ali_type == type else item for item in ali]
@@ -378,7 +378,7 @@ class Supervision:
             return _asdict_nonull(self)
         else:
             alis = {kind: [item.serialize() for item in ali] for kind, ali in self.alignment.items()}
-            data = _asdict_nonull(_fastcopy(self, alignment=None))
+            data = _asdict_nonull(fastcopy(self, alignment=None))
             data["alignment"] = alis
             return data
 

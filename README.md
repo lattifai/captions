@@ -1,25 +1,37 @@
 # lattifai-captions
 
-Caption/subtitle processing library with comprehensive format support.
+**The universal caption toolkit.** Read, write, convert, and validate 25+ subtitle formats with word-level precision — from YouTube to Netflix to Final Cut Pro.
 
-## Features
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-- **Multi-format support**: SRT, VTT, ASS, SSA, TTML, TextGrid, LRC, SRV3, and more
-- **YouTube formats**: SRV3 (YTT v3), YouTube VTT with word-level timestamps
-- **Professional NLE formats**: Avid DS, Final Cut Pro XML, Premiere Pro XML, Adobe Audition
-- **Word-level timing**: Karaoke-style word-by-word timestamps
-- **Standardization**: Netflix/BBC broadcast guidelines compliance
-- **Sentence splitting**: AI-powered intelligent sentence segmentation
-- **Zero dependencies on heavy ML frameworks**: Lightweight and fast
+---
+
+## Why lattifai-captions?
+
+| | |
+|---|---|
+| **25+ formats** | SRT, VTT, ASS, TTML, SRV3, TextGrid, FCPXML, Premiere XML, and more |
+| **Word-level timing** | Preserve millisecond-precision word timestamps across format conversions |
+| **Broadcast-ready** | Netflix, BBC, and EBU compliance validation out of the box |
+| **NLE integration** | Direct export to Avid, Final Cut Pro, Premiere Pro, and Pro Tools |
+| **Lightweight** | Zero dependency on PyTorch, TensorFlow, or any ML framework |
 
 ## Installation
 
 ```bash
-# Basic installation
-pip install lattifai-captions
+pip install lattifai-captions --extra-index-url https://lattifai.github.io/pypi/simple/
 
-# With sentence splitting support
-pip install lattifai-captions[splitting]
+# With AI-powered sentence splitting
+pip install lattifai-captions[splitting] --extra-index-url https://lattifai.github.io/pypi/simple/
+```
+
+Or configure pip globally:
+
+```ini
+# ~/.pip/pip.conf
+[global]
+extra-index-url = https://lattifai.github.io/pypi/simple/
 ```
 
 ## Quick Start
@@ -27,222 +39,176 @@ pip install lattifai-captions[splitting]
 ```python
 from lattifai.caption import Caption
 
-# Read a caption file
+# Read any format — auto-detected
 caption = Caption.read("input.srt")
 
-# Write to different format
+# Convert to any format
 caption.write("output.vtt")
+caption.write("output.ass")
+caption.write("output.ttml")
 
-# Convert to string
+# Get as string
 vtt_content = caption.to_string("vtt")
-
-# Access segments
-for segment in caption.supervisions:
-    print(f"{segment.start:.2f} - {segment.end:.2f}: {segment.text}")
 ```
 
 ## Supported Formats
 
-### Input/Output (Read & Write)
+### Read & Write
 
-| Format | Extensions | Description |
-|--------|------------|-------------|
-| **SRT** | `.srt` | SubRip subtitle format |
-| **VTT** | `.vtt` | WebVTT, includes YouTube VTT with word-level timestamps |
-| **ASS/SSA** | `.ass`, `.ssa` | Advanced SubStation Alpha |
-| **SRV3** | `.srv3`, `.ytt` | YouTube Timed Text v3 with word-level timing |
-| **SBV** | `.sbv` | YouTube SubViewer format |
-| **SUB** | `.sub` | MicroDVD subtitle format |
-| **SAMI** | `.sami`, `.smi` | SAMI subtitle format |
-| **JSON** | `.json` | Structured data with word-level support |
-| **CSV/TSV** | `.csv`, `.tsv` | Tabular formats |
-| **TextGrid** | `.textgrid` | Praat TextGrid format |
-| **LRC** | `.lrc` | Lyrics format with word-level timestamps |
+| Format | Extensions | Highlights |
+|--------|------------|------------|
+| **SRT** | `.srt` | Industry standard subtitle format |
+| **WebVTT** | `.vtt` | Web standard; auto-detects YouTube word-level timestamps |
+| **ASS / SSA** | `.ass` `.ssa` | Styled subtitles with karaoke support |
+| **SRV3** | `.srv3` `.ytt` | YouTube Timed Text v3 — millisecond word timing |
+| **SBV** | `.sbv` | YouTube SubViewer |
+| **SUB** | `.sub` | MicroDVD |
+| **SAMI** | `.sami` `.smi` | SAMI subtitle format |
+| **JSON** | `.json` | Structured data with full word-level arrays |
+| **CSV / TSV** | `.csv` `.tsv` | Tabular export for data analysis |
+| **TextGrid** | `.textgrid` | Praat — phonetics and linguistics research |
+| **LRC** | `.lrc` | Lyrics with word-level timestamps |
 | **Gemini** | `.md` | Gemini AI transcript markdown |
 
-### Output Only
+### Write-Only — Professional Post-Production
 
-| Format | Extensions | Description |
-|--------|------------|-------------|
-| **TTML** | `.ttml` | Timed Text Markup Language (W3C standard) |
-| **IMSC1** | `.ttml` | Netflix/streaming TTML profile |
-| **EBU-TT-D** | `.ttml` | European broadcast TTML profile |
-| **Avid DS** | `.txt` | Avid Media Composer SubCap |
-| **FCPXML** | `.fcpxml` | Final Cut Pro XML |
-| **Premiere XML** | `.xml` | Adobe Premiere Pro XML |
-| **Audition CSV** | `.csv` | Adobe Audition markers |
-| **EdiMarker CSV** | `.csv` | Pro Tools markers |
+| Format | Target | Use Case |
+|--------|--------|----------|
+| **TTML** | W3C standard | Streaming platforms |
+| **IMSC1** | Netflix / streaming | Netflix Timed Text profile |
+| **EBU-TT-D** | European broadcast | EBU broadcast delivery |
+| **Avid DS** | Avid Media Composer | SubCap import |
+| **FCPXML** | Final Cut Pro | Native timeline import |
+| **Premiere XML** | Adobe Premiere Pro | Graphic clip subtitles |
+| **Audition CSV** | Adobe Audition | Marker-based editing |
+| **EdiMarker CSV** | Pro Tools | Session markers |
 
 ## Word-Level Timing
 
-Many formats support word-level timing for karaoke-style output:
+Preserve and convert word-by-word timestamps across formats:
 
 ```python
-from lattifai.caption import Caption
+from lattifai.caption import Caption, KaraokeConfig
 
-caption = Caption.read("input.srv3")  # SRV3 has built-in word timing
+caption = Caption.read("video.srv3")  # YouTube SRV3 with word timing
 
-# Access word-level alignment
-for segment in caption.supervisions:
-    if segment.alignment and "word" in segment.alignment:
-        for word in segment.alignment["word"]:
-            print(f"  {word.symbol}: {word.start:.3f}s - {word.end:.3f}s")
+# Inspect word-level data
+for seg in caption.supervisions:
+    for word in seg.alignment.get("word", []):
+        print(f"  {word.symbol}: {word.start:.3f}s ({word.duration:.3f}s)")
 
-# Export with word-level timing
-caption.write("output.json", word_level=True)  # JSON preserves words array
+# Export with word timing preserved
+caption.write("output.json", word_level=True)
+caption.write("output.lrc", word_level=True)
+
+# Karaoke-style ASS output
 caption.write("output.ass", word_level=True, karaoke_config=KaraokeConfig(enabled=True))
 ```
 
-## YouTube SRV3 Format
+## Broadcast Standardization
 
-SRV3 is YouTube's proprietary timed text format with millisecond-precision word timing:
+Enforce Netflix, BBC, or custom broadcast guidelines:
 
 ```python
-from lattifai.caption import Caption
+from lattifai.caption import Caption, CaptionStandardizer, CaptionValidator
 
-# Read SRV3 (automatically extracts word-level timing)
-caption = Caption.read("video.srv3")
+# Standardize
+standardizer = CaptionStandardizer(
+    min_duration=0.7,       # Minimum segment duration (seconds)
+    max_duration=7.0,       # Maximum segment duration
+    min_gap=0.08,           # 80ms gap to prevent flicker
+    max_lines=2,            # Lines per segment
+    max_chars_per_line=42,  # Auto-adjusts to 21 for CJK
+)
+caption = Caption.read("input.srt")
+standardized = standardizer.process(caption.supervisions)
 
-# Convert to other formats
-caption.write("output.srt")  # Standard SRT
-caption.write("output.vtt", word_level=True)  # VTT with word timing
-caption.write("output.srv3", word_level=True)  # Back to SRV3
+# Validate
+validator = CaptionValidator(min_duration=0.7, max_duration=7.0, max_chars_per_line=42)
+result = validator.validate(caption.supervisions)
+print(f"Valid: {result.valid} | CPS: {result.avg_cps:.1f} | Warnings: {len(result.warnings)}")
 ```
 
-SRV3 structure example:
-```xml
-<timedtext format="3">
-  <body>
-    <p t="240" d="6559" w="1">
-      <s ac="0">Does</s>
-      <s t="320" ac="0"> fast</s>
-      <s t="560" ac="0"> charging</s>
-    </p>
-  </body>
-</timedtext>
+## NLE Export
+
+Direct export to professional editing software:
+
+```python
+from lattifai.caption import Caption, FCPXMLConfig, FCPXMLStyle
+
+caption = Caption.read("input.srt")
+
+# Final Cut Pro
+caption.write("timeline.fcpxml")
+
+# Avid Media Composer
+caption.write("avid.txt", format="avid_ds")
+
+# Adobe Premiere Pro
+caption.write("premiere.xml", format="premiere_xml")
 ```
 
 ## Sentence Splitting
 
-Split captions into natural sentences (requires `[splitting]` extra):
+AI-powered sentence segmentation using [wtpsplit](https://github.com/segment-any-text/wtpsplit) (requires `[splitting]` extra):
 
 ```python
-from lattifai.caption import Caption, SentenceSplitter
-
-# Using Caption method
 caption = Caption.read("input.srt")
 split_caption = caption.split_sentences()
-
-# Or use SentenceSplitter directly
-splitter = SentenceSplitter()
-split_supervisions = splitter.split_sentences(caption.supervisions)
 ```
 
-## Format Conversion
+## Time Operations
 
 ```python
-from lattifai.caption import Caption
+# Shift all timestamps
+shifted = caption.shift_time(seconds=2.5)
 
-# Read any format
-caption = Caption.read("input.srt")
+# Adjust word-level margins (prevents cut-off words)
+adjusted = caption.with_margins(start_margin=0.05, end_margin=0.15)
 
-# Write to any supported format
-caption.write("output.vtt")
-caption.write("output.ass")
-caption.write("output.json")
-caption.write("output.srv3", word_level=True)
-caption.write("output.ttml")
-
-# Or get as string
-srt_content = caption.to_string("srt")
-json_content = caption.to_string("json", word_level=True)
-```
-
-## Standardization
-
-Apply broadcast standards to captions:
-
-```python
-from lattifai.caption import Caption, CaptionStandardizer
-
-standardizer = CaptionStandardizer(
-    min_duration=0.7,      # Minimum segment duration
-    max_duration=7.0,      # Maximum segment duration
-    min_gap=0.08,          # Minimum gap between segments
-    max_lines=2,           # Maximum lines per segment
-    max_chars_per_line=42, # Maximum characters per line
-)
-
-caption = Caption.read("input.srt")
-standardized = standardizer.process(caption.supervisions)
-```
-
-## Validation
-
-Check captions against quality standards:
-
-```python
-from lattifai.caption import Caption, CaptionValidator
-
-validator = CaptionValidator(
-    min_duration=0.7,
-    max_duration=7.0,
-    min_gap=0.08,
-    max_chars_per_line=42,
-)
-
-caption = Caption.read("input.srt")
-result = validator.validate(caption.supervisions)
-
-print(f"Valid: {result.valid}")
-print(f"Average CPS: {result.avg_cps:.1f}")
-print(f"Max CPL: {result.max_cpl}")
-print(f"Warnings: {result.warnings}")
+# Resolve overlapping segments
+from lattifai.caption import resolve_overlaps, CollisionMode
+resolved = resolve_overlaps(caption.supervisions, mode=CollisionMode.TRIM)
 ```
 
 ## API Reference
 
-### Caption Class
+### Caption
 
 ```python
 from lattifai.caption import Caption
 
-# Class methods
-Caption.read(path, format=None, normalize_text=True)
-Caption.from_string(content, format)
-Caption.from_supervisions(supervisions, language=None, metadata=None)
+# Read
+caption = Caption.read("file.srt")                    # Auto-detect format
+caption = Caption.read("file.txt", format="srt")      # Explicit format
+caption = Caption.from_string(content, format="vtt")   # From string
 
-# Instance methods
-caption.write(path, include_speaker=True, word_level=False, karaoke_config=None)
-caption.to_string(format, include_speaker=True, word_level=False, karaoke_config=None)
+# Write
+caption.write("output.vtt")
+caption.write("output.ass", word_level=True, karaoke_config=KaraokeConfig(enabled=True))
+content = caption.to_string("srt")
+
+# Transform
+caption.shift_time(seconds=1.0)
 caption.split_sentences()
-caption.shift_time(seconds)
+caption.with_margins(start_margin=0.05, end_margin=0.15)
 
 # Properties
-caption.supervisions  # List[Supervision]
-caption.duration      # Total duration in seconds
-caption.language      # Language code
-caption.source_format # Original format
+caption.supervisions    # List[Supervision]
+caption.duration        # Total duration in seconds
+caption.language        # Language code
+caption.source_format   # Original format detected
 ```
 
-### Supervision Class
+### Supervision
 
 ```python
 from lattifai.caption import Supervision
 
-sup = Supervision(
-    start=0.0,           # Start time in seconds
-    duration=2.5,        # Duration in seconds
-    text="Hello world",  # Caption text
-    speaker="Alice",     # Optional speaker label
-    alignment=None,      # Optional word-level alignment
-)
+sup = Supervision(start=0.0, duration=2.5, text="Hello world", speaker="Alice")
 
-# Properties
-sup.end       # start + duration
-sup.text      # Caption text
-sup.speaker   # Speaker label
-sup.alignment # Dict with "word" key containing AlignmentItem list
+sup.end          # 2.5 (start + duration)
+sup.alignment    # {"word": [AlignmentItem(symbol, start, duration, score), ...]}
 ```
 
 ## License

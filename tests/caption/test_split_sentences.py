@@ -321,6 +321,37 @@ def test_split_sentences_text_integrity():
             assert origin_text == split_text, "Text integrity check failed after sentence splitting."
 
 
+def test_split_sentences_chinese_gemini_colon_bug():
+    """Regression: Chinese colon space insertion broke text matching."""
+    from pathlib import Path
+
+    from lattifai.caption.formats.gemini import GeminiReader
+
+    splitter = SentenceSplitter()
+    test_file = Path(__file__).parent.parent / "data" / "TheValley101-gemini-3-flash-preview.md"
+    supervisions = GeminiReader.extract_for_alignment(test_file)
+
+    # Should not raise ValueError
+    splits = splitter.split_sentences(supervisions)
+
+    # Text integrity
+    origin = "".join(sup.text for sup in supervisions).replace(" ", "")
+    result = "".join(sup.text for sup in splits).replace(" ", "")
+    assert origin == result
+
+
+def test_split_sentences_chinese_colon_no_extra_space():
+    """Chinese colon should not insert extra space."""
+    splitter = SentenceSplitter()
+    supervisions = [
+        make_supervision(0, "产品包括：GPT-4o和Gemini。这是重大更新。", speaker=None),
+    ]
+    result = splitter.split_sentences(supervisions)
+    origin = "".join(sup.text for sup in supervisions).replace(" ", "")
+    split = "".join(sup.text for sup in result).replace(" ", "")
+    assert origin == split
+
+
 if __name__ == "__main__":
     test_split_sentences_preserves_event_supervisions_from_gemini()
 

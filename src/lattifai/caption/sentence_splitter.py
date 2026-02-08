@@ -127,8 +127,12 @@ class SentenceSplitter:
             if first_sup is None or last_sup is None:
                 raise ValueError(f"Could not find supervisions for split text: {split_text}")
 
-            start_time = first_sup.start + (first_char_idx / len(first_sup.text)) * first_sup.duration
-            end_time = last_sup.start + ((last_char_idx + 1) / len(last_sup.text)) * last_sup.duration
+            if len(first_sup.text) == 0 or len(last_sup.text) == 0:
+                start_time = first_sup.start
+                end_time = last_sup.start + last_sup.duration
+            else:
+                start_time = first_sup.start + (first_char_idx / len(first_sup.text)) * first_sup.duration
+                end_time = last_sup.start + ((last_char_idx + 1) / len(last_sup.text)) * last_sup.duration
 
             merged_custom = None
             if overlapping_customs:
@@ -182,6 +186,25 @@ class SentenceSplitter:
     def _ends_with_colon(text: str) -> bool:
         """Check if text ends with a colon (speaker introduction)."""
         return text.endswith(":") or text.endswith("：")
+
+    @staticmethod
+    def _is_cjk_char(ch: str) -> bool:
+        """Check if a character is CJK (Chinese, Japanese, Korean)."""
+        cp = ord(ch)
+        return (
+            0x4E00 <= cp <= 0x9FFF
+            or 0x3040 <= cp <= 0x30FF
+            or 0xAC00 <= cp <= 0xD7AF
+            or 0x3400 <= cp <= 0x4DBF
+        )
+
+    @staticmethod
+    def _needs_space_after(text: str) -> bool:
+        """Check if space is needed after colon-ending text (False for CJK context)."""
+        stripped = text.rstrip(":：")
+        if stripped and SentenceSplitter._is_cjk_char(stripped[-1]):
+            return False
+        return True
 
     def _segment_supervisions(
         self, supervisions: List[Supervision]
@@ -286,10 +309,11 @@ class SentenceSplitter:
             parts = self._resplit_special_sentence_types(sentence)
 
             if self._ends_with_colon(parts[-1]):
+                sep = " " if self._needs_space_after(parts[-1]) else ""
                 if idx < len(sentences) - 1:
-                    sentences[idx + 1] = parts[-1] + " " + sentences[idx + 1]
+                    sentences[idx + 1] = parts[-1] + sep + sentences[idx + 1]
                 else:
-                    remainder = parts[-1] + " "
+                    remainder = parts[-1] + sep
                 processed.extend(parts[:-1])
             else:
                 processed.extend(parts)

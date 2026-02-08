@@ -421,7 +421,7 @@ class Caption:
             Caption object containing supervisions and metadata
         """
         # Detect format if not provided
-        if not format:
+        if not format or format == "auto":
             if isinstance(path, (io.BytesIO, io.StringIO)):
                 raise ValueError("format parameter is required when reading from BytesIO/StringIO")
             format = detect_format(str(path))

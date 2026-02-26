@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6 - 2026-02-27
+
+### Fixes
+- Default outline width to 0 (no outline) instead of 2
+- Remove unused imports in config module
+
 ## 0.2.5 - 2026-02-27
 
 ### Fixes

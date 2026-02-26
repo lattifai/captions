@@ -175,7 +175,7 @@ class JSONFormat(FormatHandler):
                 "start": sup.start,
                 "end": sup.end,
             }
-            if include_speaker and sup.speaker:
+            if sup.speaker:
                 item["speaker"] = sup.speaker
 
             # Add words field when word_level=True and alignment exists

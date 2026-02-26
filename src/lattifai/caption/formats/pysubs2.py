@@ -409,9 +409,16 @@ class ASSFormat(Pysubs2Format):
         # Create ASS file and restore global styles from metadata
         subs = cls._create_ass_file_with_metadata(metadata)
 
-        # Add karaoke style if needed
-        if karaoke_enabled:
-            subs.styles["Karaoke"] = cls._create_karaoke_style(karaoke_config.style)
+        # Add karaoke style with priority:
+        # 1. metadata ass_styles.Karaoke (already loaded above)
+        # 2. Copy from metadata ass_styles.Default (inherits user's font/color settings)
+        # 3. Fallback to karaoke_config.style defaults
+        has_metadata_styles = metadata and "ass_styles" in metadata
+        if karaoke_enabled and "Karaoke" not in subs.styles:
+            if has_metadata_styles and "Default" in metadata["ass_styles"]:
+                subs.styles["Karaoke"] = subs.styles["Default"].copy()
+            else:
+                subs.styles["Karaoke"] = cls._create_karaoke_style(karaoke_config.style)
 
         for sup in supervisions:
             alignment = getattr(sup, "alignment", None)

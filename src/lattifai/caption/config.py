@@ -1,10 +1,7 @@
 """Caption I/O configuration for LattifAI."""
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Dict, Literal, Optional, get_args
-
-from .supervision import Pathlike
 
 # =============================================================================
 # Caption Style Configuration Classes
@@ -74,7 +71,7 @@ class CaptionStyle:
     italic: bool = False
 
     # Border and shadow
-    outline_width: float = 2.0
+    outline_width: float = 0
     shadow_depth: float = 1.0
 
     # Position

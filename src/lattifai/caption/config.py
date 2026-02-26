@@ -69,7 +69,7 @@ class CaptionStyle:
 
     # Font
     font_name: str = CaptionFonts.ARIAL
-    font_size: int = 128
+    font_size: int = 20
     bold: bool = False
     italic: bool = False
 
@@ -243,5 +243,3 @@ CAPTION_FORMATS: list[str] = ["srt", "vtt", "ass", "ssa", "sub", "sbv", "txt", "
 
 # All caption formats combined (for file detection, excludes "auto")
 ALL_CAPTION_FORMATS: list[str] = list(set(INPUT_CAPTION_FORMATS + OUTPUT_CAPTION_FORMATS) - {"auto"})
-
-

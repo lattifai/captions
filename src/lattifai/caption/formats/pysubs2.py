@@ -486,7 +486,7 @@ class ASSFormat(Pysubs2Format):
         """Convert style dict back to pysubs2.SSAStyle."""
         return pysubs2.SSAStyle(
             fontname=style_dict.get("fontname", "Arial"),
-            fontsize=style_dict.get("fontsize", 128.0),
+            fontsize=style_dict.get("fontsize", 20.0),
             primarycolor=cls._str_to_color(style_dict.get("primarycolor", "&H00FFFFFF")),
             secondarycolor=cls._str_to_color(style_dict.get("secondarycolor", "&H000000FF")),
             tertiarycolor=cls._str_to_color(style_dict.get("tertiarycolor", "&H00000000")),

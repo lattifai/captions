@@ -98,7 +98,11 @@ class JSONFormat(FormatHandler):
                         word_duration = word_item["end"] - word_start
                     else:
                         word_duration = 0
-                    word_alignments.append(AlignmentItem(symbol=word_text, start=word_start, duration=word_duration))
+                    word_alignments.append(
+                        AlignmentItem(
+                            symbol=word_text, start=word_start, duration=word_duration, score=word_item.get("score")
+                        )
+                    )
                 if word_alignments:
                     alignment = {"word": word_alignments}
 
@@ -172,22 +176,24 @@ class JSONFormat(FormatHandler):
         for sup in supervisions:
             item = {
                 "text": sup.text,
-                "start": sup.start,
-                "end": sup.end,
+                "start": round(sup.start, 4),
+                "end": round(sup.end, 4),
             }
             if sup.speaker:
                 item["speaker"] = sup.speaker
 
             # Add words field when word_level=True and alignment exists
             if word_level and sup.alignment and "word" in sup.alignment:
-                item["words"] = [
-                    {
+                item["words"] = []
+                for w in sup.alignment["word"]:
+                    word_dict = {
                         "word": w.symbol,
-                        "start": w.start,
-                        "end": w.start + w.duration,
+                        "start": round(w.start, 4),
+                        "end": round(w.start + w.duration, 4),
                     }
-                    for w in sup.alignment["word"]
-                ]
+                    if w.score is not None:
+                        word_dict["score"] = round(w.score, 4)
+                    item["words"].append(word_dict)
 
             data.append(item)
 

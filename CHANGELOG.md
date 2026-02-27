@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.5 - 2026-02-27
+
+### Fixes
+- Respect metadata `ass_styles` for karaoke style instead of overwriting with defaults
+- Change default ASS font size from 128 to 20 (matching Aegisub/ASS convention)
+
 ## 0.2.4 - 2026-02-27
 
 ### Features

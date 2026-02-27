@@ -365,6 +365,55 @@ class VTTFormat(FormatHandler):
         # Build VTT with metadata header
         return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata)
 
+    @staticmethod
+    def _ass_color_to_css(ass_color: str) -> str:
+        """Convert ASS color &HAABBGGRR to CSS hex #RRGGBB or rgba."""
+        c = ass_color.replace("&H", "").replace("&h", "").lstrip("0") or "0"
+        c = c.zfill(8)  # pad to AABBGGRR
+        aa, bb, gg, rr = c[0:2], c[2:4], c[4:6], c[6:8]
+        alpha = int(aa, 16)
+        if alpha > 0:
+            # ASS alpha: 0=opaque, 255=transparent
+            css_alpha = round(1 - alpha / 255, 2)
+            return f"rgba({int(rr, 16)},{int(gg, 16)},{int(bb, 16)},{css_alpha})"
+        return f"#{rr}{gg}{bb}"
+
+    @classmethod
+    def _build_vtt_style_block(cls, metadata: Dict) -> List[str]:
+        """Build VTT STYLE block from ass_styles metadata."""
+        ass_styles = metadata.get("ass_styles", {})
+        default_style = ass_styles.get("Default")
+        if not default_style:
+            return []
+
+        props: List[str] = []
+        if "fontname" in default_style:
+            props.append(f"  font-family: {default_style['fontname']};")
+        if "bold" in default_style and default_style["bold"]:
+            props.append("  font-weight: bold;")
+        if "italic" in default_style and default_style["italic"]:
+            props.append("  font-style: italic;")
+        if "primarycolor" in default_style:
+            props.append(f"  color: {cls._ass_color_to_css(default_style['primarycolor'])};")
+
+        borderstyle = default_style.get("borderstyle", 1)
+        if borderstyle == 3 and "backcolor" in default_style:
+            # Opaque box mode
+            props.append(f"  background-color: {cls._ass_color_to_css(default_style['backcolor'])};")
+            props.append("  text-shadow: none;")
+        else:
+            props.append("  background-color: transparent;")
+            outline_w = default_style.get("outline", 0)
+            if outline_w > 0 and "outlinecolor" in default_style:
+                oc = cls._ass_color_to_css(default_style["outlinecolor"])
+                w = max(1, round(outline_w))
+                # 4-direction text-shadow for outline
+                props.append(f"  text-shadow: -{w}px 0 {oc}, {w}px 0 {oc}, 0 -{w}px {oc}, 0 {w}px {oc};")
+
+        if not props:
+            return []
+        return ["STYLE", "::cue {"] + props + ["}"]
+
     @classmethod
     def _to_vtt_bytes_with_metadata(
         cls,
@@ -372,7 +421,7 @@ class VTTFormat(FormatHandler):
         include_speaker: bool = True,
         metadata: Optional[Dict] = None,
     ) -> bytes:
-        """Generate VTT with metadata header."""
+        """Generate VTT with metadata header and optional STYLE block."""
         lines = ["WEBVTT"]
 
         if metadata:
@@ -380,6 +429,11 @@ class VTTFormat(FormatHandler):
                 lines.append(f"Kind: {metadata['kind']}")
             if metadata.get("language"):
                 lines.append(f"Language: {metadata['language']}")
+
+        # Inject STYLE block from ass_styles metadata
+        if metadata and metadata.get("ass_styles"):
+            lines.append("")
+            lines.extend(cls._build_vtt_style_block(metadata))
 
         lines.append("")
 

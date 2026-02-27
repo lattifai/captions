@@ -298,6 +298,151 @@ class TestVTTIntegration:
 
 
 # =============================================================================
+# VTT Style Tests (STYLE ::cue block)
+# =============================================================================
+
+
+class TestVTTStyle:
+    """Tests for VTT STYLE block generation from ass_styles metadata."""
+
+    def test_ass_color_to_css_opaque(self):
+        """Test ASS color to CSS hex conversion (alpha=00, fully opaque)."""
+        assert VTTFormat._ass_color_to_css("&H0000FF00") == "#00FF00"  # green
+        assert VTTFormat._ass_color_to_css("&H00FFFF00") == "#00FFFF"  # cyan
+        assert VTTFormat._ass_color_to_css("&H00AD448E") == "#8E44AD"  # purple
+        assert VTTFormat._ass_color_to_css("&H00FFFFFF") == "#FFFFFF"  # white
+        assert VTTFormat._ass_color_to_css("&H00000000") == "#000000"  # black
+
+    def test_ass_color_to_css_with_alpha(self):
+        """Test ASS color to CSS rgba conversion (alpha > 0)."""
+        # ASS alpha: 0=opaque, 255=transparent
+        result = VTTFormat._ass_color_to_css("&H80000000")
+        assert result.startswith("rgba(")
+        assert "0,0,0," in result
+
+    def test_build_style_block_with_background(self):
+        """Test STYLE block generation with opaque box (borderstyle=3)."""
+        metadata = {
+            "ass_styles": {
+                "Default": {
+                    "fontname": "Arial",
+                    "primarycolor": "&H0000FF00",
+                    "backcolor": "&H00AD448E",
+                    "borderstyle": 3,
+                    "bold": False,
+                    "italic": True,
+                }
+            }
+        }
+        lines = VTTFormat._build_vtt_style_block(metadata)
+        block = "\n".join(lines)
+
+        assert "STYLE" in block
+        assert "::cue {" in block
+        assert "font-family: Arial;" in block
+        assert "font-style: italic;" in block
+        assert "color: #00FF00;" in block
+        assert "background-color: #8E44AD;" in block
+        assert "text-shadow: none;" in block
+        # Should NOT have font-weight: bold since bold=False
+        assert "font-weight" not in block
+
+    def test_build_style_block_with_outline(self):
+        """Test STYLE block generation with outline (borderstyle=1)."""
+        metadata = {
+            "ass_styles": {
+                "Default": {
+                    "fontname": "Noto Sans",
+                    "primarycolor": "&H00FFFFFF",
+                    "outlinecolor": "&H00000000",
+                    "bold": True,
+                    "outline": 2,
+                    "borderstyle": 1,
+                }
+            }
+        }
+        lines = VTTFormat._build_vtt_style_block(metadata)
+        block = "\n".join(lines)
+
+        assert "font-family: Noto Sans;" in block
+        assert "font-weight: bold;" in block
+        assert "color: #FFFFFF;" in block
+        assert "background-color: transparent;" in block
+        assert "text-shadow:" in block
+        assert "#000000" in block
+
+    def test_build_style_block_no_styles(self):
+        """Test that empty metadata produces no STYLE block."""
+        assert VTTFormat._build_vtt_style_block({}) == []
+        assert VTTFormat._build_vtt_style_block({"ass_styles": {}}) == []
+
+    def test_write_vtt_with_style_metadata(self):
+        """Test full VTT output contains STYLE block when ass_styles provided."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0),
+            Supervision(text="Styled subtitle", start=3.5, duration=1.5),
+        ]
+        metadata = {
+            "ass_styles": {
+                "Default": {
+                    "fontname": "Arial",
+                    "primarycolor": "&H0000FF00",
+                    "backcolor": "&H00AD448E",
+                    "borderstyle": 3,
+                }
+            }
+        }
+        result = VTTFormat.to_bytes(supervisions, metadata=metadata).decode("utf-8")
+
+        assert result.startswith("WEBVTT")
+        assert "STYLE" in result
+        assert "::cue {" in result
+        assert "color: #00FF00;" in result
+        assert "background-color: #8E44AD;" in result
+        # Cues should still be present
+        assert "Hello world" in result
+        assert "Styled subtitle" in result
+
+    def test_write_vtt_without_style_metadata(self):
+        """Test VTT output has no STYLE block when no ass_styles provided."""
+        supervisions = [
+            Supervision(text="Plain subtitle", start=0.0, duration=2.0),
+        ]
+        result = VTTFormat.to_bytes(supervisions).decode("utf-8")
+
+        assert result.startswith("WEBVTT")
+        assert "STYLE" not in result
+        assert "::cue" not in result
+        assert "Plain subtitle" in result
+
+    def test_write_vtt_style_with_other_metadata(self):
+        """Test STYLE block coexists with Kind/Language metadata."""
+        supervisions = [
+            Supervision(text="Test", start=0.0, duration=1.0),
+        ]
+        metadata = {
+            "kind": "captions",
+            "language": "en",
+            "ass_styles": {
+                "Default": {
+                    "fontname": "Helvetica",
+                    "primarycolor": "&H00FFFFFF",
+                    "outlinecolor": "&H00000000",
+                    "outline": 1,
+                    "borderstyle": 1,
+                }
+            },
+        }
+        result = VTTFormat.to_bytes(supervisions, metadata=metadata).decode("utf-8")
+
+        assert "Kind: captions" in result
+        assert "Language: en" in result
+        assert "STYLE" in result
+        assert "font-family: Helvetica;" in result
+        assert "Test" in result
+
+
+# =============================================================================
 # Main entry point for direct execution
 # =============================================================================
 

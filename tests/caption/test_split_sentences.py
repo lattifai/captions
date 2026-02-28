@@ -271,8 +271,7 @@ def test_split_sentences_preserves_event_supervisions_from_gemini():
                 for bracket in brackets:
                     if bracket in events_before:
                         raise AssertionError(
-                            f"Event '{bracket}' was merged into '{event_after}'. "
-                            f"Events should remain separate."
+                            f"Event '{bracket}' was merged into '{event_after}'. " f"Events should remain separate."
                         )
 
 
@@ -340,6 +339,56 @@ def test_split_sentences_chinese_gemini_colon_bug():
     assert origin == result
 
 
+def test_split_event_text_single_event():
+    """Single event text should not be split."""
+    result = SentenceSplitter._split_event_text("[Laughter]")
+    assert result == ["[Laughter]"]
+
+
+def test_split_event_text_multi_event():
+    """Multi-event text should be split into individual events."""
+    result = SentenceSplitter._split_event_text("[Laughter] [Applause]")
+    assert result == ["[Laughter]", "[Applause]"]
+
+
+def test_split_event_text_non_event():
+    """Non-event text should not be split."""
+    result = SentenceSplitter._split_event_text("Hello world")
+    assert result == ["Hello world"]
+
+
+def test_split_event_text_mixed_brackets_and_text():
+    """Text with brackets mixed with normal text should NOT be split."""
+    result = SentenceSplitter._split_event_text("[INAUDIBLE] rock band [INAUDIBLE]")
+    assert result == ["[INAUDIBLE] rock band [INAUDIBLE]"]
+
+
+def test_split_event_text_three_events():
+    """Three events should all be split."""
+    result = SentenceSplitter._split_event_text("[Music] [Laughter] [Applause]")
+    assert result == ["[Music]", "[Laughter]", "[Applause]"]
+
+
+def test_split_sentences_splits_multi_event_supervisions():
+    """Multi-event supervisions like '[Laughter] [Applause]' should be split into separate events."""
+    splitter = SentenceSplitter()
+
+    supervisions = [
+        make_supervision(0, "Hello world.", speaker="Alice"),
+        make_supervision(1, "[Laughter] [Applause]", speaker=None),
+        make_supervision(2, "Goodbye.", speaker="Bob"),
+    ]
+
+    result = splitter.split_sentences(supervisions)
+
+    # Find the event texts
+    event_texts = [sup.text for sup in result if sup.text.startswith("[") and sup.text.endswith("]")]
+    assert "[Laughter]" in event_texts
+    assert "[Applause]" in event_texts
+    # Should NOT have the combined form
+    assert "[Laughter] [Applause]" not in [sup.text for sup in result]
+
+
 def test_split_sentences_chinese_colon_no_extra_space():
     """Chinese colon should not insert extra space."""
     splitter = SentenceSplitter()
@@ -354,4 +403,3 @@ def test_split_sentences_chinese_colon_no_extra_space():
 
 if __name__ == "__main__":
     test_split_sentences_preserves_event_supervisions_from_gemini()
-

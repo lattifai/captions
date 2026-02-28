@@ -261,6 +261,93 @@ class TestYouTubeGeminiReader:
         assert len(sups_with_merge) <= len(sups_no_merge)
 
 
+class TestMultiEventParsing:
+    """Tests for parsing multi-event lines like [Laughter] [Applause] [00:13:38]."""
+
+    def test_multi_event_line(self):
+        """Multi-event line should be split into separate event segments."""
+        content = """Some dialogue here. [00:13:30]
+
+[Laughter] [Applause] [00:13:38]
+
+More dialogue. [00:13:45]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        event_segments = [s for s in segments if s.segment_type == "event"]
+
+        assert len(event_segments) == 2
+        assert event_segments[0].text == "[Laughter]"
+        assert event_segments[1].text == "[Applause]"
+        assert event_segments[0].timestamp == 13 * 60 + 38
+        assert event_segments[1].timestamp == 13 * 60 + 38
+
+    def test_multi_event_with_ms(self):
+        """Multi-event line with milliseconds should parse correctly."""
+        content = """[Laughter] [Applause] [00:13:38.500]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        event_segments = [s for s in segments if s.segment_type == "event"]
+
+        assert len(event_segments) == 2
+        assert event_segments[0].text == "[Laughter]"
+        assert event_segments[1].text == "[Applause]"
+        assert event_segments[0].timestamp == 13 * 60 + 38.5
+
+    def test_three_events(self):
+        """Three events on one line should all be parsed."""
+        content = """[Music] [Laughter] [Applause] [00:05:00]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        event_segments = [s for s in segments if s.segment_type == "event"]
+
+        assert len(event_segments) == 3
+        assert event_segments[0].text == "[Music]"
+        assert event_segments[1].text == "[Laughter]"
+        assert event_segments[2].text == "[Applause]"
+
+    def test_multi_event_mm_ss_format(self):
+        """Multi-event with MM:SS format timestamp."""
+        content = """[Laughter] [Applause] [13:38]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        event_segments = [s for s in segments if s.segment_type == "event"]
+
+        assert len(event_segments) == 2
+        assert event_segments[0].timestamp == 13 * 60 + 38
+
+    def test_multi_event_excluded_when_include_events_false(self):
+        """Multi-event lines should be excluded when include_events=False."""
+        content = """[Laughter] [Applause] [00:13:38]
+"""
+        segments = GeminiReader.read(content, include_events=False)
+        assert len(segments) == 0
+
+    def test_single_event_still_works(self):
+        """Single event lines should still work as before."""
+        content = """[Applause] [00:13:38]
+"""
+        segments = GeminiReader.read(content, include_events=True)
+        event_segments = [s for s in segments if s.segment_type == "event"]
+
+        assert len(event_segments) == 1
+        assert event_segments[0].text == "[Applause]"
+
+    def test_multi_event_extract_for_alignment(self):
+        """Multi-event lines should produce separate supervisions in extract_for_alignment."""
+        content = """Some text here. [00:13:30]
+
+[Laughter] [Applause] [00:13:38]
+
+More text. [00:13:45]
+"""
+        supervisions = GeminiReader.extract_for_alignment(content)
+        event_sups = [s for s in supervisions if s.text.startswith("[") and s.text.endswith("]")]
+
+        assert len(event_sups) == 2
+        assert event_sups[0].text == "[Laughter]"
+        assert event_sups[1].text == "[Applause]"
+
+
 class TestGeminiWriter:
     """Tests for GeminiWriter class (formerly GeminiWriter)."""
 

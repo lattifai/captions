@@ -8,6 +8,7 @@ from .utils import _resolve_model_path
 # Pre-compiled regex patterns for performance
 _SPECIAL_PATTERN_1 = re.compile(r"^(\[[^\]]+\])\s+(&gt;&gt;|>>)\s+(.+)$")
 _SPECIAL_PATTERN_2 = re.compile(r"^(\[[^\]]+\])\s+([^:]+:)(.*)$")
+_MULTI_EVENT_RE = re.compile(r"\[[^\]]+\]")
 
 
 class SentenceSplitter:
@@ -163,6 +164,19 @@ class SentenceSplitter:
         return text.startswith("[") and text.endswith("]")
 
     @staticmethod
+    def _split_event_text(text: str) -> List[str]:
+        """Split multi-event text '[Laughter] [Applause]' into individual events.
+
+        Only splits if the text is entirely composed of bracketed items separated
+        by whitespace (e.g., '[A] [B]' but NOT '[A] some text [B]').
+        """
+        stripped = text.strip()
+        events = _MULTI_EVENT_RE.findall(stripped)
+        if len(events) > 1 and " ".join(events) == stripped:
+            return events
+        return [text]
+
+    @staticmethod
     def _resplit_special_sentence_types(sentence: str) -> List[str]:
         """Re-split [EVENT] >> SPEAKER: patterns into separate parts."""
         sentence = sentence.strip()
@@ -191,12 +205,7 @@ class SentenceSplitter:
     def _is_cjk_char(ch: str) -> bool:
         """Check if a character is CJK (Chinese, Japanese, Korean)."""
         cp = ord(ch)
-        return (
-            0x4E00 <= cp <= 0x9FFF
-            or 0x3040 <= cp <= 0x30FF
-            or 0xAC00 <= cp <= 0xD7AF
-            or 0x3400 <= cp <= 0x4DBF
-        )
+        return 0x4E00 <= cp <= 0x9FFF or 0x3040 <= cp <= 0x30FF or 0xAC00 <= cp <= 0xD7AF or 0x3400 <= cp <= 0x4DBF
 
     @staticmethod
     def _needs_space_after(text: str) -> bool:
@@ -206,9 +215,7 @@ class SentenceSplitter:
             return False
         return True
 
-    def _segment_supervisions(
-        self, supervisions: List[Supervision]
-    ) -> Tuple[List[str], List[Optional[str]], set]:
+    def _segment_supervisions(self, supervisions: List[Supervision]) -> Tuple[List[str], List[Optional[str]], set]:
         """Segment supervisions into text chunks with speakers.
 
         Returns:
@@ -240,9 +247,20 @@ class SentenceSplitter:
             if is_event:
                 if segment_start < idx:
                     flush_segment(idx - 1, None)
-                flush_segment(idx, sup.speaker)
-                event_indices.add(len(texts) - 1)
-                accumulated_len = 0
+                # Split multi-event text like "[Laughter] [Applause]" into individual events
+                sub_events = self._split_event_text(sup.text)
+                if len(sub_events) > 1:
+                    # Don't flush as a single segment; emit each sub-event individually
+                    segment_start = idx + 1
+                    accumulated_len = 0
+                    for sub_event in sub_events:
+                        speakers.append(sup.speaker)
+                        texts.append(sub_event)
+                        event_indices.add(len(texts) - 1)
+                else:
+                    flush_segment(idx, sup.speaker)
+                    event_indices.add(len(texts) - 1)
+                    accumulated_len = 0
                 continue
 
             accumulated_len += len(sup.text)

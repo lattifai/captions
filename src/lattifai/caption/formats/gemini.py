@@ -53,6 +53,12 @@ class GeminiReader:
     )
     SECTION_HEADER_PATTERN = re.compile(r"^##\s*\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.+)$")
     SPEAKER_PATTERN = re.compile(r"^\*\*(.+?[:：])\*\*\s*(.+)$")
+    # Multi-event pattern: [Event1] [Event2] ... [TIMESTAMP] - two or more events before timestamp
+    # Each event bracket must contain at least one letter (to exclude timestamps like [00:00:00])
+    MULTI_EVENT_PATTERN = re.compile(
+        r"^(\[[^\]]*[a-zA-Z\u4e00-\u9fff][^\]]*\](?:\s+\[[^\]]*[a-zA-Z\u4e00-\u9fff][^\]]*\])+)"
+        r"\s+\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$"
+    )
     # Event pattern: [Event] [HH:MM:SS.mmm] or [Event] [MM:SS.mmm] - prioritize HH:MM:SS format
     EVENT_PATTERN = re.compile(r"^\[([^\]]+)\]\s*\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$")
     # Timestamp at the end indicates end time (with optional milliseconds)
@@ -223,6 +229,35 @@ class GeminiReader:
                         # If it has an end but no start, this standalone might be its start?
                         # Usually standalone is end, but let's be flexible
                         segments[-1].timestamp = ts
+                continue
+
+            # Parse multi-event lines: [Event1] [Event2] [HH:MM:SS]
+            multi_event_match = cls.MULTI_EVENT_PATTERN.match(line)
+            if multi_event_match:
+                groups = multi_event_match.groups()
+                event_group = groups[0]
+                hours_or_minutes = groups[1]
+                minutes_or_seconds = groups[2]
+                seconds_optional = groups[3]
+                ms = groups[4]
+
+                if seconds_optional is not None:
+                    timestamp = cls.parse_timestamp(hours_or_minutes, minutes_or_seconds, seconds_optional, ms)
+                else:
+                    timestamp = cls.parse_timestamp(hours_or_minutes, minutes_or_seconds, ms=ms)
+
+                if include_events and timestamp is not None:
+                    individual_events = re.findall(r"\[[^\]]+\]", event_group)
+                    for event_text in individual_events:
+                        segments.append(
+                            GeminiSegment(
+                                text=event_text.strip(),
+                                timestamp=timestamp,
+                                section=current_section,
+                                segment_type="event",
+                                line_number=line_num,
+                            )
+                        )
                 continue
 
             # Parse event descriptions [event] [HH:MM:SS] or [event] [HH:MM:SS.mmm]

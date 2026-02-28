@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.7 - 2026-02-28
+
+### Fixes
+- Split multi-event text like `[Laughter] [Applause]` into separate events in both Gemini parser and sentence splitter
+
 ## 0.2.6 - 2026-02-27
 
 ### Fixes

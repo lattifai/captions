@@ -87,21 +87,34 @@ class CSVFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], include_speaker: bool = True, **kwargs) -> bytes:
         """Convert to CSV format bytes."""
+        has_translations = any(sup.translation for sup in supervisions)
         output = StringIO()
         writer = csv.writer(output)
 
         if include_speaker:
-            writer.writerow(["speaker", "start", "end", "text"])
+            header = ["speaker", "start", "end", "text"]
+            if has_translations:
+                header.append("translation")
+            writer.writerow(header)
             for sup in supervisions:
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{sup.speaker} {sup.text.strip()}"
                 else:
                     text = sup.text.strip()
-                writer.writerow([sup.speaker or "", round(1000 * sup.start), round(1000 * sup.end), text])
+                row = [sup.speaker or "", round(1000 * sup.start), round(1000 * sup.end), text]
+                if has_translations:
+                    row.append(sup.translation or "")
+                writer.writerow(row)
         else:
-            writer.writerow(["start", "end", "text"])
+            header = ["start", "end", "text"]
+            if has_translations:
+                header.append("translation")
+            writer.writerow(header)
             for sup in supervisions:
-                writer.writerow([round(1000 * sup.start), round(1000 * sup.end), sup.text.strip()])
+                row = [round(1000 * sup.start), round(1000 * sup.end), sup.text.strip()]
+                if has_translations:
+                    row.append(sup.translation or "")
+                writer.writerow(row)
 
         return output.getvalue().encode("utf-8")
 
@@ -178,18 +191,31 @@ class TSVFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], include_speaker: bool = True, **kwargs) -> bytes:
         """Convert to TSV format bytes."""
+        has_translations = any(sup.translation for sup in supervisions)
         lines = []
         if include_speaker:
-            lines.append("speaker\tstart\tend\ttext")
+            header = "speaker\tstart\tend\ttext"
+            if has_translations:
+                header += "\ttranslation"
+            lines.append(header)
             for sup in supervisions:
                 speaker = sup.speaker if cls._should_include_speaker(sup, include_speaker) else ""
                 text = sup.text.strip().replace("\t", " ")
-                lines.append(f"{speaker}\t{round(1000 * sup.start)}\t{round(1000 * sup.end)}\t{text}")
+                line = f"{speaker}\t{round(1000 * sup.start)}\t{round(1000 * sup.end)}\t{text}"
+                if has_translations:
+                    line += f"\t{(sup.translation or '').replace(chr(9), ' ')}"
+                lines.append(line)
         else:
-            lines.append("start\tend\ttext")
+            header = "start\tend\ttext"
+            if has_translations:
+                header += "\ttranslation"
+            lines.append(header)
             for sup in supervisions:
                 text = sup.text.strip().replace("\t", " ")
-                lines.append(f"{round(1000 * sup.start)}\t{round(1000 * sup.end)}\t{text}")
+                line = f"{round(1000 * sup.start)}\t{round(1000 * sup.end)}\t{text}"
+                if has_translations:
+                    line += f"\t{(sup.translation or '').replace(chr(9), ' ')}"
+                lines.append(line)
 
         return "\n".join(lines).encode("utf-8")
 

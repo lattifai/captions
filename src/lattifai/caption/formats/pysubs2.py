@@ -172,10 +172,12 @@ class Pysubs2Format(FormatHandler):
         if word_level and not karaoke_enabled:
             supervisions = expand_to_word_supervisions(supervisions)
 
+        from .base import render_bilingual_text
+
         subs = pysubs2.SSAFile()
 
         for sup in supervisions:
-            text = sup.text or ""
+            text = render_bilingual_text(sup)
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{sup.speaker} {text}"
 
@@ -440,7 +442,9 @@ class ASSFormat(Pysubs2Format):
                 )
             else:
                 # Standard mode: restore custom attributes from supervision
-                text = sup.text or ""
+                from .base import render_bilingual_text
+
+                text = render_bilingual_text(sup, separator="\\N")
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{sup.speaker} {text}"
 
@@ -640,10 +644,12 @@ class SSAFormat(ASSFormat):
         if word_level and not (karaoke_config and karaoke_config.enabled):
             supervisions = expand_to_word_supervisions(supervisions)
 
+        from .base import render_bilingual_text
+
         subs = cls._create_ass_file_with_metadata(metadata)
 
         for sup in supervisions:
-            text = sup.text or ""
+            text = render_bilingual_text(sup, separator="\\N")
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{sup.speaker} {text}"
             event = cls._create_event_from_supervision(sup, text)

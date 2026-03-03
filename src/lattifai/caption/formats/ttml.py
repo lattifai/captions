@@ -448,9 +448,21 @@ class TTMLFormatBase(FormatHandler):
                 span = ET.SubElement(p, f"{{{TTML_NS}}}span")
                 span.set(f"{{{TTML_STYLE_NS}}}fontWeight", "bold")
                 span.text = f"{sup.speaker} "
-                span.tail = sup.text.strip() if sup.text else ""
+                text_content = sup.text.strip() if sup.text else ""
+                if sup.translation:
+                    span.tail = text_content
+                    br = ET.SubElement(p, f"{{{TTML_NS}}}br")
+                    br.tail = sup.translation
+                else:
+                    span.tail = text_content
             else:
-                p.text = sup.text.strip() if sup.text else ""
+                text_content = sup.text.strip() if sup.text else ""
+                if sup.translation:
+                    p.text = text_content
+                    br = ET.SubElement(p, f"{{{TTML_NS}}}br")
+                    br.tail = sup.translation
+                else:
+                    p.text = text_content
 
         return root
 

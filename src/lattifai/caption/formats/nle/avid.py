@@ -193,7 +193,9 @@ class AvidDSWriter:
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
             # Prepare text
-            text = sup.text.strip() if sup.text else ""
+            from ..base import render_bilingual_text
+
+            text = render_bilingual_text(sup)
 
             # Check if speaker should be included
             include_this_speaker = config.include_speaker and sup.speaker
@@ -241,7 +243,9 @@ class AvidDSWriter:
             start_tc = cls.seconds_to_timecode(sup.start, config.fps, config.drop_frame)
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
-            text = sup.text.strip() if sup.text else ""
+            from ..base import render_bilingual_text
+
+            text = render_bilingual_text(sup)
 
             # Check if speaker should be included
             include_this_speaker = config.include_speaker and sup.speaker

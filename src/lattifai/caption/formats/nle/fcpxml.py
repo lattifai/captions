@@ -247,8 +247,10 @@ class FCPXMLWriter:
             )
 
             # Add text content
+            from ..base import render_bilingual_text
+
             text_elem = ET.SubElement(caption, "text")
-            text_elem.text = sup.text or ""
+            text_elem.text = render_bilingual_text(sup)
 
             # Add style reference
             style_id = speaker_style_ids.get(sup.speaker, default_style_id)

@@ -746,7 +746,10 @@ class GeminiWriter:
             for i, sup in enumerate(aligned_supervisions):
                 # Write segment with timestamp
                 start_ts = cls.format_timestamp(sup.start)
-                f.write(f"{start_ts} {sup.text}\n")
+                text = sup.text or ""
+                if sup.translation:
+                    text = f"{text}\n{sup.translation}"
+                f.write(f"{start_ts} {text}\n")
 
                 # Optionally write word-level timestamps
                 if include_word_timestamps and hasattr(sup, "alignment") and sup.alignment:

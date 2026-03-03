@@ -178,6 +178,22 @@ ReaderType = type[FormatReader]
 WriterType = type[FormatWriter]
 
 
+def render_bilingual_text(sup: "Supervision", separator: str = "\n") -> str:
+    """Render supervision text with translation appended.
+
+    Args:
+        sup: Supervision object
+        separator: Separator between original text and translation
+
+    Returns:
+        Combined text string
+    """
+    text = sup.text or ""
+    if sup.translation:
+        text = f"{text}{separator}{sup.translation}"
+    return text
+
+
 def expand_to_word_supervisions(supervisions: List["Supervision"]) -> List["Supervision"]:
     """Expand supervisions with word alignment to one supervision per word.
 

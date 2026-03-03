@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from .config import InputCaptionFormat, OutputCaptionFormat  # noqa: F401
 from .formats import detect_format, get_reader, get_writer
-from .supervision import AlignmentItem, Pathlike, Supervision
+from .supervision import AlignmentItem, Pathlike, Supervision, fastcopy
 
 
 @dataclass
@@ -36,6 +36,7 @@ class Caption:
     supervisions: List[Supervision] = field(default_factory=list)
 
     language: Optional[str] = None
+    target_lang: Optional[str] = None
     kind: Optional[str] = None
     source_format: Optional[str] = None
     source_path: Optional[Pathlike] = None
@@ -125,6 +126,114 @@ class Caption:
         """
         speakers = {sup.speaker for sup in self.supervisions if sup.speaker}
         return sorted(speakers)
+
+    @property
+    def is_bilingual(self) -> bool:
+        """Check if any supervision has translation data."""
+        return any(sup.is_bilingual for sup in self.supervisions)
+
+    def set_translations(self, translations: List[str], target_lang: Optional[str] = None) -> "Caption":
+        """Set translations for supervisions.
+
+        Args:
+            translations: List of translated strings, one per supervision
+            target_lang: Language code of the translations (e.g., 'zh', 'ja')
+
+        Returns:
+            Self for chaining
+        """
+        if len(translations) != len(self.supervisions):
+            raise ValueError(
+                f"Number of translations ({len(translations)}) must match "
+                f"number of supervisions ({len(self.supervisions)})"
+            )
+        for sup, trans in zip(self.supervisions, translations):
+            sup.translation = trans
+            if target_lang:
+                sup.target_lang = target_lang
+        if target_lang:
+            self.target_lang = target_lang
+        return self
+
+    def strip_translations(self) -> "Caption":
+        """Remove all translation data from supervisions.
+
+        Returns:
+            Self for chaining
+        """
+        for sup in self.supervisions:
+            sup.translation = None
+            sup.target_lang = None
+        self.target_lang = None
+        return self
+
+    def merge_bilingual(
+        self,
+        mode: str = "line_by_line",
+        primary_language: Optional[str] = None,
+        secondary_language: Optional[str] = None,
+    ) -> "Caption":
+        """Parse existing bilingual text into translation fields.
+
+        Args:
+            mode: "line_by_line" splits each supervision's text by newline
+                  (first line -> text, second line -> translation);
+                  "alternating" merges consecutive supervisions with same timing
+                  (first -> text, second -> translation)
+            primary_language: Language code for the primary text
+            secondary_language: Language code for the translation
+
+        Returns:
+            New Caption with translation fields populated
+        """
+        if mode == "line_by_line":
+            new_sups = []
+            for sup in self.supervisions:
+                text = sup.text or ""
+                lines = text.split("\n")
+                if len(lines) >= 2:
+                    new_sup = fastcopy(
+                        sup,
+                        text=lines[0].strip(),
+                        translation=lines[1].strip(),
+                        language=primary_language or sup.language,
+                        target_lang=secondary_language,
+                    )
+                else:
+                    new_sup = fastcopy(sup, language=primary_language or sup.language)
+                new_sups.append(new_sup)
+        elif mode == "alternating":
+            new_sups = []
+            i = 0
+            while i < len(self.supervisions):
+                sup = self.supervisions[i]
+                if i + 1 < len(self.supervisions):
+                    next_sup = self.supervisions[i + 1]
+                    # Same timing -> merge
+                    if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
+                        new_sup = fastcopy(
+                            sup,
+                            translation=next_sup.text,
+                            language=primary_language or sup.language,
+                            target_lang=secondary_language,
+                        )
+                        new_sups.append(new_sup)
+                        i += 2
+                        continue
+                new_sups.append(fastcopy(sup, language=primary_language or sup.language))
+                i += 1
+        else:
+            raise ValueError(f"Unknown mode: {mode}. Use 'line_by_line' or 'alternating'.")
+
+        return Caption(
+            supervisions=new_sups,
+            language=primary_language or self.language,
+            target_lang=secondary_language,
+            kind=self.kind,
+            source_format=self.source_format,
+            source_path=self.source_path,
+            metadata=self.metadata.copy(),
+        )
 
     def shift_time(self, seconds: float) -> "Caption":
         """

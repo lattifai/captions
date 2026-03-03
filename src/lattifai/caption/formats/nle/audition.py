@@ -130,7 +130,9 @@ class AuditionCSVWriter:
             duration = cls._format_time(sup.duration, config.time_format, config.sample_rate)
 
             if config.use_description:
-                description = sup.text.strip() if sup.text else ""
+                from ..base import render_bilingual_text
+
+                description = render_bilingual_text(sup)
             else:
                 description = ""
 
@@ -276,9 +278,11 @@ class EdiMarkerWriter:
             else:
                 name = f"{config.marker_prefix}{i:03d}"
 
+            from ..base import render_bilingual_text
+
             start_tc = cls._seconds_to_timecode(sup.start, fps)
             end_tc = cls._seconds_to_timecode(sup.end, fps)
-            text = sup.text.strip() if sup.text else ""
+            text = render_bilingual_text(sup)
 
             writer.writerow([name, start_tc, end_tc, text])
 

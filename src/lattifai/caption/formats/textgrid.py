@@ -131,7 +131,8 @@ class TextGridFormat(FormatHandler):
         output_path = Path(output_path)
         tg = TextGrid()
 
-        utterances = []
+        # Group utterances by speaker
+        speaker_utterances: Dict[str, List] = {}
         events = []
         words = []
         scores = {"utterances": [], "words": []}
@@ -143,16 +144,13 @@ class TextGridFormat(FormatHandler):
                 continue
 
             text = sup.text or ""
-            if include_speaker and sup.speaker:
-                # Check if speaker should be included
-                include_this_speaker = True
-                if hasattr(sup, "custom") and sup.custom and not sup.custom.get("original_speaker", True):
-                    include_this_speaker = False
+            # Respect original_speaker flag: if False, treat as no speaker
+            use_speaker = sup.speaker or ""
+            if use_speaker and hasattr(sup, "custom") and sup.custom and not sup.custom.get("original_speaker", True):
+                use_speaker = ""
+            speaker_key = use_speaker
 
-                if include_this_speaker:
-                    text = f"{sup.speaker} {text}"
-
-            utterances.append(Interval(sup.start, sup.end, text))
+            speaker_utterances.setdefault(speaker_key, []).append(Interval(sup.start, sup.end, text))
 
             # Extract word-level alignment if present
             alignment = getattr(sup, "alignment", None)
@@ -165,8 +163,15 @@ class TextGridFormat(FormatHandler):
             if hasattr(sup, "custom") and sup.custom and "score" in sup.custom:
                 scores["utterances"].append(Interval(sup.start, sup.end, f"{sup.custom['score']:.2f}"))
 
-        # Add utterances tier
-        tg.add_tier(IntervalTier(name="utterances", objects=utterances))
+        # Add utterance tiers - split by speaker if speakers exist
+        has_speakers = any(k for k in speaker_utterances if k)
+        if has_speakers:
+            for speaker_name in sorted(speaker_utterances):
+                tier_name = speaker_name if speaker_name else "utterances"
+                tg.add_tier(IntervalTier(name=tier_name, objects=speaker_utterances[speaker_name]))
+        else:
+            all_utterances = speaker_utterances.get("", [])
+            tg.add_tier(IntervalTier(name="utterances", objects=all_utterances))
 
         # Add event tiers (Event, Event2, ...) for overlapping events
         if events:

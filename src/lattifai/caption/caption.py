@@ -592,6 +592,7 @@ class Caption:
         word_level: bool = False,
         karaoke_config: Optional["KaraokeConfig"] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        translation_first: bool = False,
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
@@ -605,11 +606,26 @@ class Caption:
                 enables karaoke styling (ASS \\kf tags, enhanced LRC, etc.)
             metadata: Optional metadata dict to pass to writer. If None, uses self.metadata.
                 Can be used to override or supplement format-specific metadata.
+            translation_first: When True, render translation text above original text
+                in bilingual output. Default is False (original text first).
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
         """
         supervisions = self.supervisions
+
+        # Swap text and translation for translation-first bilingual output
+        if translation_first:
+            import dataclasses
+
+            swapped = []
+            for sup in supervisions:
+                if sup.translation:
+                    new_sup = dataclasses.replace(sup, text=sup.translation, translation=sup.text)
+                    swapped.append(new_sup)
+                else:
+                    swapped.append(sup)
+            supervisions = swapped
 
         # Merge external metadata with self.metadata (external takes precedence)
         effective_metadata = dict(self.metadata) if self.metadata else {}

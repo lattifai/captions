@@ -9,6 +9,8 @@ from .utils import _resolve_model_path
 _SPECIAL_PATTERN_1 = re.compile(r"^(\[[^\]]+\])\s+(&gt;&gt;|>>)\s+(.+)$")
 _SPECIAL_PATTERN_2 = re.compile(r"^(\[[^\]]+\])\s+([^:]+:)(.*)$")
 _MULTI_EVENT_RE = re.compile(r"\[[^\]]+\]")
+_TRAILING_EVENTS_RE = re.compile(r"^(.+?)\s+(\[[^\]]+\](?:\s+\[[^\]]+\])*)$")
+_LEADING_EVENTS_RE = re.compile(r"^(\[[^\]]+\](?:\s+\[[^\]]+\])*)\s+(.+)$")
 
 
 class SentenceSplitter:
@@ -177,6 +179,40 @@ class SentenceSplitter:
         return [text]
 
     @staticmethod
+    def _split_inline_events(text: str) -> List[str]:
+        """Split trailing/leading event markers from normal text.
+
+        Examples:
+            "And breathe out. [Breathes out]" -> ["And breathe out.", "[Breathes out]"]
+            "[Breathes in] And breathe in."   -> ["[Breathes in]", "And breathe in."]
+            "he said [INAUDIBLE] something"   -> ["he said [INAUDIBLE] something"]
+        """
+        text = text.strip()
+        if not text:
+            return [text]
+
+        # Check trailing events: "text. [Event1] [Event2]"
+        match = _TRAILING_EVENTS_RE.match(text)
+        if match:
+            prefix = match.group(1).strip()
+            events_str = match.group(2)
+            # Only split if the text part ends with punctuation
+            if prefix and any(prefix.endswith(p) for p in END_PUNCTUATION):
+                events = _MULTI_EVENT_RE.findall(events_str)
+                return [prefix] + events
+
+        # Check leading events: "[Event1] [Event2] text"
+        match = _LEADING_EVENTS_RE.match(text)
+        if match:
+            events_str = match.group(1)
+            suffix = match.group(2).strip()
+            if suffix:
+                events = _MULTI_EVENT_RE.findall(events_str)
+                return events + [suffix]
+
+        return [text]
+
+    @staticmethod
     def _resplit_special_sentence_types(sentence: str) -> List[str]:
         """Re-split [EVENT] >> SPEAKER: patterns into separate parts."""
         sentence = sentence.strip()
@@ -304,7 +340,12 @@ class SentenceSplitter:
             if i in event_indices:
                 sentences.append([texts[i]])
             else:
-                sentences.append(split_results[split_idx])
+                # Post-process: split inline events from each sentence
+                raw = split_results[split_idx]
+                expanded = []
+                for sent in raw:
+                    expanded.extend(self._split_inline_events(sent))
+                sentences.append(expanded)
                 split_idx += 1
 
         return sentences

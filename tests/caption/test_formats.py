@@ -132,11 +132,18 @@ Plain line without timestamp
         caption.write(output_file)
         assert output_file.exists()
 
-        # Read back and verify
+        # Read back and verify - speakers should be separate tiers
         content = output_file.read_text()
-        assert "utterances" in content
+        assert "SPEAKER_01" in content
+        assert "SPEAKER_02" in content
         assert "First utterance" in content
-        assert "SPEAKER_01" in content or "SPEAKER_02" in content
+        assert "Second utterance" in content
+
+        # Verify roundtrip preserves speaker as tier name
+        read_back = Caption.read(output_file)
+        speakers = {s.speaker for s in read_back.supervisions}
+        assert "SPEAKER_01" in speakers
+        assert "SPEAKER_02" in speakers
         print("✓ TextGrid format works correctly")
 
     @pytest.mark.parametrize(

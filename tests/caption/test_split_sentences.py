@@ -401,5 +401,54 @@ def test_split_sentences_chinese_colon_no_extra_space():
     assert origin == split
 
 
+def test_split_inline_events_trailing():
+    result = SentenceSplitter._split_inline_events("And breathe out. [Breathes out]")
+    assert result == ["And breathe out.", "[Breathes out]"]
+
+
+def test_split_inline_events_leading():
+    result = SentenceSplitter._split_inline_events("[Breathes in] And breathe in.")
+    assert result == ["[Breathes in]", "And breathe in."]
+
+
+def test_split_inline_events_no_split_embedded():
+    result = SentenceSplitter._split_inline_events("he said [INAUDIBLE] something")
+    assert result == ["he said [INAUDIBLE] something"]
+
+
+def test_split_inline_events_multiple_trailing():
+    result = SentenceSplitter._split_inline_events("Great show. [Laughter] [Applause]")
+    assert result == ["Great show.", "[Laughter]", "[Applause]"]
+
+
+def test_split_inline_events_plain_text():
+    result = SentenceSplitter._split_inline_events("Just a normal sentence.")
+    assert result == ["Just a normal sentence."]
+
+
+def test_split_inline_events_only_event():
+    result = SentenceSplitter._split_inline_events("[Music]")
+    assert result == ["[Music]"]
+
+
+def test_split_inline_events_leading_multiple():
+    result = SentenceSplitter._split_inline_events("[Music] [Applause] Welcome everyone.")
+    assert result == ["[Music]", "[Applause]", "Welcome everyone."]
+
+
+def test_split_sentences_separates_inline_trailing_event():
+    """Integration: mixed text 'And breathe out. [Breathes out]' should be split."""
+    splitter = SentenceSplitter()
+
+    supervisions = [
+        make_supervision(0, "And breathe out. [Breathes out]", speaker=None),
+    ]
+
+    result = splitter.split_sentences(supervisions)
+
+    texts = [sup.text for sup in result]
+    assert "[Breathes out]" in texts, f"Expected '[Breathes out]' as separate segment, got: {texts}"
+
+
 if __name__ == "__main__":
     test_split_sentences_preserves_event_supervisions_from_gemini()

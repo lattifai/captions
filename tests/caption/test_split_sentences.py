@@ -339,6 +339,32 @@ def test_split_sentences_chinese_gemini_colon_bug():
     assert origin == result
 
 
+def test_split_sentences_TheValley101_瑞士信贷_colon_space(tmp_path):
+    """Regression: Chinese colon followed by space-joined supervisions must preserve the space."""
+    import zipfile
+    from pathlib import Path
+
+    from lattifai.caption.formats.gemini import GeminiReader
+
+    zip_file = Path(__file__).parent.parent / "data" / "TheValley101_瑞士信贷-gemini-3-flash-preview.md.zip"
+    with zipfile.ZipFile(zip_file) as zf:
+        name = zf.namelist()[0]
+        data = zf.read(name)
+    test_file = tmp_path / "test.md"
+    test_file.write_bytes(data)
+
+    splitter = SentenceSplitter()
+    supervisions = GeminiReader.extract_for_alignment(test_file)
+
+    # Should not raise ValueError about missing split text
+    splits = splitter.split_sentences(supervisions)
+
+    # Text integrity
+    origin = "".join(sup.text for sup in supervisions).replace(" ", "")
+    result = "".join(sup.text for sup in splits).replace(" ", "")
+    assert origin == result
+
+
 def test_split_event_text_single_event():
     """Single event text should not be split."""
     result = SentenceSplitter._split_event_text("[Laughter]")

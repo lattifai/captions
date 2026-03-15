@@ -1,4 +1,4 @@
-# Gemini Transcript Reader/Writer (YouTube)
+# Markdown Transcript Reader/Writer
 
 ## Transcript Format
 
@@ -33,10 +33,10 @@ Thank you for being here today. [00:00:19]
 ### 1. Read Transcript with Metadata
 
 ```python
-from lattifai.caption import GeminiReader
+from lattifai.caption import MarkdownReader
 
-segments = GeminiReader.read(
-	'videoid_Gemini.md',
+segments = MarkdownReader.read(
+	'transcript.md',
 	include_events=True,
 	include_sections=True,
 )
@@ -47,9 +47,9 @@ for seg in segments:
 ### 2. Extract Dialogue for Alignment
 
 ```python
-from lattifai.caption import GeminiReader
-supervisions = GeminiReader.extract_for_alignment(
-	'videoid_Gemini.md',
+from lattifai.caption import MarkdownReader
+supervisions = MarkdownReader.extract_for_alignment(
+	'transcript.md',
 	merge_consecutive=False,
 	min_duration=0.1,
 )
@@ -58,16 +58,22 @@ supervisions = GeminiReader.extract_for_alignment(
 
 ## API Reference
 
-### GeminiReader
+### MarkdownReader
 
-`read(path, include_events=False, include_sections=False)` → List[GeminiSegment]
+`read(path, include_events=False, include_sections=False)` → List[MarkdownSegment]
 `extract_for_alignment(path, merge_consecutive=True, min_duration=0.1)` → List[Supervision]
 
-### GeminiWriter
+### MarkdownWriter
 
 `update_timestamps(original_transcript, aligned_supervisions, output_path, timestamp_mapping=None)` → Path
 `write_aligned_transcript(aligned_supervisions, output_path, include_word_timestamps=False)` → Path
 
-### GeminiSegment
+### MarkdownSegment
 
 * `text`, `timestamp`, `speaker`, `section`, `segment_type`, `line_number`
+
+### Backward Compatibility
+
+The old class names (`GeminiReader`, `GeminiWriter`, `GeminiSegment`) are still available
+as aliases and can be imported from `lattifai.caption` as before. The `"gemini"` format ID
+is also still registered in the format registry.

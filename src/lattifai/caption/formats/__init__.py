@@ -134,7 +134,7 @@ def detect_format(path: str) -> Optional[str]:
 
     # Prioritize specific formats that can detect by content
     # These often use shared extensions like .vtt, .txt, or .xml
-    priority_formats = ["vtt", "gemini", "premiere_xml"]
+    priority_formats = ["vtt", "markdown", "premiere_xml"]
     for format_id in priority_formats:
         reader_cls = _READERS.get(format_id)
         if reader_cls and reader_cls.can_read(path_str):
@@ -168,8 +168,9 @@ def detect_format(path: str) -> Optional[str]:
 # Import all format modules to trigger registration
 # These imports MUST come after register_* functions are defined
 # Standard formats
-from . import gemini  # noqa: E402  # YouTube/Gemini markdown
+from . import gemini  # noqa: E402  # Backward-compatible aliases for markdown format
 from . import lrc  # noqa: E402  # Enhanced LRC with word-level timestamps
+from . import markdown  # noqa: E402  # Markdown transcript format
 from . import podcast_transcript  # noqa: E402  # Podcast transcript with speaker labels
 from . import pysubs2  # noqa: E402  # SRT, ASS, SSA, SUB, SAMI
 from . import sbv  # noqa: E402  # SubViewer

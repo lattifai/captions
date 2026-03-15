@@ -23,14 +23,14 @@ from .base import FormatReader
 # Matches: [(HH:MM:SS)](url&t=N) or [(HH:MM:SS)](url)
 _TIMESTAMP_RE = re.compile(
     r"\[\((\d{1,2}:\d{2}:\d{2})\)\]"  # capture HH:MM:SS
-    r"\(https?://[^)]+\)"  # youtube link (not captured)
+    r"\([^)]+\)"  # link target: youtube URL or hash anchor (not captured)
 )
 
 # Quick content-sniff: speaker line followed by timestamp line
 _SNIFF_RE = re.compile(
     r"^\s*[A-Z][a-z]+(?: [A-Z][a-z]+)+\s*$"  # capitalized multi-word name
     r".*?"
-    r"\[\(\d{1,2}:\d{2}:\d{2}\)\]\(https?://",
+    r"\[\(\d{1,2}:\d{2}:\d{2}\)\]\(",
     re.MULTILINE | re.DOTALL,
 )
 

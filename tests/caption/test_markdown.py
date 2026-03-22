@@ -1,8 +1,8 @@
-"""Tests for YouTube transcript reader and writer."""
+"""Tests for Markdown transcript reader and writer."""
 
 import pytest
 
-from lattifai.caption import GeminiReader, GeminiSegment, GeminiWriter, Supervision
+from lattifai.caption import MarkdownReader, MarkdownSegment, MarkdownWriter, Supervision
 
 # Sample transcript content for testing
 SAMPLE_TRANSCRIPT = """## OpenAI Spring Update: GPT-4o
@@ -57,8 +57,8 @@ we can make freely available and broadly available to everyone and we're always 
 """
 
 
-class TestGeminiReader:
-    """Tests for GeminiReader class (formerly GeminiReader)."""
+class TestMarkdownReader:
+    """Tests for MarkdownReader class."""
 
     def test_read_all_segments(self, tmp_path):
         """Test reading all segments including events and sections."""
@@ -67,7 +67,7 @@ class TestGeminiReader:
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
         # Read all segments
-        segments = GeminiReader.read(transcript_file, include_events=True, include_sections=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True, include_sections=True)
 
         # Should have sections, events, and dialogue
         assert len(segments) > 0
@@ -84,7 +84,7 @@ class TestGeminiReader:
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
         # Read dialogue only
-        segments = GeminiReader.read(transcript_file, include_events=False, include_sections=False)
+        segments = MarkdownReader.read(transcript_file, include_events=False, include_sections=False)
 
         # Should only have dialogue
         types = {seg.segment_type for seg in segments}
@@ -92,13 +92,13 @@ class TestGeminiReader:
 
     def test_parse_timestamp(self):
         """Test timestamp parsing."""
-        timestamp = GeminiReader.parse_timestamp("00", "00", "13")
+        timestamp = MarkdownReader.parse_timestamp("00", "00", "13")
         assert timestamp == 13.0
 
-        timestamp = GeminiReader.parse_timestamp("00", "01", "01")
+        timestamp = MarkdownReader.parse_timestamp("00", "01", "01")
         assert timestamp == 61.0
 
-        timestamp = GeminiReader.parse_timestamp("01", "00", "00")
+        timestamp = MarkdownReader.parse_timestamp("01", "00", "00")
         assert timestamp == 3600.0
 
     def test_speaker_extrevent(self, tmp_path):
@@ -106,7 +106,7 @@ class TestGeminiReader:
         transcript_file = tmp_path / "test_Gemini.md"
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
-        segments = GeminiReader.read(transcript_file)
+        segments = MarkdownReader.read(transcript_file)
 
         # Find dialogue segments with speaker
         dialogue_with_speaker = [s for s in segments if s.speaker is not None]
@@ -121,7 +121,7 @@ class TestGeminiReader:
         transcript_file = tmp_path / "test_Gemini.md"
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
-        segments = GeminiReader.read(transcript_file, include_events=True, include_sections=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True, include_sections=True)
 
         # Segments should have section information
         sections = {s.section for s in segments if s.section is not None}
@@ -134,7 +134,7 @@ class TestGeminiReader:
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
         # Extract for alignment
-        supervisions = GeminiReader.extract_for_alignment(transcript_file, merge_consecutive=False)
+        supervisions = MarkdownReader.extract_for_alignment(transcript_file, merge_consecutive=False)
 
         # Should return Supervision objects
         assert len(supervisions) > 0
@@ -152,17 +152,17 @@ class TestGeminiReader:
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
         # Extract without merge
-        sups_no_merge = GeminiReader.extract_for_alignment(transcript_file, merge_consecutive=False)
+        sups_no_merge = MarkdownReader.extract_for_alignment(transcript_file, merge_consecutive=False)
 
         # Extract with merge
-        sups_with_merge = GeminiReader.extract_for_alignment(transcript_file, merge_consecutive=True)
+        sups_with_merge = MarkdownReader.extract_for_alignment(transcript_file, merge_consecutive=True)
 
         # Merged should have fewer or equal segments
         assert len(sups_with_merge) <= len(sups_no_merge)
 
 
-class TestYouTubeGeminiReader:
-    """Tests for GeminiReader with YouTube link format."""
+class TestYouTubeMarkdownReader:
+    """Tests for MarkdownReader with YouTube link format."""
 
     def test_read_youtube_format(self, tmp_path):
         """Test reading YouTube format transcript with link timestamps."""
@@ -170,7 +170,7 @@ class TestYouTubeGeminiReader:
         transcript_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
 
         # Read all segments
-        segments = GeminiReader.read(transcript_file, include_events=True, include_sections=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True, include_sections=True)
 
         # Should have sections and dialogue
         assert len(segments) > 0
@@ -183,13 +183,13 @@ class TestYouTubeGeminiReader:
     def test_youtube_timestamp_parsing(self):
         """Test YouTube timestamp parsing from URL format."""
         # Test seconds parsing
-        timestamp = GeminiReader.parse_timestamp("12")
+        timestamp = MarkdownReader.parse_timestamp("12")
         assert timestamp == 12.0
 
-        timestamp = GeminiReader.parse_timestamp("63")
+        timestamp = MarkdownReader.parse_timestamp("63")
         assert timestamp == 63.0
 
-        timestamp = GeminiReader.parse_timestamp("3661")
+        timestamp = MarkdownReader.parse_timestamp("3661")
         assert timestamp == 3661.0
 
     def test_youtube_section_headers(self, tmp_path):
@@ -197,7 +197,7 @@ class TestYouTubeGeminiReader:
         transcript_file = tmp_path / "youtube_Gemini.md"
         transcript_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
 
-        segments = GeminiReader.read(transcript_file, include_sections=True)
+        segments = MarkdownReader.read(transcript_file, include_sections=True)
 
         # Find section headers
         section_headers = [s for s in segments if s.segment_type == "section_header"]
@@ -213,7 +213,7 @@ class TestYouTubeGeminiReader:
         transcript_file = tmp_path / "youtube_Gemini.md"
         transcript_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
 
-        segments = GeminiReader.read(transcript_file)
+        segments = MarkdownReader.read(transcript_file)
 
         # Find dialogue segments with speaker
         dialogue_with_speaker = [s for s in segments if s.speaker is not None]
@@ -234,7 +234,7 @@ class TestYouTubeGeminiReader:
         transcript_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
 
         # Extract for alignment
-        supervisions = GeminiReader.extract_for_alignment(transcript_file, merge_consecutive=False)
+        supervisions = MarkdownReader.extract_for_alignment(transcript_file, merge_consecutive=False)
 
         # Should return Supervision objects
         assert len(supervisions) > 0
@@ -252,10 +252,10 @@ class TestYouTubeGeminiReader:
         transcript_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
 
         # Extract without merge
-        sups_no_merge = GeminiReader.extract_for_alignment(transcript_file, merge_consecutive=False)
+        sups_no_merge = MarkdownReader.extract_for_alignment(transcript_file, merge_consecutive=False)
 
         # Extract with merge
-        sups_with_merge = GeminiReader.extract_for_alignment(transcript_file, merge_consecutive=True)
+        sups_with_merge = MarkdownReader.extract_for_alignment(transcript_file, merge_consecutive=True)
 
         # Merged should have fewer or equal segments
         assert len(sups_with_merge) <= len(sups_no_merge)
@@ -272,7 +272,7 @@ class TestMultiEventParsing:
 
 More dialogue. [00:13:45]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         event_segments = [s for s in segments if s.segment_type == "event"]
 
         assert len(event_segments) == 2
@@ -285,7 +285,7 @@ More dialogue. [00:13:45]
         """Multi-event line with milliseconds should parse correctly."""
         content = """[Laughter] [Applause] [00:13:38.500]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         event_segments = [s for s in segments if s.segment_type == "event"]
 
         assert len(event_segments) == 2
@@ -297,7 +297,7 @@ More dialogue. [00:13:45]
         """Three events on one line should all be parsed."""
         content = """[Music] [Laughter] [Applause] [00:05:00]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         event_segments = [s for s in segments if s.segment_type == "event"]
 
         assert len(event_segments) == 3
@@ -309,7 +309,7 @@ More dialogue. [00:13:45]
         """Multi-event with MM:SS format timestamp."""
         content = """[Laughter] [Applause] [13:38]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         event_segments = [s for s in segments if s.segment_type == "event"]
 
         assert len(event_segments) == 2
@@ -319,14 +319,14 @@ More dialogue. [00:13:45]
         """Multi-event lines should be excluded when include_events=False."""
         content = """[Laughter] [Applause] [00:13:38]
 """
-        segments = GeminiReader.read(content, include_events=False)
+        segments = MarkdownReader.read(content, include_events=False)
         assert len(segments) == 0
 
     def test_single_event_still_works(self):
         """Single event lines should still work as before."""
         content = """[Applause] [00:13:38]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         event_segments = [s for s in segments if s.segment_type == "event"]
 
         assert len(event_segments) == 1
@@ -340,7 +340,7 @@ More dialogue. [00:13:45]
 
 More text. [00:13:45]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
         event_sups = [s for s in supervisions if s.text.startswith("[") and s.text.endswith("]")]
 
         assert len(event_sups) == 2
@@ -348,16 +348,16 @@ More text. [00:13:45]
         assert event_sups[1].text == "[Applause]"
 
 
-class TestGeminiWriter:
-    """Tests for GeminiWriter class (formerly GeminiWriter)."""
+class TestMarkdownWriter:
+    """Tests for MarkdownWriter class."""
 
     def test_format_timestamp(self):
         """Test timestamp formatting."""
         # Test various timestamps
-        assert GeminiWriter.format_timestamp(13.0) == "[00:00:13]"
-        assert GeminiWriter.format_timestamp(61.0) == "[00:01:01]"
-        assert GeminiWriter.format_timestamp(3661.0) == "[01:01:01]"
-        assert GeminiWriter.format_timestamp(0.0) == "[00:00:00]"
+        assert MarkdownWriter.format_timestamp(13.0) == "[00:00:13]"
+        assert MarkdownWriter.format_timestamp(61.0) == "[00:01:01]"
+        assert MarkdownWriter.format_timestamp(3661.0) == "[01:01:01]"
+        assert MarkdownWriter.format_timestamp(0.0) == "[00:00:00]"
 
     def test_update_timestamps(self, tmp_path):
         """Test updating transcript with new timestamps."""
@@ -366,7 +366,7 @@ class TestGeminiWriter:
         original_file.write_text(SAMPLE_TRANSCRIPT)
 
         # Extract supervisions
-        supervisions = GeminiReader.extract_for_alignment(original_file)
+        supervisions = MarkdownReader.extract_for_alignment(original_file)
 
         # Modify timestamps slightly (simulate alignment)
         aligned_supervisions = []
@@ -381,7 +381,7 @@ class TestGeminiWriter:
 
         # Update timestamps
         output_file = tmp_path / "updated.txt"
-        GeminiWriter.update_timestamps(original_file, aligned_supervisions, output_file)
+        MarkdownWriter.update_timestamps(original_file, aligned_supervisions, output_file)
 
         # Check output file exists
         assert output_file.exists()
@@ -397,7 +397,7 @@ class TestGeminiWriter:
         original_file.write_text(SAMPLE_TRANSCRIPT)
 
         # Extract and create aligned supervisions
-        supervisions = GeminiReader.extract_for_alignment(original_file)
+        supervisions = MarkdownReader.extract_for_alignment(original_file)
 
         # Add word-level alignment
         for sup in supervisions:
@@ -416,7 +416,7 @@ class TestGeminiWriter:
 
         # Write aligned transcript
         output_file = tmp_path / "aligned.txt"
-        GeminiWriter.write_aligned_transcript(supervisions, output_file, include_word_timestamps=True)
+        MarkdownWriter.write_aligned_transcript(supervisions, output_file, include_word_timestamps=True)
 
         # Check output
         assert output_file.exists()
@@ -429,10 +429,10 @@ class TestGeminiWriter:
         original_file = tmp_path / "original.txt"
         original_file.write_text(SAMPLE_TRANSCRIPT)
 
-        supervisions = GeminiReader.extract_for_alignment(original_file)
+        supervisions = MarkdownReader.extract_for_alignment(original_file)
 
         output_file = tmp_path / "aligned_no_words.txt"
-        GeminiWriter.write_aligned_transcript(supervisions, output_file, include_word_timestamps=False)
+        MarkdownWriter.write_aligned_transcript(supervisions, output_file, include_word_timestamps=False)
 
         assert output_file.exists()
         content = output_file.read_text()
@@ -449,7 +449,7 @@ class TestGeminiWriter:
 
         output_file = tmp_path / "output.md"
         # Should not raise TypeError when passing extra kwargs
-        GeminiWriter.write_aligned_transcript(
+        MarkdownWriter.write_aligned_transcript(
             supervisions,
             output_file,
             include_word_timestamps=False,
@@ -464,14 +464,14 @@ class TestGeminiWriter:
         assert "Goodbye world" in content
 
     def test_write_with_extra_kwargs(self, tmp_path):
-        """Test GeminiWriter.write() accepts extra kwargs."""
+        """Test MarkdownWriter.write() accepts extra kwargs."""
         supervisions = [
             Supervision(id="test_001", text="Test content", start=0.0, duration=1.5),
         ]
 
         output_file = tmp_path / "output_write.md"
         # Should not raise TypeError
-        result = GeminiWriter.write(
+        result = MarkdownWriter.write(
             supervisions,
             output_file,
             include_speaker=True,
@@ -482,13 +482,13 @@ class TestGeminiWriter:
         assert output_file.exists()
 
     def test_to_bytes_with_extra_kwargs(self):
-        """Test GeminiWriter.to_bytes() accepts extra kwargs."""
+        """Test MarkdownWriter.to_bytes() accepts extra kwargs."""
         supervisions = [
             Supervision(id="test_001", text="Bytes test", start=0.0, duration=1.0),
         ]
 
         # Should not raise TypeError
-        result = GeminiWriter.to_bytes(
+        result = MarkdownWriter.to_bytes(
             supervisions,
             include_word_timestamps=False,
             include_speaker=True,
@@ -499,12 +499,12 @@ class TestGeminiWriter:
         assert b"Bytes test" in result
 
 
-class TestGeminiGeminiSegment:
-    """Tests for GeminiSegment dataclass (shared)."""
+class TestMarkdownSegment:
+    """Tests for MarkdownSegment dataclass (shared)."""
 
     def test_segment_creation(self):
-        """Test creating a GeminiSegment."""
-        segment = GeminiSegment(
+        """Test creating a MarkdownSegment."""
+        segment = MarkdownSegment(
             text="Hello world",
             timestamp=13.0,
             speaker="Speaker",
@@ -522,10 +522,10 @@ class TestGeminiGeminiSegment:
 
     def test_start_property(self):
         """Test the start property."""
-        segment = GeminiSegment(text="Test", timestamp=10.5)
+        segment = MarkdownSegment(text="Test", timestamp=10.5)
         assert segment.start == 10.5
 
-        segment_no_ts = GeminiSegment(text="Test", timestamp=None)
+        segment_no_ts = MarkdownSegment(text="Test", timestamp=None)
         assert segment_no_ts.start == 0.0
 
 
@@ -550,7 +550,7 @@ citations:
         transcript_file = tmp_path / "frontmatter_Gemini.md"
         transcript_file.write_text(content_with_frontmatter)
 
-        segments = GeminiReader.read(transcript_file, include_events=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True)
 
         assert len(segments) == 1
         assert "Hello world" in segments[0].text
@@ -575,7 +575,7 @@ This should be skipped.
         transcript_file = tmp_path / "both_Gemini.md"
         transcript_file.write_text(content)
 
-        segments = GeminiReader.read(transcript_file, include_events=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True)
 
         assert len(segments) == 1
         assert "Actual content" in segments[0].text
@@ -597,7 +597,7 @@ More content here. [00:00:20]
         transcript_file = tmp_path / "thinking_Gemini.md"
         transcript_file.write_text(content_with_thinking)
 
-        segments = GeminiReader.read(transcript_file, include_events=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True)
 
         # Should only have segments from after </thinking>
         assert len(segments) == 2
@@ -612,7 +612,7 @@ More content here. [00:00:20]
         if not test_file.exists():
             pytest.skip("Test data file not found")
 
-        segments = GeminiReader.read(test_file, include_events=True)
+        segments = MarkdownReader.read(test_file, include_events=True)
 
         # The file has duplicated content in <thinking> - verify we only get unique content
         texts = [s.text for s in segments if s.segment_type == "dialogue"]
@@ -632,7 +632,7 @@ More text here. [00:00:10]
         transcript_file = tmp_path / "normal_Gemini.md"
         transcript_file.write_text(content_no_thinking)
 
-        segments = GeminiReader.read(transcript_file, include_events=True)
+        segments = MarkdownReader.read(transcript_file, include_events=True)
 
         assert len(segments) == 2
         assert "Hello world" in segments[0].text
@@ -651,7 +651,7 @@ class TestStartEndTimestamps:
 
 [00:00:20] Another line with timestamps. [00:00:28]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
 
         # Filter dialogue segments with timestamps
         dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
@@ -680,7 +680,7 @@ class TestStartEndTimestamps:
 
 [00:00:10] Third segment with more text. [00:00:18]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 3
 
@@ -700,7 +700,7 @@ class TestStartEndTimestamps:
         if not test_file.exists():
             pytest.skip("Test file not found")
 
-        segments = GeminiReader.read(test_file, include_events=True)
+        segments = MarkdownReader.read(test_file, include_events=True)
 
         # Should have multiple segments with both timestamps
         dialogue_with_both = [
@@ -722,7 +722,7 @@ class TestStartEndTimestamps:
 
 [00:15] Another MM:SS format. [00:30]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
 
         assert len(dialogue) == 2
@@ -738,18 +738,18 @@ class TestMillisecondTimestamps:
     def test_parse_timestamp_with_milliseconds(self):
         """Test parse_timestamp with milliseconds."""
         # HH:MM:SS.mmm format
-        ts = GeminiReader.parse_timestamp("00", "00", "11", "750")
+        ts = MarkdownReader.parse_timestamp("00", "00", "11", "750")
         assert ts == 11.75
 
-        ts = GeminiReader.parse_timestamp("00", "01", "30", "500")
+        ts = MarkdownReader.parse_timestamp("00", "01", "30", "500")
         assert ts == 90.5
 
         # MM:SS.mmm format (using ms keyword)
-        ts = GeminiReader.parse_timestamp("01", "30", ms="500")
+        ts = MarkdownReader.parse_timestamp("01", "30", ms="500")
         assert ts == 90.5
 
         # Without milliseconds (backward compatibility)
-        ts = GeminiReader.parse_timestamp("00", "00", "11")
+        ts = MarkdownReader.parse_timestamp("00", "00", "11")
         assert ts == 11.0
 
     def test_inline_both_timestamps_with_ms(self):
@@ -760,7 +760,7 @@ class TestMillisecondTimestamps:
 
 [00:00:16.800] Thank you. [00:00:20.400]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
         dialogue = [s for s in segments if s.segment_type == "dialogue" and s.timestamp is not None]
 
         assert len(dialogue) == 3
@@ -779,7 +779,7 @@ class TestMillisecondTimestamps:
 
 **Mark Chen:** [00:00:12.500] Hello there! [00:00:14.200]
 """
-        segments = GeminiReader.read(content)
+        segments = MarkdownReader.read(content)
         dialogue = [s for s in segments if s.segment_type == "dialogue"]
 
         assert len(dialogue) == 2
@@ -800,7 +800,7 @@ class TestMillisecondTimestamps:
         if not test_file.exists():
             pytest.skip("Test file not found")
 
-        segments = GeminiReader.read(test_file, include_events=True)
+        segments = MarkdownReader.read(test_file, include_events=True)
 
         # Should have many segments
         assert len(segments) > 100
@@ -818,7 +818,7 @@ class TestMillisecondTimestamps:
 
 [00:00:12.500] Second segment. [00:00:16.800]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 2
         assert supervisions[0].start == pytest.approx(11.75)
@@ -840,7 +840,7 @@ ChatGPT以及硅谷AI大战终于升级。 [00:00:30]
 
 Hello大家好，欢迎来到《硅谷101》。 [00:00:54]
 """
-        segments = GeminiReader.read(content, include_events=True)
+        segments = MarkdownReader.read(content, include_events=True)
 
         # Filter segments with timestamps
         with_ts = [s for s in segments if s.timestamp is not None or s.end_timestamp is not None]
@@ -870,7 +870,7 @@ ChatGPT以及硅谷AI大战终于升级。 [00:00:30]
 
 Hello大家好，欢迎来到《硅谷101》。 [00:00:54]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 3
 
@@ -900,7 +900,7 @@ ChatGPT以及硅谷AI大战终于升级，长出了"眼睛"和"嘴"。 [00:00:30
 
 Hello大家好，欢迎来到《硅谷101》，我是陈茜。 [00:00:54]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 3
 
@@ -934,7 +934,7 @@ Second sentence here. [00:00:20]
 
 Third sentence here. [00:00:25]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 3
         # Order should match original text order, NOT timestamp order
@@ -950,7 +950,7 @@ Third sentence here. [00:00:25]
 
 [00:00:30] Third segment. [00:00:35]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 3
         # Should preserve original order: First -> Second -> Third
@@ -967,7 +967,7 @@ Third sentence here. [00:00:25]
 
 **Speaker A:** First chronologically but last in text. [00:00:10]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         assert len(supervisions) == 3
         # Preserve text order, ignore chronological order
@@ -988,7 +988,7 @@ Today we're going to discuss AI. [00:00:50]
 
 But first, let me introduce myself. [00:00:15]
 """
-        supervisions = GeminiReader.extract_for_alignment(content)
+        supervisions = MarkdownReader.extract_for_alignment(content)
 
         texts = [s.text for s in supervisions]
 
@@ -1008,7 +1008,7 @@ class TestIntegration:
         transcript_file.write_text(SAMPLE_TRANSCRIPT)
 
         # 2. Extract for alignment
-        supervisions = GeminiReader.extract_for_alignment(transcript_file)
+        supervisions = MarkdownReader.extract_for_alignment(transcript_file)
         assert len(supervisions) > 0
 
         # 3. Simulate alignment (add small corrections)
@@ -1039,12 +1039,12 @@ class TestIntegration:
 
         # 4. Write updated transcript
         updated_file = tmp_path / "updated_Gemini.md"
-        GeminiWriter.update_timestamps(transcript_file, aligned_supervisions, updated_file)
+        MarkdownWriter.update_timestamps(transcript_file, aligned_supervisions, updated_file)
         assert updated_file.exists()
 
         # 5. Write simplified aligned transcript
         simple_file = tmp_path / "simple_aligned.txt"
-        GeminiWriter.write_aligned_transcript(aligned_supervisions, simple_file, include_word_timestamps=True)
+        MarkdownWriter.write_aligned_transcript(aligned_supervisions, simple_file, include_word_timestamps=True)
         assert simple_file.exists()
 
         # Verify content
@@ -1059,7 +1059,7 @@ class TestIntegration:
         transcript_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
 
         # 2. Extract for alignment
-        supervisions = GeminiReader.extract_for_alignment(transcript_file)
+        supervisions = MarkdownReader.extract_for_alignment(transcript_file)
         assert len(supervisions) > 0
 
         # 3. Simulate alignment (add small corrections)
@@ -1090,12 +1090,12 @@ class TestIntegration:
 
         # 4. Write updated transcript
         updated_file = tmp_path / "updated_youtube_Gemini.md"
-        GeminiWriter.update_timestamps(transcript_file, aligned_supervisions, updated_file)
+        MarkdownWriter.update_timestamps(transcript_file, aligned_supervisions, updated_file)
         assert updated_file.exists()
 
         # 5. Write simplified aligned transcript
         simple_file = tmp_path / "simple_youtube_aligned.txt"
-        GeminiWriter.write_aligned_transcript(aligned_supervisions, simple_file, include_word_timestamps=True)
+        MarkdownWriter.write_aligned_transcript(aligned_supervisions, simple_file, include_word_timestamps=True)
         assert simple_file.exists()
 
         # Verify content
@@ -1108,12 +1108,12 @@ class TestIntegration:
         # Test original format
         original_file = tmp_path / "original.txt"
         original_file.write_text(SAMPLE_TRANSCRIPT)
-        original_sups = GeminiReader.extract_for_alignment(original_file)
+        original_sups = MarkdownReader.extract_for_alignment(original_file)
 
         # Test YouTube format
         youtube_file = tmp_path / "youtube.txt"
         youtube_file.write_text(SAMPLE_YOUTUBE_TRANSCRIPT)
-        youtube_sups = GeminiReader.extract_for_alignment(youtube_file)
+        youtube_sups = MarkdownReader.extract_for_alignment(youtube_file)
 
         # Both should work and return supervisions
         assert len(original_sups) > 0
@@ -1125,6 +1125,366 @@ class TestIntegration:
             assert sup.text is not None
             assert sup.start >= 0
             assert sup.duration > 0
+
+
+class TestTimeRangeFormat:
+    """Tests for time range format: text [HH:MM:SS → HH:MM:SS]."""
+
+    def test_speaker_with_time_range(self):
+        """Test parsing speaker dialogue with time range timestamps."""
+        content = """**Mira Murati:** Hi everyone thank you. [00:00:12 → 00:01:26]
+
+**Mark Chen:** Hey I'm Mark. [00:01:26 → 00:01:50]
+"""
+        segments = MarkdownReader.read(content)
+
+        assert len(segments) == 2
+        assert segments[0].speaker == "Mira Murati:"
+        assert segments[0].timestamp == 12.0
+        assert segments[0].end_timestamp == 86.0
+        assert "Hi everyone" in segments[0].text
+
+        assert segments[1].speaker == "Mark Chen:"
+        assert segments[1].timestamp == 86.0
+        assert segments[1].end_timestamp == 110.0
+
+    def test_plain_text_with_time_range(self):
+        """Test parsing plain text with time range timestamps."""
+        content = """hey chat GPT I'm Mark how are you [00:09:47 → 00:09:49]
+
+certainly yes great looks like it works [00:23:15 → 00:23:21]
+"""
+        segments = MarkdownReader.read(content)
+
+        assert len(segments) == 2
+        assert segments[0].timestamp == 587.0
+        assert segments[0].end_timestamp == 589.0
+        assert "hey chat GPT" in segments[0].text
+        # Ensure the time range is NOT in the text
+        assert "→" not in segments[0].text
+
+    def test_event_still_works_alongside_time_range(self):
+        """Test that events are still parsed correctly when time ranges are present."""
+        content = """**Speaker:** Some dialogue. [00:02:46 → 00:02:51]
+
+[Applause] [00:02:46]
+
+**Speaker:** More dialogue. [00:02:51 → 00:04:07]
+"""
+        segments = MarkdownReader.read(content, include_events=True)
+
+        events = [s for s in segments if s.segment_type == "event"]
+        dialogues = [s for s in segments if s.segment_type == "dialogue"]
+
+        assert len(events) == 1
+        assert events[0].text == "[Applause]"
+        assert len(dialogues) == 2
+
+    def test_time_range_extract_for_alignment(self):
+        """Test extract_for_alignment with time range format."""
+        content = """**Speaker A:** First segment. [00:00:12 → 00:01:26]
+
+**Speaker B:** Second segment. [00:01:26 → 00:02:00]
+
+[Applause] [00:02:00]
+
+**Speaker A:** Third segment. [00:02:05 → 00:02:30]
+"""
+        supervisions = MarkdownReader.extract_for_alignment(content)
+
+        assert len(supervisions) >= 3
+
+        # Check first supervision
+        assert supervisions[0].start == 12.0
+        assert supervisions[0].duration == pytest.approx(74.0)  # 86 - 12
+        assert "First segment" in supervisions[0].text
+
+    def test_time_range_with_mm_ss(self):
+        """Test time range with MM:SS format."""
+        content = """Some text here. [09:47 → 09:49]
+"""
+        segments = MarkdownReader.read(content)
+
+        assert len(segments) == 1
+        assert segments[0].timestamp == 587.0
+        assert segments[0].end_timestamp == 589.0
+
+    def test_time_range_with_milliseconds(self):
+        """Test time range with milliseconds."""
+        content = """**Speaker:** Hello world. [00:00:12.500 → 00:01:26.750]
+"""
+        segments = MarkdownReader.read(content)
+
+        assert len(segments) == 1
+        assert segments[0].timestamp == 12.5
+        assert segments[0].end_timestamp == 86.75
+
+
+class TestTrailingSectionHeaders:
+    """Tests for section headers with trailing timestamps: ## Title [HH:MM:SS]."""
+
+    def test_trailing_section_header(self):
+        """Test parsing section header with timestamp at the end."""
+        content = """## Introduction and GPT-4o Announcement [00:00:12]
+
+**Mira Murati:** Hi everyone. [00:00:12 → 00:01:26]
+
+## GPT-4o: Speed, Vision, and Audio [00:02:51]
+
+**Mira Murati:** GPT-4o provides intelligence. [00:02:51 → 00:04:07]
+"""
+        segments = MarkdownReader.read(content, include_sections=True)
+
+        sections = [s for s in segments if s.segment_type == "section_header"]
+        assert len(sections) == 2
+        assert sections[0].text == "Introduction and GPT-4o Announcement"
+        assert sections[0].timestamp == 12.0
+        assert sections[1].text == "GPT-4o: Speed, Vision, and Audio"
+        assert sections[1].timestamp == 171.0
+
+    def test_trailing_section_excluded_by_default(self):
+        """Test that trailing section headers are excluded when include_sections=False."""
+        content = """## Introduction [00:00:12]
+
+**Speaker:** Hello. [00:00:12 → 00:00:20]
+"""
+        segments = MarkdownReader.read(content, include_sections=False)
+
+        types = {s.segment_type for s in segments}
+        assert "section_header" not in types
+
+    def test_trailing_section_with_mm_ss(self):
+        """Test trailing section header with MM:SS format."""
+        content = """## Some Section [12:30]
+
+Text here. [12:30 → 13:00]
+"""
+        segments = MarkdownReader.read(content, include_sections=True)
+
+        sections = [s for s in segments if s.segment_type == "section_header"]
+        assert len(sections) == 1
+        assert sections[0].timestamp == 750.0  # 12*60 + 30
+
+    def test_section_context_propagation(self):
+        """Test that trailing section sets current_section for subsequent segments."""
+        content = """## Introduction [00:00:12]
+
+**Speaker:** Hello. [00:00:12 → 00:00:20]
+
+## Conclusion [00:10:00]
+
+**Speaker:** Goodbye. [00:10:00 → 00:10:10]
+"""
+        segments = MarkdownReader.read(content)
+
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert dialogue[0].section == "Introduction"
+        assert dialogue[1].section == "Conclusion"
+
+
+class TestImageLineSkip:
+    """Tests for skipping markdown image lines."""
+
+    def test_image_line_skipped(self):
+        """Test that image lines are not included in segments."""
+        content = """**Speaker:** Hello. [00:00:05]
+
+![cover](imgs/cover.jpg)
+
+**Speaker:** World. [00:00:10]
+"""
+        segments = MarkdownReader.read(content)
+
+        assert len(segments) == 2
+        assert all("cover" not in s.text and "![" not in s.text for s in segments)
+
+    def test_image_not_merged_into_previous(self):
+        """Test that image line doesn't get merged into the previous segment's text."""
+        content = """Some text without end timestamp.
+
+![diagram](path/to/img.png)
+
+**Speaker:** Next line. [00:00:20]
+"""
+        segments = MarkdownReader.read(content)
+
+        # The image should NOT be in any segment text
+        for seg in segments:
+            assert "![" not in seg.text
+            assert "diagram" not in seg.text
+
+
+class TestSpeakersProcessedFile:
+    """Integration tests for the speakers-processed.md format (baoyu YouTube transcript)."""
+
+    @pytest.fixture
+    def speakers_file(self, tmp_path):
+        """Extract speakers-processed.md from test zip."""
+        import zipfile
+        from pathlib import Path
+
+        zip_path = Path(__file__).parent.parent / "data" / "captions" / "speakers-processed.md.zip"
+        if not zip_path.exists():
+            pytest.skip("Test data file not found")
+
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(tmp_path)
+
+        return tmp_path / "speakers-processed.md"
+
+    def test_read_segments(self, speakers_file):
+        """Test reading all segments from the real file."""
+        segments = MarkdownReader.read(speakers_file, include_events=True, include_sections=True)
+
+        # Should have all segment types
+        types = {s.segment_type for s in segments}
+        assert "section_header" in types
+        assert "event" in types
+        assert "dialogue" in types
+
+        # Should have 9 sections
+        sections = [s for s in segments if s.segment_type == "section_header"]
+        assert len(sections) == 9
+
+        # All sections should have timestamps
+        for section in sections:
+            assert section.timestamp is not None
+
+    def test_time_ranges_parsed(self, speakers_file):
+        """Test that time range timestamps are correctly parsed."""
+        segments = MarkdownReader.read(speakers_file, include_events=True, include_sections=True)
+
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+
+        # Most dialogues should have both start and end timestamps
+        with_both = [s for s in dialogue if s.timestamp is not None and s.end_timestamp is not None]
+        assert len(with_both) > 90  # Almost all should have both
+
+        # Time ranges should not appear in text
+        for seg in with_both:
+            assert "→" not in seg.text
+
+    def test_speakers_identified(self, speakers_file):
+        """Test that speakers are correctly identified."""
+        segments = MarkdownReader.read(speakers_file)
+
+        speakers = {s.speaker for s in segments if s.speaker}
+        assert "Mira Murati:" in speakers
+        assert "Mark Chen:" in speakers
+        assert "Barrett Zoph:" in speakers
+        assert "GPT-4o:" in speakers
+
+    def test_cover_image_not_in_segments(self, speakers_file):
+        """Test that the cover image line is not included in any segment."""
+        segments = MarkdownReader.read(speakers_file, include_events=True, include_sections=True)
+
+        for seg in segments:
+            assert "![cover]" not in seg.text
+            assert "imgs/cover.jpg" not in seg.text
+
+    def test_frontmatter_stripped(self, speakers_file):
+        """Test that YAML front matter is stripped."""
+        segments = MarkdownReader.read(speakers_file, include_events=True, include_sections=True)
+
+        for seg in segments:
+            assert "channel:" not in seg.text
+            assert "language:" not in seg.text
+
+    def test_events_parsed(self, speakers_file):
+        """Test that events like [Applause] and [Music] are parsed."""
+        segments = MarkdownReader.read(speakers_file, include_events=True)
+
+        events = [s for s in segments if s.segment_type == "event"]
+        event_texts = {s.text for s in events}
+        assert "[Applause]" in event_texts
+        assert "[Music]" in event_texts
+
+    def test_extract_for_alignment(self, speakers_file):
+        """Test extract_for_alignment produces valid supervisions."""
+        supervisions = MarkdownReader.extract_for_alignment(speakers_file)
+
+        assert len(supervisions) > 50
+
+        for sup in supervisions:
+            assert isinstance(sup, Supervision)
+            assert sup.text is not None
+            assert sup.start >= 0
+            assert sup.duration > 0
+
+        # Supervisions should be in chronological order
+        for i in range(1, len(supervisions)):
+            assert supervisions[i].start >= supervisions[i - 1].start
+
+    def test_roundtrip_update_timestamps(self, speakers_file, tmp_path):
+        """Test round-trip: parse → modify timestamps → write back preserves file structure."""
+        # Read original content for comparison
+        original_content = speakers_file.read_text()
+
+        # Extract supervisions
+        supervisions = MarkdownReader.extract_for_alignment(speakers_file)
+
+        # Simulate alignment: shift all timestamps by 0.5s
+        aligned_supervisions = []
+        for sup in supervisions:
+            aligned_sup = Supervision(
+                id=sup.id,
+                text=sup.text,
+                start=sup.start + 0.5,
+                duration=sup.duration,
+                speaker=sup.speaker,
+            )
+            aligned_supervisions.append(aligned_sup)
+
+        # Write back with updated timestamps
+        output_file = tmp_path / "updated.md"
+        MarkdownWriter.update_timestamps(speakers_file, aligned_supervisions, output_file)
+
+        # Verify output file exists and has content
+        assert output_file.exists()
+        updated_content = output_file.read_text()
+
+        # Key structural elements must be preserved
+        assert "---" in updated_content  # Frontmatter delimiters
+        assert "title: Introducing GPT-4o" in updated_content
+        assert "![cover](imgs/cover.jpg)" in updated_content
+        assert "## Table of Contents" in updated_content
+        assert "**Mira Murati:**" in updated_content
+        assert "**Mark Chen:**" in updated_content
+        assert "**Barrett Zoph:**" in updated_content
+        assert "**GPT-4o:**" in updated_content
+        assert "[Applause]" in updated_content
+        assert "[Music]" in updated_content
+
+        # Time ranges should still use → format
+        assert "→" in updated_content
+
+        # Line count should remain the same
+        assert len(updated_content.splitlines()) == len(original_content.splitlines())
+
+
+class TestTimeRangeWriter:
+    """Tests for MarkdownWriter handling time range format."""
+
+    def test_replace_time_range(self):
+        """Test replacing time range timestamps."""
+        line = "**Speaker:** Hello world. [00:00:12 → 00:01:26]\n"
+        result = MarkdownWriter._replace_timestamp(line, 15.0, 90.0)
+        assert "[00:00:15 → 00:01:30]" in result
+        assert "Hello world" in result
+
+    def test_replace_single_timestamp(self):
+        """Test backward compatibility: replacing single timestamps."""
+        line = "[Applause] [00:02:46]\n"
+        result = MarkdownWriter._replace_timestamp(line, 170.0)
+        assert "[00:02:50]" in result
+
+    def test_replace_time_range_preserves_text(self):
+        """Test that time range replacement preserves surrounding text."""
+        line = "**Barrett Zoph:** hey chat chbt [00:14:01 → 00:14:04]\n"
+        result = MarkdownWriter._replace_timestamp(line, 842.0, 845.0)
+        assert "**Barrett Zoph:**" in result
+        assert "hey chat chbt" in result
+        assert "[00:14:02 → 00:14:05]" in result
 
 
 if __name__ == "__main__":

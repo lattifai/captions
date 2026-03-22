@@ -82,6 +82,19 @@ class MarkdownReader:
         r"^\[(?:(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?|(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?)\]$"
     )
 
+    # Section header with trailing timestamp: ## Title [HH:MM:SS] or ## Title [MM:SS]
+    SECTION_HEADER_TRAILING_PATTERN = re.compile(
+        r"^##\s+(.+?)\s+\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$"
+    )
+
+    # Time range inline at end: text [HH:MM:SS → HH:MM:SS] (supports MM:SS and milliseconds)
+    INLINE_TIME_RANGE_PATTERN = re.compile(
+        r"^(.+?)\s*\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\s*→\s*(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$"
+    )
+
+    # Markdown image line: ![alt](url)
+    IMAGE_PATTERN = re.compile(r"^!\[.*?\]\(.*?\)")
+
     # New patterns for YouTube link format: [[MM:SS](URL&t=seconds)]
     YOUTUBE_SECTION_PATTERN = re.compile(r"^##\s*\[\[(\d{1,2}):(\d{2})\]\([^)]*&t=(\d+)\)\]\s*(.+)$")
     YOUTUBE_INLINE_PATTERN = re.compile(r"^(.+?)\s*\[\[(\d{1,2}):(\d{2})\]\([^)]*&t=(\d+)\)\]$")
@@ -121,6 +134,14 @@ class MarkdownReader:
             return float(args[0])
         else:
             raise ValueError(f"Invalid timestamp args: {args}")
+
+    @classmethod
+    def _parse_flexible_timestamp(cls, h_or_m, m_or_s, s_opt=None, ms=None):
+        """Parse timestamp from flexible groups supporting both HH:MM:SS and MM:SS formats."""
+        if s_opt is not None:
+            return cls.parse_timestamp(h_or_m, m_or_s, s_opt, ms)
+        else:
+            return cls.parse_timestamp(h_or_m, m_or_s, ms=ms)
 
     @classmethod
     def read(
@@ -176,6 +197,10 @@ class MarkdownReader:
             if line.startswith("## Table of Contents"):
                 continue
 
+            # Skip markdown images (e.g., ![cover](imgs/cover.jpg))
+            if cls.IMAGE_PATTERN.match(line):
+                continue
+
             # Parse section headers
             section_match = cls.SECTION_HEADER_PATTERN.match(line)
             if section_match:
@@ -204,6 +229,25 @@ class MarkdownReader:
                     segments.append(
                         MarkdownSegment(
                             text=section_title.strip(),
+                            timestamp=timestamp,
+                            section=current_section,
+                            segment_type="section_header",
+                            line_number=line_num,
+                        )
+                    )
+                continue
+
+            # Parse section headers with trailing timestamp: ## Title [HH:MM:SS]
+            trailing_section_match = cls.SECTION_HEADER_TRAILING_PATTERN.match(line)
+            if trailing_section_match:
+                groups = trailing_section_match.groups()
+                section_title = groups[0].strip()
+                timestamp = cls._parse_flexible_timestamp(groups[1], groups[2], groups[3], groups[4])
+                current_section = section_title
+                if include_sections:
+                    segments.append(
+                        MarkdownSegment(
+                            text=section_title,
                             timestamp=timestamp,
                             section=current_section,
                             segment_type="section_header",
@@ -297,6 +341,7 @@ class MarkdownReader:
                 current_speaker = speaker.strip()
 
                 both_match = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(text_with_timestamp.strip())
+                time_range_match = cls.INLINE_TIME_RANGE_PATTERN.match(text_with_timestamp.strip())
                 start_match = cls.INLINE_TIMESTAMP_START_PATTERN.match(text_with_timestamp.strip())
                 end_match = cls.INLINE_TIMESTAMP_END_PATTERN.match(text_with_timestamp.strip())
                 youtube_match = cls.YOUTUBE_INLINE_PATTERN.match(text_with_timestamp.strip())
@@ -317,6 +362,11 @@ class MarkdownReader:
                         end_timestamp = cls.parse_timestamp(groups[8], groups[9], groups[10], groups[11])
                     else:
                         end_timestamp = cls.parse_timestamp(groups[12], groups[13], ms=groups[14])
+                elif time_range_match:
+                    groups = time_range_match.groups()
+                    text = groups[0]
+                    start_timestamp = cls._parse_flexible_timestamp(groups[1], groups[2], groups[3], groups[4])
+                    end_timestamp = cls._parse_flexible_timestamp(groups[5], groups[6], groups[7], groups[8])
                 elif start_match:
                     groups = start_match.groups()
                     # Groups: (h, m, s, ms1, m2, s2, ms2, text)
@@ -355,6 +405,7 @@ class MarkdownReader:
 
             # Parse plain text (might contain inline timestamp or be a continuation)
             both_match = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(line)
+            time_range_match = cls.INLINE_TIME_RANGE_PATTERN.match(line)
             start_match = cls.INLINE_TIMESTAMP_START_PATTERN.match(line)
             end_match = cls.INLINE_TIMESTAMP_END_PATTERN.match(line)
             youtube_inline_match = cls.YOUTUBE_INLINE_PATTERN.match(line)
@@ -375,6 +426,22 @@ class MarkdownReader:
                     end_timestamp = cls.parse_timestamp(groups[8], groups[9], groups[10], groups[11])
                 else:
                     end_timestamp = cls.parse_timestamp(groups[12], groups[13], ms=groups[14])
+                segments.append(
+                    MarkdownSegment(
+                        text=text.strip(),
+                        timestamp=start_timestamp,
+                        end_timestamp=end_timestamp,
+                        speaker=current_speaker,
+                        section=current_section,
+                        segment_type="dialogue",
+                        line_number=line_num,
+                    )
+                )
+            elif time_range_match:
+                groups = time_range_match.groups()
+                text = groups[0]
+                start_timestamp = cls._parse_flexible_timestamp(groups[1], groups[2], groups[3], groups[4])
+                end_timestamp = cls._parse_flexible_timestamp(groups[5], groups[6], groups[7], groups[8])
                 segments.append(
                     MarkdownSegment(
                         text=text.strip(),
@@ -653,8 +720,13 @@ class MarkdownWriter:
         updated_lines = []
         for line_num, line in enumerate(lines, start=1):
             if line_num in timestamp_mapping:
-                new_timestamp = timestamp_mapping[line_num]
-                updated_line = cls._replace_timestamp(line, new_timestamp)
+                ts_value = timestamp_mapping[line_num]
+                if isinstance(ts_value, tuple):
+                    new_start, new_end = ts_value
+                    updated_line = cls._replace_timestamp(line, new_start, new_end)
+                else:
+                    # Backward compatibility: single float value
+                    updated_line = cls._replace_timestamp(line, ts_value)
                 updated_lines.append(updated_line)
             else:
                 updated_lines.append(line)
@@ -669,11 +741,14 @@ class MarkdownWriter:
     @classmethod
     def _create_timestamp_mapping(
         cls, original_segments: List[MarkdownSegment], aligned_supervisions: List[Supervision]
-    ) -> Dict[int, float]:
+    ) -> Dict[int, tuple]:
         """Create mapping from line numbers to new timestamps based on alignment.
 
         This performs text matching between original segments and aligned supervisions
         to determine which timestamps should be updated.
+
+        Returns:
+            Dict mapping line_number to (start, end) timestamp tuples.
         """
         mapping = {}
 
@@ -704,18 +779,32 @@ class MarkdownWriter:
 
             # If we found a good match, update the mapping
             if best_match and best_score > 0.8:
-                mapping[best_match.line_number] = aligned_sup.start
+                end_time = aligned_sup.start + aligned_sup.duration
+                mapping[best_match.line_number] = (aligned_sup.start, end_time)
 
         return mapping
 
     @classmethod
-    def _replace_timestamp(cls, line: str, new_timestamp: float) -> str:
-        """Replace timestamp in a line with new timestamp."""
-        new_ts_str = cls.format_timestamp(new_timestamp)
+    def _replace_timestamp(cls, line: str, new_start: float, new_end: float = None) -> str:
+        """Replace timestamp(s) in a line with new values.
 
-        # Replace timestamp patterns
-        # Pattern 1: [HH:MM:SS] at the end or in brackets
-        line = re.sub(r"\[\d{2}:\d{2}:\d{2}\]", new_ts_str, line)
+        Handles both single timestamps [HH:MM:SS] and time ranges [HH:MM:SS → HH:MM:SS].
+        """
+        # Handle time range format: [HH:MM:SS → HH:MM:SS]
+        time_range_re = re.compile(
+            r"\[\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\s*→\s*\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\]"
+        )
+        range_match = time_range_re.search(line)
+        if range_match and new_end is not None:
+            start_str = cls.format_timestamp(new_start)[1:-1]  # Strip brackets
+            end_str = cls.format_timestamp(new_end)[1:-1]
+            new_range = f"[{start_str} → {end_str}]"
+            line = line[:range_match.start()] + new_range + line[range_match.end():]
+            return line
+
+        # Handle single timestamp: [HH:MM:SS] (with optional 1-digit hour and milliseconds)
+        new_ts_str = cls.format_timestamp(new_start)
+        line = re.sub(r"\[\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?\]", new_ts_str, line)
 
         return line
 

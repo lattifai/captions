@@ -1487,5 +1487,184 @@ class TestTimeRangeWriter:
         assert "[00:14:02 → 00:14:05]" in result
 
 
+class TestMarkdownFrontmatter:
+    """Tests for YAML frontmatter extraction and round-trip."""
+
+    SAMPLE_WITH_FRONTMATTER = """\
+---
+title: State of AI 2026
+channel: Lex Fridman
+url: "https://www.youtube.com/watch?v=EV7WhVT270Q"
+duration: 14895
+language: en
+transcript_source: https://lexfridman.com/ai-sota-2026-transcript
+description: |
+  Nathan Lambert and Sebastian Raschka are ML researchers.
+  They discuss the state of AI in 2026.
+---
+
+**Lex Fridman:** Welcome to the podcast. [00:00:01]
+
+**Nathan Lambert:** Thanks for having me. [00:00:05]
+"""
+
+    def test_extract_frontmatter_basic_fields(self):
+        """Test that basic scalar fields are correctly extracted."""
+        meta = MarkdownReader.extract_frontmatter(self.SAMPLE_WITH_FRONTMATTER)
+        assert meta["title"] == "State of AI 2026"
+        assert meta["channel"] == "Lex Fridman"
+        assert meta["language"] == "en"
+
+    def test_extract_frontmatter_quoted_url(self):
+        """Test that quoted values have quotes stripped."""
+        meta = MarkdownReader.extract_frontmatter(self.SAMPLE_WITH_FRONTMATTER)
+        assert meta["url"] == "https://www.youtube.com/watch?v=EV7WhVT270Q"
+
+    def test_extract_frontmatter_numeric(self):
+        """Test that duration is converted to float."""
+        meta = MarkdownReader.extract_frontmatter(self.SAMPLE_WITH_FRONTMATTER)
+        assert meta["duration"] == 14895.0
+        assert isinstance(meta["duration"], float)
+
+    def test_extract_frontmatter_multiline_description(self):
+        """Test that YAML block scalar (|) is parsed correctly."""
+        meta = MarkdownReader.extract_frontmatter(self.SAMPLE_WITH_FRONTMATTER)
+        assert "Nathan Lambert" in meta["description"]
+        assert "state of AI" in meta["description"]
+        assert "\n" in meta["description"]
+        # Should NOT contain the | indicator itself
+        assert not meta["description"].startswith("|")
+
+    def test_extract_frontmatter_no_frontmatter(self):
+        """Test graceful handling of content without frontmatter."""
+        meta = MarkdownReader.extract_frontmatter("**Speaker:** Hello [00:00:01]\n")
+        assert meta == {}
+
+    def test_extract_frontmatter_empty_content(self):
+        """Test graceful handling of empty content."""
+        meta = MarkdownReader.extract_frontmatter("")
+        assert meta == {}
+
+    def test_read_preserves_segments_with_frontmatter(self):
+        """Test that frontmatter doesn't interfere with segment parsing."""
+        segments = MarkdownReader.read(self.SAMPLE_WITH_FRONTMATTER)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert len(dialogue) == 2
+        assert dialogue[0].speaker == "Lex Fridman:"
+        assert dialogue[1].speaker == "Nathan Lambert:"
+
+    def test_format_extract_metadata(self):
+        """Test MarkdownFormat.extract_metadata integration."""
+        import tempfile
+        from pathlib import Path
+
+        from lattifai.caption.formats.markdown import MarkdownFormat
+
+        with tempfile.NamedTemporaryFile(suffix=".md", mode="w", delete=False, encoding="utf-8") as f:
+            f.write(self.SAMPLE_WITH_FRONTMATTER)
+            tmp = f.name
+
+        try:
+            meta = MarkdownFormat.extract_metadata(tmp)
+            assert meta["title"] == "State of AI 2026"
+            assert meta["channel"] == "Lex Fridman"
+            assert "Nathan Lambert" in meta["description"]
+        finally:
+            Path(tmp).unlink()
+
+    def test_writer_frontmatter_round_trip(self):
+        """Test that metadata survives write → read round-trip."""
+        import tempfile
+        from pathlib import Path
+
+        from lattifai.caption.formats.markdown import MarkdownFormat
+
+        original_meta = {
+            "title": "Test Episode",
+            "channel": "Test Host",
+            "url": "https://youtube.com/watch?v=abc",
+            "duration": 3600,
+            "description": "Guest A and Guest B discuss testing.\nLine two of description.",
+        }
+        sups = [
+            Supervision(text="Hello world", start=1.0, duration=3.0, speaker="Host"),
+            Supervision(text="Hi there", start=5.0, duration=2.0, speaker="Guest"),
+        ]
+
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            tmp = f.name
+
+        try:
+            MarkdownWriter.write(sups, tmp, metadata=original_meta)
+            roundtrip_meta = MarkdownFormat.extract_metadata(tmp)
+
+            assert roundtrip_meta["title"] == "Test Episode"
+            assert roundtrip_meta["channel"] == "Test Host"
+            assert roundtrip_meta["url"] == "https://youtube.com/watch?v=abc"
+            assert roundtrip_meta["duration"] == 3600.0
+            assert "Guest A and Guest B" in roundtrip_meta["description"]
+            assert "\n" in roundtrip_meta["description"]
+        finally:
+            Path(tmp).unlink()
+
+    def test_writer_no_frontmatter_when_empty_metadata(self):
+        """Test that no frontmatter is written when metadata is empty."""
+        import tempfile
+        from pathlib import Path
+
+        sups = [Supervision(text="Hello", start=1.0, duration=2.0)]
+
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            tmp = f.name
+
+        try:
+            MarkdownWriter.write(sups, tmp, metadata={})
+            content = Path(tmp).read_text(encoding="utf-8")
+            assert not content.startswith("---")
+        finally:
+            Path(tmp).unlink()
+
+    def test_writer_description_truncates_sponsors(self):
+        """Test that description is truncated before sponsor sections."""
+        import tempfile
+        from pathlib import Path
+
+        meta = {
+            "title": "Episode",
+            "description": "Great episode intro.\n\n*SPONSORS:*\nBuy stuff here.",
+        }
+        sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
+
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            tmp = f.name
+
+        try:
+            MarkdownWriter.write(sups, tmp, metadata=meta)
+            content = Path(tmp).read_text(encoding="utf-8")
+            assert "Great episode intro" in content
+            assert "SPONSORS" not in content
+            assert "Buy stuff" not in content
+        finally:
+            Path(tmp).unlink()
+
+    def test_writer_uses_uploader_as_channel(self):
+        """Test that 'uploader' key is mapped to 'channel' in frontmatter."""
+        import tempfile
+        from pathlib import Path
+
+        meta = {"uploader": "Lex Fridman"}
+        sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
+
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            tmp = f.name
+
+        try:
+            MarkdownWriter.write(sups, tmp, metadata=meta)
+            content = Path(tmp).read_text(encoding="utf-8")
+            assert "channel: Lex Fridman" in content
+        finally:
+            Path(tmp).unlink()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

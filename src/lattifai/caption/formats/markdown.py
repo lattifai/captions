@@ -10,11 +10,11 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from ..supervision import Pathlike, Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, FormatReader
 
 
 @dataclass
@@ -83,17 +83,67 @@ class MarkdownReader:
     )
 
     # Section header with trailing timestamp: ## Title [HH:MM:SS] or ## Title [MM:SS]
-    SECTION_HEADER_TRAILING_PATTERN = re.compile(
-        r"^##\s+(.+?)\s+\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$"
-    )
+    SECTION_HEADER_TRAILING_PATTERN = re.compile(r"^##\s+(.+?)\s+\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$")
 
     # Time range inline at end: text [HH:MM:SS → HH:MM:SS] (supports MM:SS and milliseconds)
-    INLINE_TIME_RANGE_PATTERN = re.compile(
-        r"^(.+?)\s*\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\s*→\s*(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$"
-    )
+    _TS = r"(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?"
+    INLINE_TIME_RANGE_PATTERN = re.compile(rf"^(.+?)\s*\[{_TS}\s*→\s*{_TS}\]$")
 
     # Markdown image line: ![alt](url)
     IMAGE_PATTERN = re.compile(r"^!\[.*?\]\(.*?\)")
+
+    @classmethod
+    def extract_frontmatter(cls, content: str) -> Dict[str, Any]:
+        """Parse YAML frontmatter from markdown content.
+
+        Returns:
+            Dictionary of frontmatter fields. Empty dict if no frontmatter found.
+        """
+        m = cls.FRONTMATTER_PATTERN.match(content)
+        if not m:
+            return {}
+
+        fm_block = m.group(0)
+        # Strip the --- delimiters
+        fm_lines = fm_block.strip().split("\n")[1:-1]  # skip first and last ---
+
+        metadata: Dict[str, Any] = {}
+        current_key = None
+        current_value_lines = []
+
+        for line in fm_lines:
+            # Simple YAML key: value parsing (no nested objects)
+            kv_match = re.match(r"^(\w[\w_-]*)\s*:\s*(.*)$", line)
+            if kv_match:
+                # Flush previous key
+                if current_key is not None:
+                    metadata[current_key] = "\n".join(current_value_lines).strip()
+                current_key = kv_match.group(1)
+                val = kv_match.group(2).strip()
+                # YAML block scalar indicator (| or >) — value is in continuation lines
+                if val in ("|", ">"):
+                    current_value_lines = []
+                    continue
+                # Strip surrounding quotes
+                if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+                    val = val[1:-1]
+                current_value_lines = [val]
+            elif current_key is not None and line.startswith("  "):
+                # Continuation line for multiline values
+                current_value_lines.append(line.strip())
+
+        if current_key is not None:
+            metadata[current_key] = "\n".join(current_value_lines).strip()
+
+        # Convert numeric fields
+        for key in ("duration",):
+            if key in metadata:
+                try:
+                    metadata[key] = float(metadata[key])
+                except (ValueError, TypeError):
+                    pass
+
+        return metadata
 
     # New patterns for YouTube link format: [[MM:SS](URL&t=seconds)]
     YOUTUBE_SECTION_PATTERN = re.compile(r"^##\s*\[\[(\d{1,2}):(\d{2})\]\([^)]*&t=(\d+)\)\]\s*(.+)$")
@@ -675,6 +725,71 @@ __all__ = ["MarkdownReader", "MarkdownSegment"]
 class MarkdownWriter:
     """Writer for markdown transcript files with aligned timestamps."""
 
+    # Fields to include in YAML frontmatter (in order)
+    FRONTMATTER_FIELDS = [
+        "title",
+        "channel",
+        "url",
+        "date",
+        "duration",
+        "language",
+        "transcript_source",
+        "description",
+    ]
+
+    @classmethod
+    def _write_frontmatter(cls, f, metadata: Optional[Dict[str, Any]] = None):
+        """Write YAML frontmatter block if metadata contains relevant fields.
+
+        Description is written last as it can be multiline. Fields not in
+        FRONTMATTER_FIELDS are silently skipped to keep the frontmatter clean.
+        """
+        if not metadata:
+            return
+
+        # Collect fields that have values
+        entries = []
+        for key in cls.FRONTMATTER_FIELDS:
+            val = metadata.get(key)
+            # Also check common aliases
+            if val is None and key == "channel":
+                val = metadata.get("uploader") or metadata.get("channel_name")
+            if val is None and key == "url":
+                val = metadata.get("video_url") or metadata.get("webpage_url")
+            if val is None or val == "":
+                continue
+            entries.append((key, val))
+
+        if not entries:
+            return
+
+        f.write("---\n")
+        for key, val in entries:
+            if key == "description":
+                # Multiline: use YAML literal block scalar
+                desc = str(val).replace("\n\n", "\n")  # collapse double newlines
+                # Truncate to first meaningful section (before SPONSORS/LINKS etc.)
+                for marker in ["*SPONSORS:", "*CONTACT ", "*EPISODE LINKS:", "*PODCAST LINKS:", "*SOCIAL LINKS:"]:
+                    pos = desc.find(marker)
+                    if pos > 0:
+                        desc = desc[:pos].rstrip()
+                        break
+                if "\n" in desc:
+                    f.write("description: |\n")
+                    for line in desc.split("\n"):
+                        f.write(f"  {line}\n")
+                else:
+                    f.write(f'description: "{desc}"\n')
+            elif isinstance(val, (int, float)):
+                f.write(f"{key}: {val}\n")
+            else:
+                val_str = str(val)
+                if any(c in val_str for c in (":", '"', "'", "#", "[", "]", "{", "}")):
+                    f.write(f'{key}: "{val_str}"\n')
+                else:
+                    f.write(f"{key}: {val_str}\n")
+        f.write("---\n\n")
+
     @staticmethod
     def format_timestamp(seconds: float) -> str:
         """Convert seconds to [HH:MM:SS] format."""
@@ -799,7 +914,7 @@ class MarkdownWriter:
             start_str = cls.format_timestamp(new_start)[1:-1]  # Strip brackets
             end_str = cls.format_timestamp(new_end)[1:-1]
             new_range = f"[{start_str} → {end_str}]"
-            line = line[:range_match.start()] + new_range + line[range_match.end():]
+            line = line[: range_match.start()] + new_range + line[range_match.end() :]
             return line
 
         # Handle single timestamp: [HH:MM:SS] (with optional 1-digit hour and milliseconds)
@@ -814,16 +929,19 @@ class MarkdownWriter:
         aligned_supervisions: List[Supervision],
         output_path: Pathlike,
         include_word_timestamps: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,  # Accept extra kwargs for Caption.write() compatibility
     ) -> Pathlike:
         """Write a new transcript file from aligned supervisions.
 
         This creates a simplified markdown transcript format with accurate timestamps.
+        If metadata is provided, writes YAML frontmatter at the top.
 
         Args:
                 aligned_supervisions: List of aligned Supervision objects
                 output_path: Path to write the transcript
                 include_word_timestamps: Whether to include word-level timestamps if available
+                metadata: Optional metadata dict to write as YAML frontmatter
 
         Returns:
                 Path to the output file
@@ -832,7 +950,10 @@ class MarkdownWriter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write("# Aligned Transcript\n\n")
+            cls._write_frontmatter(f, metadata)
+
+            title = (metadata or {}).get("title", "Aligned Transcript")
+            f.write(f"# {title}\n\n")
 
             for i, sup in enumerate(aligned_supervisions):
                 # Write segment with timestamp
@@ -862,22 +983,24 @@ class MarkdownWriter:
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Path:
         """Alias for write_aligned_transcript for Caption API compatibility."""
-        return Path(cls.write_aligned_transcript(supervisions, output_path, **kwargs))
+        return Path(cls.write_aligned_transcript(supervisions, output_path, metadata=metadata, **kwargs))
 
     @classmethod
     def to_bytes(
         cls,
         supervisions: List[Supervision],
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> bytes:
         """Convert aligned supervisions to markdown format bytes."""
         with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp:
             tmp_path = Path(tmp.name)
         try:
-            cls.write_aligned_transcript(supervisions, tmp_path, **kwargs)
+            cls.write_aligned_transcript(supervisions, tmp_path, metadata=metadata, **kwargs)
             return tmp_path.read_bytes()
         finally:
             tmp_path.unlink(missing_ok=True)
@@ -942,6 +1065,19 @@ class MarkdownFormat(FormatHandler):
         return False
 
     @classmethod
+    def extract_metadata(cls, source: Union[Pathlike, str]) -> Dict[str, Any]:
+        """Extract metadata from YAML frontmatter in markdown transcript."""
+        if FormatReader.is_content(source):
+            content = str(source)
+        else:
+            p = Path(source).expanduser().resolve()
+            if p.exists() and p.is_file():
+                content = p.read_text(encoding="utf-8")
+            else:
+                return {}
+        return MarkdownReader.extract_frontmatter(content)
+
+    @classmethod
     def read(cls, path: Pathlike, **kwargs) -> List[Supervision]:
         """Read markdown transcript file."""
         return MarkdownReader.extract_for_alignment(path, **kwargs)
@@ -951,16 +1087,18 @@ class MarkdownFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Path:
         """Write markdown transcript file."""
-        return MarkdownWriter.write(supervisions, output_path, **kwargs)
+        return MarkdownWriter.write(supervisions, output_path, metadata=metadata, **kwargs)
 
     @classmethod
     def to_bytes(
         cls,
         supervisions: List[Supervision],
+        metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> bytes:
         """Convert to markdown format bytes."""
-        return MarkdownWriter.to_bytes(supervisions, **kwargs)
+        return MarkdownWriter.to_bytes(supervisions, metadata=metadata, **kwargs)

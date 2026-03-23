@@ -476,5 +476,32 @@ def test_split_sentences_separates_inline_trailing_event():
     assert "[Breathes out]" in texts, f"Expected '[Breathes out]' as separate segment, got: {texts}"
 
 
+def test_overlapping_youtube_scroll_vtt_no_negative_duration():
+    """YouTube scroll-style VTT has overlapping cue timestamps.
+
+    _distribute_time_info interpolates start/end within each source supervision.
+    When split text spans two overlapping cues, the interpolated end (from the
+    earlier-starting cue) can be before the interpolated start (from the
+    later-starting cue), producing negative duration. This test verifies the
+    guard against that.
+    """
+    splitter = SentenceSplitter()
+
+    # Simulate YouTube scroll VTT: cues overlap in time, each has a few words
+    supervisions = [
+        Supervision(id="0", recording_id="r", start=611.554, duration=1.602, text=">> CHAT GPT: You're doing a"),
+        Supervision(id="1", recording_id="r", start=612.421, duration=7.308, text="live demo right now? That is"),
+        Supervision(id="2", recording_id="r", start=613.256, duration=7.173, text="awesome. Just take a deep"),
+    ]
+
+    result = splitter.split_sentences(supervisions)
+
+    for sup in result:
+        assert sup.duration >= 0, (
+            f"Negative duration for '{sup.text}': start={sup.start:.4f}, "
+            f"duration={sup.duration:.4f}, end={sup.end:.4f}"
+        )
+
+
 if __name__ == "__main__":
     test_split_sentences_preserves_event_supervisions_from_gemini()

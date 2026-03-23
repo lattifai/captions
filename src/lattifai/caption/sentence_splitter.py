@@ -137,6 +137,13 @@ class SentenceSplitter:
                 start_time = first_sup.start + (first_char_idx / len(first_sup.text)) * first_sup.duration
                 end_time = last_sup.start + ((last_char_idx + 1) / len(last_sup.text)) * last_sup.duration
 
+            # Guard against negative duration from overlapping source supervisions
+            # (e.g., YouTube scroll-style VTT where cues overlap in time).
+            # When the interpolated end precedes start, fall back to the
+            # last supervision's end boundary.
+            if end_time < start_time:
+                end_time = max(last_sup.start + last_sup.duration, start_time + 0.1)
+
             merged_custom = None
             if overlapping_customs:
                 merged_custom = (overlapping_customs[0] or {}).copy()
@@ -350,9 +357,7 @@ class SentenceSplitter:
 
         return sentences
 
-    def _process_special_patterns(
-        self, sentences: List[str], segment_text: str = None
-    ) -> Tuple[List[str], str]:
+    def _process_special_patterns(self, sentences: List[str], segment_text: str = None) -> Tuple[List[str], str]:
         """Process sentences to handle special patterns like [EVENT] >> SPEAKER:.
 
         Args:

@@ -602,15 +602,11 @@ class MarkdownReader:
         """
         segments = cls.read(transcript_path, include_events=True, include_sections=False)
 
-        # Filter to dialogue and event segments with timestamps (either start or end)
-        dialogue_segments = [
-            s
-            for s in segments
-            if s.segment_type in ("dialogue", "event") and (s.timestamp is not None or s.end_timestamp is not None)
-        ]
+        # Filter to dialogue and event segments (with or without timestamps)
+        dialogue_segments = [s for s in segments if s.segment_type in ("dialogue", "event")]
 
         if not dialogue_segments:
-            raise ValueError(f"No dialogue segments with timestamps found in {transcript_path}")
+            raise ValueError(f"No dialogue segments found in {transcript_path}")
 
         # Convert to Supervision objects
         supervisions: List[Supervision] = []
@@ -650,6 +646,12 @@ class MarkdownReader:
                 seg_end = segment.end_timestamp
                 # Use previous segment's end time as start (prev_end_time starts at 0.0)
                 seg_start = prev_end_time
+
+            else:
+                # No timestamps at all: estimate from text length
+                seg_start = prev_end_time
+                words = len(segment.text.split()) if segment.text else 1
+                seg_end = seg_start + words * 0.3
 
             if seg_start is not None and seg_end is not None:
                 duration = max(seg_end - seg_start, min_duration)

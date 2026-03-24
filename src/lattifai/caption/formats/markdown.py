@@ -560,8 +560,8 @@ class MarkdownReader:
                 if segments and segments[-1].segment_type == "dialogue" and segments[-1].end_timestamp is None:
                     segments[-1].text += " " + line.strip()
                 else:
-                    # Skip markdown headers and other formatting
-                    if line.startswith("#"):
+                    # Skip markdown headers, TOC items, and other non-dialogue formatting
+                    if line.startswith("#") or line.startswith("- "):
                         continue
 
                     segments.append(
@@ -603,7 +603,12 @@ class MarkdownReader:
         segments = cls.read(transcript_path, include_events=True, include_sections=False)
 
         # Filter to dialogue and event segments (with or without timestamps)
-        dialogue_segments = [s for s in segments if s.segment_type in ("dialogue", "event")]
+        dialogue_segments = [
+            s
+            for s in segments
+            if s.segment_type == "event"
+            or (s.segment_type == "dialogue" and (s.speaker or s.timestamp is not None or s.end_timestamp is not None))
+        ]
 
         if not dialogue_segments:
             raise ValueError(f"No dialogue segments found in {transcript_path}")

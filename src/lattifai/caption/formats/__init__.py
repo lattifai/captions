@@ -171,7 +171,6 @@ def detect_format(path: str) -> Optional[str]:
 from . import gemini  # noqa: E402  # Backward-compatible aliases for markdown format
 from . import lrc  # noqa: E402  # Enhanced LRC with word-level timestamps
 from . import markdown  # noqa: E402  # Markdown transcript format
-from . import podcast_transcript  # noqa: E402  # Podcast transcript with speaker labels
 from . import pysubs2  # noqa: E402  # SRT, ASS, SSA, SUB, SAMI
 from . import sbv  # noqa: E402  # SubViewer
 from . import srv3  # noqa: E402  # YouTube SRV3/YTT format

@@ -29,6 +29,7 @@ class MarkdownSegment:
     section: Optional[str] = None
     segment_type: str = "dialogue"  # 'dialogue', 'event', or 'section_header'
     line_number: int = 0
+    translation: Optional[str] = None  # Bilingual translation text (from > [lang] blockquote)
 
     @property
     def start(self) -> float:
@@ -202,28 +203,48 @@ class MarkdownReader:
         m = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(text)
         if m:
             g = m.groups()
-            start = cls.parse_timestamp(g[0], g[1], g[2], g[3]) if g[0] is not None else cls.parse_timestamp(g[4], g[5], ms=g[6])
-            end = cls.parse_timestamp(g[8], g[9], g[10], g[11]) if g[8] is not None else cls.parse_timestamp(g[12], g[13], ms=g[14])
+            start = (
+                cls.parse_timestamp(g[0], g[1], g[2], g[3])
+                if g[0] is not None
+                else cls.parse_timestamp(g[4], g[5], ms=g[6])
+            )
+            end = (
+                cls.parse_timestamp(g[8], g[9], g[10], g[11])
+                if g[8] is not None
+                else cls.parse_timestamp(g[12], g[13], ms=g[14])
+            )
             return g[7].strip(), start, end
 
         # Time range: text [HH:MM:SS → HH:MM:SS]
         m = cls.INLINE_TIME_RANGE_PATTERN.match(text)
         if m:
             g = m.groups()
-            return g[0].strip(), cls._parse_flexible_timestamp(g[1], g[2], g[3], g[4]), cls._parse_flexible_timestamp(g[5], g[6], g[7], g[8])
+            return (
+                g[0].strip(),
+                cls._parse_flexible_timestamp(g[1], g[2], g[3], g[4]),
+                cls._parse_flexible_timestamp(g[5], g[6], g[7], g[8]),
+            )
 
         # Start timestamp: [HH:MM:SS] text
         m = cls.INLINE_TIMESTAMP_START_PATTERN.match(text)
         if m:
             g = m.groups()
-            start = cls.parse_timestamp(g[0], g[1], g[2], g[3]) if g[0] is not None else (cls.parse_timestamp(g[4], g[5], ms=g[6]) if g[4] is not None else None)
+            start = (
+                cls.parse_timestamp(g[0], g[1], g[2], g[3])
+                if g[0] is not None
+                else (cls.parse_timestamp(g[4], g[5], ms=g[6]) if g[4] is not None else None)
+            )
             return g[7].strip(), start, None
 
         # End timestamp: text [HH:MM:SS]
         m = cls.INLINE_TIMESTAMP_END_PATTERN.match(text)
         if m:
             g = m.groups()
-            end = cls.parse_timestamp(g[1], g[2], g[3], g[4]) if g[1] is not None else (cls.parse_timestamp(g[5], g[6], ms=g[7]) if g[5] is not None else None)
+            end = (
+                cls.parse_timestamp(g[1], g[2], g[3], g[4])
+                if g[1] is not None
+                else (cls.parse_timestamp(g[5], g[6], ms=g[7]) if g[5] is not None else None)
+            )
             return g[0].strip(), None, end
 
         # YouTube inline: text [[MM:SS](url)]
@@ -259,12 +280,16 @@ class MarkdownReader:
             # Latin-dominant: ~3.3 words per second
             return max(len(text.split()) / wps, 0.3)
 
+    # Pattern for bilingual translation lines: > [lang] text
+    TRANSLATION_LINE_PATTERN = re.compile(r"^>\s*\[([\w-]+)\]\s+(.+)$")
+
     @classmethod
     def read(
         cls,
         transcript_path: Union[Pathlike, str],
         include_events: bool = True,
         include_sections: bool = False,
+        target_lang: Optional[str] = None,
     ) -> List[MarkdownSegment]:
         """Parse markdown transcript file or content and return list of transcript segments.
 
@@ -291,6 +316,11 @@ class MarkdownReader:
                 # Fallback: treat as content if path doesn't exist
                 content = str(transcript_path)
 
+        # Extract target_lang from frontmatter before stripping it
+        if target_lang is None:
+            frontmatter = cls.extract_frontmatter(content)
+            target_lang = frontmatter.get("target_lang")
+
         # Remove YAML front matter (---\n...\n---)
         content = cls.FRONTMATTER_PATTERN.sub("", content)
 
@@ -306,6 +336,16 @@ class MarkdownReader:
             line = line.strip()
             if not line:
                 continue
+
+            # Bilingual translation line: > [lang] text
+            # Only parsed when target_lang is set (via frontmatter or explicit parameter)
+            # and the tag matches target_lang to avoid consuming unrelated blockquotes
+            if target_lang and line.startswith(">"):
+                tr_match = cls.TRANSLATION_LINE_PATTERN.match(line)
+                if tr_match and tr_match.group(1) == target_lang:
+                    if segments and segments[-1].segment_type == "dialogue":
+                        segments[-1].translation = tr_match.group(2).strip()
+                    continue  # Consume matching > [target_lang] lines
 
             # Skip table of contents
             if line.startswith("* ["):
@@ -532,7 +572,19 @@ class MarkdownReader:
         Returns:
                 List of Supervision objects ready for alignment
         """
-        segments = cls.read(transcript_path, include_events=True, include_sections=False)
+        segments = cls.read(transcript_path, include_events=True, include_sections=False, **kwargs)
+
+        # Determine target_lang for Supervision propagation
+        # Prefer explicit kwarg, then fall back to frontmatter
+        target_lang = kwargs.get("target_lang")
+        if target_lang is None and any(s.translation for s in segments):
+            is_content = "\n" in str(transcript_path) or len(str(transcript_path)) > 1000
+            if is_content:
+                fm = cls.extract_frontmatter(str(transcript_path))
+            else:
+                p = Path(transcript_path).expanduser().resolve()
+                fm = cls.extract_frontmatter(p.read_text(encoding="utf-8")) if p.exists() else {}
+            target_lang = fm.get("target_lang")
 
         # Filter to dialogue and event segments (with or without timestamps)
         dialogue_segments = [
@@ -589,15 +641,18 @@ class MarkdownReader:
 
             if seg_start is not None and seg_end is not None:
                 duration = max(seg_end - seg_start, min_duration)
-                supervisions.append(
-                    Supervision(
-                        text=segment.text.strip(),
-                        start=seg_start,
-                        duration=duration,
-                        id=f"segment_{i:05d}",
-                        speaker=segment.speaker,
-                    )
+                sup_kwargs = dict(
+                    text=segment.text.strip(),
+                    start=seg_start,
+                    duration=duration,
+                    id=f"segment_{i:05d}",
+                    speaker=segment.speaker,
                 )
+                if segment.translation:
+                    sup_kwargs["translation"] = segment.translation
+                    if target_lang:
+                        sup_kwargs["target_lang"] = target_lang
+                supervisions.append(Supervision(**sup_kwargs))
                 prev_end_time = seg_start + duration
 
         # Optionally merge consecutive segments from same speaker
@@ -666,6 +721,7 @@ class MarkdownWriter:
         "date",
         "duration",
         "language",
+        "target_lang",
         "transcript_source",
         "description",
     ]
@@ -923,7 +979,8 @@ class MarkdownWriter:
                     f.write(f"{speaker_prefix}{start_ts} {text}\n")
 
                 if sup.translation:
-                    f.write(f"{sup.translation}\n")
+                    lang_tag = sup.target_lang or "translation"
+                    f.write(f"> [{lang_tag}] {sup.translation}\n")
 
                 # Optionally write word-level timestamps
                 if include_word_timestamps and hasattr(sup, "alignment") and sup.alignment:
@@ -981,7 +1038,8 @@ class MarkdownWriter:
                 buf.write(f"{speaker_prefix}{start_ts} {text}\n")
 
             if sup.translation:
-                buf.write(f"{sup.translation}\n")
+                lang_tag = sup.target_lang or "translation"
+                buf.write(f"> [{lang_tag}] {sup.translation}\n")
 
             if include_word_timestamps and hasattr(sup, "alignment") and sup.alignment:
                 if "word" in sup.alignment:

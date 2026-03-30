@@ -464,9 +464,18 @@ class ASSFormat(Pysubs2Format):
 
         return subs.to_string(format_="ass").encode("utf-8")
 
+    # Default reference resolution for ASS font scaling.
+    # Players scale all coordinates and font sizes from PlayRes to actual video size.
+    DEFAULT_PLAY_RES_X = 1920
+    DEFAULT_PLAY_RES_Y = 1080
+    DEFAULT_FONTSIZE = 48.0
+
     @classmethod
     def _create_ass_file_with_metadata(cls, metadata: Optional[Dict]) -> pysubs2.SSAFile:
         """Create SSAFile and restore global styles from metadata.
+
+        When no PlayRes is provided, defaults to 1920x1080 reference resolution
+        so fonts scale proportionally to the actual video size.
 
         Args:
             metadata: Dict containing ass_info, ass_styles, play_res_x, play_res_y
@@ -476,14 +485,19 @@ class ASSFormat(Pysubs2Format):
         """
         subs = pysubs2.SSAFile()
 
+        # Set sensible defaults for font scaling (overridable by metadata)
+        subs.info["PlayResX"] = str(cls.DEFAULT_PLAY_RES_X)
+        subs.info["PlayResY"] = str(cls.DEFAULT_PLAY_RES_Y)
+        subs.styles["Default"].fontsize = cls.DEFAULT_FONTSIZE
+
         if not metadata:
             return subs
 
-        # Restore Script Info
+        # Restore Script Info (may override PlayRes defaults)
         if "ass_info" in metadata:
             subs.info.update(metadata["ass_info"])
 
-        # Set PlayResX/PlayResY for proper font scaling
+        # Explicit PlayRes overrides take highest priority
         if "play_res_x" in metadata:
             subs.info["PlayResX"] = str(metadata["play_res_x"])
         if "play_res_y" in metadata:

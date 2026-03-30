@@ -1666,5 +1666,219 @@ description: |
             Path(tmp).unlink()
 
 
+class TestMarkdownBilingual:
+    """Tests for bilingual markdown read/write with > [lang] marker."""
+
+    def test_read_bilingual_with_frontmatter(self):
+        """Translation lines parsed when target_lang is in frontmatter."""
+        content = """---
+title: Test
+target_lang: zh
+---
+
+# Test
+
+**Speaker:** [00:01:00] Hello world [00:01:05]
+> [zh] 你好世界
+
+[00:01:05] Another line [00:01:10]
+> [zh] 另一行翻译
+"""
+        segments = MarkdownReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert len(dialogue) == 2
+        assert dialogue[0].text == "Hello world"
+        assert dialogue[0].translation == "你好世界"
+        assert dialogue[1].text == "Another line"
+        assert dialogue[1].translation == "另一行翻译"
+
+    def test_read_blockquote_without_frontmatter(self):
+        """Without target_lang, > lines are NOT parsed as translations."""
+        content = """# Test
+
+**Speaker:** [00:01:00] Hello world [00:01:05]
+> This is a regular blockquote
+"""
+        segments = MarkdownReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert dialogue[0].translation is None
+
+    def test_bilingual_round_trip(self):
+        """Write bilingual supervisions, read them back with translation preserved."""
+        sups = [
+            Supervision(
+                text="Hello world",
+                translation="你好世界",
+                target_lang="zh",
+                start=60.0,
+                duration=5.0,
+                speaker="Host",
+            ),
+            Supervision(
+                text="Another line",
+                translation="另一行翻译",
+                target_lang="zh",
+                start=65.0,
+                duration=5.0,
+            ),
+        ]
+        written = MarkdownWriter.to_bytes(sups, metadata={"title": "Test", "target_lang": "zh"})
+        content = written.decode("utf-8")
+
+        # Verify written format contains > [zh] markers
+        assert "> [zh] 你好世界" in content
+        assert "> [zh] 另一行翻译" in content
+
+        # Read back
+        read_sups = MarkdownReader.extract_for_alignment(content)
+        assert len(read_sups) == 2
+        assert read_sups[0].text == "Hello world"
+        assert read_sups[0].translation == "你好世界"
+        assert read_sups[0].target_lang == "zh"
+        assert read_sups[1].text == "Another line"
+        assert read_sups[1].translation == "另一行翻译"
+
+    def test_non_bilingual_unchanged(self):
+        """Non-bilingual files behave exactly as before."""
+        content = """# Test
+
+**Speaker:** [00:01:00] Hello world [00:01:05]
+
+[00:01:05] Another line [00:01:10]
+"""
+        segments = MarkdownReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert all(s.translation is None for s in dialogue)
+
+    def test_orphan_blockquote_ignored(self):
+        """A > [lang] line without preceding dialogue is skipped, not crash."""
+        content = """---
+target_lang: zh
+---
+
+# Test
+
+> [zh] 孤立的翻译
+
+**Speaker:** [00:01:00] Hello world [00:01:05]
+"""
+        segments = MarkdownReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert len(dialogue) == 1
+        assert dialogue[0].text == "Hello world"
+        assert dialogue[0].translation is None
+
+    def test_writer_uses_target_lang_tag(self):
+        """Writer uses target_lang as the language tag in > [lang] prefix."""
+        sup = Supervision(text="Hello", translation="Hola", target_lang="es", start=0.0, duration=1.0)
+        content = MarkdownWriter.to_bytes([sup]).decode("utf-8")
+        assert "> [es] Hola" in content
+
+    def test_writer_fallback_tag_without_target_lang(self):
+        """Writer falls back to [translation] when target_lang is not set."""
+        sup = Supervision(text="Hello", translation="Hola", start=0.0, duration=1.0)
+        content = MarkdownWriter.to_bytes([sup]).decode("utf-8")
+        assert "> [translation] Hola" in content
+
+    def test_mixed_blockquote_and_bilingual(self):
+        """Regular blockquote (without [lang]) is not parsed as translation even with target_lang."""
+        content = """---
+target_lang: zh
+---
+
+# Test
+
+**Speaker:** [00:01:00] He said something [00:01:05]
+> This is just a regular quote
+
+**Speaker:** [00:01:05] Hello [00:01:10]
+> [zh] 你好
+"""
+        segments = MarkdownReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        # 3 dialogue segments: "He said something", "> This is..." (plain text), "Hello"
+        assert len(dialogue) == 3
+        # First segment: no translation
+        assert dialogue[0].translation is None
+        # Regular blockquote is parsed as standalone dialogue, not a translation
+        assert dialogue[1].text == "> This is just a regular quote"
+        assert dialogue[1].translation is None
+        # Third segment: > [zh] is a translation
+        assert dialogue[2].translation == "你好"
+
+    def test_target_lang_propagated_to_supervision(self):
+        """target_lang from frontmatter is set on Supervision objects."""
+        content = """---
+target_lang: ja
+---
+
+# Test
+
+**Speaker:** [00:01:00] Hello [00:01:05]
+> [ja] こんにちは
+"""
+        sups = MarkdownReader.extract_for_alignment(content)
+        assert sups[0].translation == "こんにちは"
+        assert sups[0].target_lang == "ja"
+
+    def test_frontmatter_target_lang_round_trip(self):
+        """target_lang appears in written frontmatter and is read back."""
+        sups = [Supervision(text="Hello", translation="你好", target_lang="zh", start=0.0, duration=1.0)]
+        content = MarkdownWriter.to_bytes(sups, metadata={"title": "Test", "target_lang": "zh"}).decode("utf-8")
+        assert "target_lang: zh" in content
+
+        fm = MarkdownReader.extract_frontmatter(content)
+        assert fm["target_lang"] == "zh"
+
+    def test_hyphenated_lang_code_round_trip(self):
+        """BCP-47 tags like zh-CN, pt-BR round-trip correctly."""
+        sups = [Supervision(text="Hello", translation="你好", target_lang="zh-CN", start=0.0, duration=1.0)]
+        content = MarkdownWriter.to_bytes(sups, metadata={"target_lang": "zh-CN"}).decode("utf-8")
+        assert "> [zh-CN] 你好" in content
+
+        read_sups = MarkdownReader.extract_for_alignment(content)
+        assert read_sups[0].translation == "你好"
+        assert read_sups[0].target_lang == "zh-CN"
+
+    def test_mismatched_tag_not_consumed(self):
+        """A > [en] line in a target_lang: zh file is NOT consumed as translation."""
+        content = """---
+target_lang: zh
+---
+
+# Test
+
+**Speaker:** [00:01:00] Hello [00:01:05]
+> [en] This is an English note, not a translation
+"""
+        segments = MarkdownReader.read(content)
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        # The > [en] line does not match target_lang zh, so no translation
+        assert dialogue[0].translation is None
+
+    def test_explicit_target_lang_kwarg(self):
+        """Explicit target_lang parameter works without frontmatter."""
+        content = """# Test
+
+**Speaker:** [00:01:00] Hello [00:01:05]
+> [zh] 你好
+"""
+        # No frontmatter, but explicit target_lang
+        segments = MarkdownReader.read(content, target_lang="zh")
+        dialogue = [s for s in segments if s.segment_type == "dialogue"]
+        assert dialogue[0].translation == "你好"
+
+    def test_explicit_target_lang_propagated_to_supervision(self):
+        """Explicit target_lang kwarg is propagated to Supervision objects."""
+        content = """# Test
+
+**Speaker:** [00:01:00] Hello [00:01:05]
+> [zh] 你好
+"""
+        sups = MarkdownReader.extract_for_alignment(content, target_lang="zh")
+        assert sups[0].translation == "你好"
+        assert sups[0].target_lang == "zh"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

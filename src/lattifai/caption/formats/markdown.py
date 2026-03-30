@@ -6,6 +6,7 @@ This format is commonly produced by the Gemini API for YouTube transcription,
 but can represent any markdown-based transcript with timestamp annotations.
 """
 
+import io
 import re
 import tempfile
 from dataclasses import dataclass
@@ -50,15 +51,12 @@ class MarkdownReader:
     THINKING_PATTERN = re.compile(r"<thinking>.*?</thinking>", re.DOTALL)
 
     # Regex patterns for parsing (supports [HH:MM:SS], [HH:MM:SS.mmm], [MM:SS], [MM:SS.mmm])
-    TIMESTAMP_PATTERN = re.compile(
-        r"\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]|\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]"
-    )
     SECTION_HEADER_PATTERN = re.compile(r"^##\s*\[(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]\s*(.+)$")
     SPEAKER_PATTERN = re.compile(r"^\*\*(.+?[:：])\*\*\s*(.+)$")
     # Multi-event pattern: [Event1] [Event2] ... [TIMESTAMP] - two or more events before timestamp
     # Each event bracket must contain at least one letter (to exclude timestamps like [00:00:00])
     MULTI_EVENT_PATTERN = re.compile(
-        r"^(\[[^\]]*[a-zA-Z\u4e00-\u9fff][^\]]*\](?:\s+\[[^\]]*[a-zA-Z\u4e00-\u9fff][^\]]*\])+)"
+        r"^(\[[^\]]*[a-zA-Z\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff][^\]]*\](?:\s+\[[^\]]*[a-zA-Z\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff][^\]]*\])+)"
         r"\s+\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$"
     )
     # Event pattern: [Event] [HH:MM:SS.mmm] or [Event] [MM:SS.mmm] - prioritize HH:MM:SS format
@@ -192,6 +190,74 @@ class MarkdownReader:
             return cls.parse_timestamp(h_or_m, m_or_s, s_opt, ms)
         else:
             return cls.parse_timestamp(h_or_m, m_or_s, ms=ms)
+
+    @classmethod
+    def _extract_timestamps(cls, text: str):
+        """Extract start/end timestamps from inline text.
+
+        Tries patterns in priority order: both timestamps, time range,
+        start only, end only, YouTube inline. Returns (clean_text, start, end).
+        """
+        # Both start and end: [HH:MM:SS] text [HH:MM:SS]
+        m = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(text)
+        if m:
+            g = m.groups()
+            start = cls.parse_timestamp(g[0], g[1], g[2], g[3]) if g[0] is not None else cls.parse_timestamp(g[4], g[5], ms=g[6])
+            end = cls.parse_timestamp(g[8], g[9], g[10], g[11]) if g[8] is not None else cls.parse_timestamp(g[12], g[13], ms=g[14])
+            return g[7].strip(), start, end
+
+        # Time range: text [HH:MM:SS → HH:MM:SS]
+        m = cls.INLINE_TIME_RANGE_PATTERN.match(text)
+        if m:
+            g = m.groups()
+            return g[0].strip(), cls._parse_flexible_timestamp(g[1], g[2], g[3], g[4]), cls._parse_flexible_timestamp(g[5], g[6], g[7], g[8])
+
+        # Start timestamp: [HH:MM:SS] text
+        m = cls.INLINE_TIMESTAMP_START_PATTERN.match(text)
+        if m:
+            g = m.groups()
+            start = cls.parse_timestamp(g[0], g[1], g[2], g[3]) if g[0] is not None else (cls.parse_timestamp(g[4], g[5], ms=g[6]) if g[4] is not None else None)
+            return g[7].strip(), start, None
+
+        # End timestamp: text [HH:MM:SS]
+        m = cls.INLINE_TIMESTAMP_END_PATTERN.match(text)
+        if m:
+            g = m.groups()
+            end = cls.parse_timestamp(g[1], g[2], g[3], g[4]) if g[1] is not None else (cls.parse_timestamp(g[5], g[6], ms=g[7]) if g[5] is not None else None)
+            return g[0].strip(), None, end
+
+        # YouTube inline: text [[MM:SS](url)]
+        m = cls.YOUTUBE_INLINE_PATTERN.match(text)
+        if m:
+            return m.group(1).strip(), None, cls.parse_timestamp(m.group(4))
+
+        return text.strip(), None, None
+
+    @staticmethod
+    def _estimate_duration(text: str, wps: float = 3.3, cps: float = 4.0) -> float:
+        """Estimate speech duration from text length.
+
+        Uses word-based estimation for Latin scripts and character-based
+        estimation for CJK scripts (Chinese, Japanese, Korean) where
+        whitespace splitting severely underestimates length.
+        """
+        if not text:
+            return 0.3
+        cjk_count = sum(
+            1
+            for c in text
+            if "\u4e00" <= c <= "\u9fff"  # CJK Unified Ideographs
+            or "\u3040" <= c <= "\u30ff"  # Hiragana + Katakana
+            or "\uac00" <= c <= "\ud7af"  # Hangul
+            or "\u3400" <= c <= "\u4dbf"  # CJK Extension A
+            or "\uf900" <= c <= "\ufaff"  # CJK Compatibility
+        )
+        if cjk_count > len(text.replace(" ", "")) * 0.3:
+            # CJK-dominant: ~4 characters per second
+            return max(len(text.replace(" ", "")) / cps, 0.3)
+        else:
+            # Latin-dominant: ~3.3 words per second
+            return max(len(text.split()) / wps, 0.3)
 
     @classmethod
     def read(
@@ -390,54 +456,7 @@ class MarkdownReader:
                 speaker, text_with_timestamp = speaker_match.groups()
                 current_speaker = speaker.strip()
 
-                both_match = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(text_with_timestamp.strip())
-                time_range_match = cls.INLINE_TIME_RANGE_PATTERN.match(text_with_timestamp.strip())
-                start_match = cls.INLINE_TIMESTAMP_START_PATTERN.match(text_with_timestamp.strip())
-                end_match = cls.INLINE_TIMESTAMP_END_PATTERN.match(text_with_timestamp.strip())
-                youtube_match = cls.YOUTUBE_INLINE_PATTERN.match(text_with_timestamp.strip())
-
-                start_timestamp = None
-                end_timestamp = None
-                text = text_with_timestamp.strip()
-
-                if both_match:
-                    groups = both_match.groups()
-                    # Groups: (h1, m1, s1, ms1, m1_2, s1_2, ms1_2, text, h2, m2, s2, ms2, m2_2, s2_2, ms2_2)
-                    if groups[0] is not None:
-                        start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
-                    else:
-                        start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
-                    text = groups[7]
-                    if groups[8] is not None:
-                        end_timestamp = cls.parse_timestamp(groups[8], groups[9], groups[10], groups[11])
-                    else:
-                        end_timestamp = cls.parse_timestamp(groups[12], groups[13], ms=groups[14])
-                elif time_range_match:
-                    groups = time_range_match.groups()
-                    text = groups[0]
-                    start_timestamp = cls._parse_flexible_timestamp(groups[1], groups[2], groups[3], groups[4])
-                    end_timestamp = cls._parse_flexible_timestamp(groups[5], groups[6], groups[7], groups[8])
-                elif start_match:
-                    groups = start_match.groups()
-                    # Groups: (h, m, s, ms1, m2, s2, ms2, text)
-                    if groups[0] is not None:
-                        start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
-                    elif groups[4] is not None:
-                        start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
-                    text = groups[7]
-                elif end_match:
-                    groups = end_match.groups()
-                    # Groups: (text, h, m, s, ms1, m2, s2, ms2)
-                    text = groups[0]
-                    if groups[1] is not None:
-                        end_timestamp = cls.parse_timestamp(groups[1], groups[2], groups[3], groups[4])
-                    elif groups[5] is not None:
-                        end_timestamp = cls.parse_timestamp(groups[5], groups[6], ms=groups[7])
-                elif youtube_match:
-                    groups = youtube_match.groups()
-                    text = groups[0]
-                    url_seconds = groups[3]
-                    end_timestamp = cls.parse_timestamp(url_seconds)
+                text, start_timestamp, end_timestamp = cls._extract_timestamps(text_with_timestamp.strip())
 
                 segments.append(
                     MarkdownSegment(
@@ -453,100 +472,14 @@ class MarkdownReader:
                 current_speaker = None
                 continue
 
-            # Parse plain text (might contain inline timestamp or be a continuation)
-            both_match = cls.INLINE_BOTH_TIMESTAMPS_PATTERN.match(line)
-            time_range_match = cls.INLINE_TIME_RANGE_PATTERN.match(line)
-            start_match = cls.INLINE_TIMESTAMP_START_PATTERN.match(line)
-            end_match = cls.INLINE_TIMESTAMP_END_PATTERN.match(line)
-            youtube_inline_match = cls.YOUTUBE_INLINE_PATTERN.match(line)
-
-            # Check for both start and end timestamps first: [HH:MM:SS.mmm] text [HH:MM:SS.mmm]
-            if both_match:
-                groups = both_match.groups()
-                # Groups: (h1, m1, s1, ms1, m1_2, s1_2, ms1_2, text, h2, m2, s2, ms2, m2_2, s2_2, ms2_2)
-                # Parse start timestamp (groups 0-6)
-                if groups[0] is not None:
-                    start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
-                else:
-                    start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
-                # Text content (group 7)
-                text = groups[7]
-                # Parse end timestamp (groups 8-14)
-                if groups[8] is not None:
-                    end_timestamp = cls.parse_timestamp(groups[8], groups[9], groups[10], groups[11])
-                else:
-                    end_timestamp = cls.parse_timestamp(groups[12], groups[13], ms=groups[14])
+            # Parse plain text (might contain inline timestamps or be a continuation)
+            text, start_timestamp, end_timestamp = cls._extract_timestamps(line)
+            if start_timestamp is not None or end_timestamp is not None:
                 segments.append(
                     MarkdownSegment(
-                        text=text.strip(),
+                        text=text,
                         timestamp=start_timestamp,
                         end_timestamp=end_timestamp,
-                        speaker=current_speaker,
-                        section=current_section,
-                        segment_type="dialogue",
-                        line_number=line_num,
-                    )
-                )
-            elif time_range_match:
-                groups = time_range_match.groups()
-                text = groups[0]
-                start_timestamp = cls._parse_flexible_timestamp(groups[1], groups[2], groups[3], groups[4])
-                end_timestamp = cls._parse_flexible_timestamp(groups[5], groups[6], groups[7], groups[8])
-                segments.append(
-                    MarkdownSegment(
-                        text=text.strip(),
-                        timestamp=start_timestamp,
-                        end_timestamp=end_timestamp,
-                        speaker=current_speaker,
-                        section=current_section,
-                        segment_type="dialogue",
-                        line_number=line_num,
-                    )
-                )
-            elif start_match:
-                groups = start_match.groups()
-                # Groups: (h, m, s, ms1, m2, s2, ms2, text)
-                if groups[0] is not None:
-                    start_timestamp = cls.parse_timestamp(groups[0], groups[1], groups[2], groups[3])
-                else:
-                    start_timestamp = cls.parse_timestamp(groups[4], groups[5], ms=groups[6])
-                text = groups[7]
-                segments.append(
-                    MarkdownSegment(
-                        text=text.strip(),
-                        timestamp=start_timestamp,
-                        speaker=current_speaker,
-                        section=current_section,
-                        segment_type="dialogue",
-                        line_number=line_num,
-                    )
-                )
-            elif end_match:
-                groups = end_match.groups()
-                # Groups: (text, h, m, s, ms1, m2, s2, ms2)
-                text = groups[0]
-                if groups[1] is not None:
-                    end_timestamp = cls.parse_timestamp(groups[1], groups[2], groups[3], groups[4])
-                else:
-                    end_timestamp = cls.parse_timestamp(groups[5], groups[6], ms=groups[7])
-                segments.append(
-                    MarkdownSegment(
-                        text=text.strip(),
-                        end_timestamp=end_timestamp,
-                        speaker=current_speaker,
-                        section=current_section,
-                        segment_type="dialogue",
-                        line_number=line_num,
-                    )
-                )
-            elif youtube_inline_match:
-                groups = youtube_inline_match.groups()
-                text = groups[0]
-                url_seconds = groups[3]
-                segments.append(
-                    MarkdownSegment(
-                        text=text.strip(),
-                        end_timestamp=cls.parse_timestamp(url_seconds),
                         speaker=current_speaker,
                         section=current_section,
                         segment_type="dialogue",
@@ -583,7 +516,6 @@ class MarkdownReader:
         merge_consecutive: bool = False,
         min_duration: float = 0.1,
         merge_max_gap: float = 2.0,
-        normalize_text: bool = True,
         **kwargs,
     ) -> List[Supervision]:
         """Extract text segments for forced alignment.
@@ -637,14 +569,12 @@ class MarkdownReader:
                             seg_end = next_seg.timestamp
                         elif next_seg.end_timestamp is not None:
                             # Next has only end, estimate its start and use that
-                            words_next = len(next_seg.text.split())
-                            estimated_duration_next = words_next * 0.3
+                            estimated_duration_next = cls._estimate_duration(next_seg.text)
                             seg_end = next_seg.end_timestamp - estimated_duration_next
 
                     if seg_end is None:
                         # Estimate based on text length
-                        words = len(segment.text.split())
-                        seg_end = seg_start + words * 0.3
+                        seg_end = seg_start + cls._estimate_duration(segment.text)
 
             elif segment.end_timestamp is not None:
                 # Only has end time, need to infer start from previous segment's end
@@ -655,8 +585,7 @@ class MarkdownReader:
             else:
                 # No timestamps at all: estimate from text length
                 seg_start = prev_end_time
-                words = len(segment.text.split()) if segment.text else 1
-                seg_end = seg_start + words * 0.3
+                seg_end = seg_start + cls._estimate_duration(segment.text)
 
             if seg_start is not None and seg_end is not None:
                 duration = max(seg_end - seg_start, min_duration)
@@ -724,9 +653,6 @@ class MarkdownReader:
             supervisions = merged
 
         return supervisions
-
-
-__all__ = ["MarkdownReader", "MarkdownSegment"]
 
 
 class MarkdownWriter:
@@ -906,27 +832,42 @@ class MarkdownWriter:
 
         return mapping
 
+    # Pre-compiled patterns for _replace_timestamp (avoid re-compiling per call)
+    _TIME_RANGE_RE = re.compile(
+        r"\[\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\s*→\s*\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\]"
+    )
+    _SINGLE_TS_RE = re.compile(r"\[\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?\]")
+
     @classmethod
     def _replace_timestamp(cls, line: str, new_start: float, new_end: float = None) -> str:
         """Replace timestamp(s) in a line with new values.
 
-        Handles both single timestamps [HH:MM:SS] and time ranges [HH:MM:SS → HH:MM:SS].
+        Handles time ranges [HH:MM:SS → HH:MM:SS], dual timestamps
+        [start] text [end], and single timestamps [HH:MM:SS].
         """
         # Handle time range format: [HH:MM:SS → HH:MM:SS]
-        time_range_re = re.compile(
-            r"\[\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\s*→\s*\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?\]"
-        )
-        range_match = time_range_re.search(line)
+        range_match = cls._TIME_RANGE_RE.search(line)
         if range_match and new_end is not None:
-            start_str = cls.format_timestamp(new_start)[1:-1]  # Strip brackets
+            start_str = cls.format_timestamp(new_start)[1:-1]
             end_str = cls.format_timestamp(new_end)[1:-1]
             new_range = f"[{start_str} → {end_str}]"
-            line = line[: range_match.start()] + new_range + line[range_match.end() :]
+            return line[: range_match.start()] + new_range + line[range_match.end() :]
+
+        # Find all [HH:MM:SS] timestamps in the line
+        matches = list(cls._SINGLE_TS_RE.finditer(line))
+        if not matches:
             return line
 
-        # Handle single timestamp: [HH:MM:SS] (with optional 1-digit hour and milliseconds)
-        new_ts_str = cls.format_timestamp(new_start)
-        line = re.sub(r"\[\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?\]", new_ts_str, line)
+        # Dual timestamps [start] text [end]: replace first and last separately
+        if len(matches) >= 2 and new_end is not None:
+            last = matches[-1]
+            line = line[: last.start()] + cls.format_timestamp(new_end) + line[last.end() :]
+            first = matches[0]
+            line = line[: first.start()] + cls.format_timestamp(new_start) + line[first.end() :]
+        else:
+            # Single timestamp
+            first = matches[0]
+            line = line[: first.start()] + cls.format_timestamp(new_start) + line[first.end() :]
 
         return line
 
@@ -965,10 +906,24 @@ class MarkdownWriter:
             for i, sup in enumerate(aligned_supervisions):
                 # Write segment with timestamp
                 start_ts = cls.format_timestamp(sup.start)
+                end_ts = cls.format_timestamp(sup.start + sup.duration) if sup.duration else None
                 text = sup.text or ""
+
+                # Speaker label
+                speaker_prefix = f"**{sup.speaker}:** " if sup.speaker else ""
+
+                # Include end timestamp when translation/word data follows
+                # to prevent Reader continuation-merge from polluting re-reads
+                has_followup = sup.translation or (
+                    include_word_timestamps and hasattr(sup, "alignment") and sup.alignment and "word" in sup.alignment
+                )
+                if has_followup and end_ts:
+                    f.write(f"{speaker_prefix}{start_ts} {text} {end_ts}\n")
+                else:
+                    f.write(f"{speaker_prefix}{start_ts} {text}\n")
+
                 if sup.translation:
-                    text = f"{text}\n{sup.translation}"
-                f.write(f"{start_ts} {text}\n")
+                    f.write(f"{sup.translation}\n")
 
                 # Optionally write word-level timestamps
                 if include_word_timestamps and hasattr(sup, "alignment") and sup.alignment:
@@ -1003,17 +958,41 @@ class MarkdownWriter:
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> bytes:
-        """Convert aligned supervisions to markdown format bytes."""
-        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            cls.write_aligned_transcript(supervisions, tmp_path, metadata=metadata, **kwargs)
-            return tmp_path.read_bytes()
-        finally:
-            tmp_path.unlink(missing_ok=True)
+        """Convert aligned supervisions to markdown format bytes (in-memory)."""
+        buf = io.StringIO()
+        cls._write_frontmatter(buf, metadata)
 
+        title = (metadata or {}).get("title", "Aligned Transcript")
+        buf.write(f"# {title}\n\n")
 
-__all__ = ["MarkdownWriter"]
+        include_word_timestamps = kwargs.get("include_word_timestamps", False)
+        for sup in supervisions:
+            start_ts = cls.format_timestamp(sup.start)
+            end_ts = cls.format_timestamp(sup.start + sup.duration) if sup.duration else None
+            text = sup.text or ""
+            speaker_prefix = f"**{sup.speaker}:** " if sup.speaker else ""
+
+            has_followup = sup.translation or (
+                include_word_timestamps and hasattr(sup, "alignment") and sup.alignment and "word" in sup.alignment
+            )
+            if has_followup and end_ts:
+                buf.write(f"{speaker_prefix}{start_ts} {text} {end_ts}\n")
+            else:
+                buf.write(f"{speaker_prefix}{start_ts} {text}\n")
+
+            if sup.translation:
+                buf.write(f"{sup.translation}\n")
+
+            if include_word_timestamps and hasattr(sup, "alignment") and sup.alignment:
+                if "word" in sup.alignment:
+                    buf.write("  Words: ")
+                    word_parts = [f'{w["symbol"]}{cls.format_timestamp(w["start"])}' for w in sup.alignment["word"]]
+                    buf.write(" ".join(word_parts))
+                    buf.write("\n")
+
+            buf.write("\n")
+
+        return buf.getvalue().encode("utf-8")
 
 
 @register_format("markdown")
@@ -1038,19 +1017,20 @@ class MarkdownFormat(FormatHandler):
         - Are .md files containing transcript timestamp patterns like [HH:MM:SS],
           [MM:SS], or **Speaker:** labels
         """
-        path_str = str(path).lower()
+        path_str = str(path)
+        path_lower = path_str.lower()
 
         # Legacy: accept files with "gemini" in the name
-        if "gemini" in path_str and path_str.endswith(".md"):
+        if "gemini" in path_lower and path_lower.endswith(".md"):
             return True
 
         # Only consider .md files for content sniffing
-        if not path_str.endswith(".md"):
+        if not path_lower.endswith(".md"):
             return False
 
         # Content sniffing: check for transcript timestamp patterns
         try:
-            p = Path(path_str)
+            p = Path(path_str)  # Use original path (case-sensitive filesystems)
             if p.exists() and p.is_file():
                 with open(p, "r", encoding="utf-8") as f:
                     # Read first 4KB for sniffing
@@ -1109,3 +1089,6 @@ class MarkdownFormat(FormatHandler):
     ) -> bytes:
         """Convert to markdown format bytes."""
         return MarkdownWriter.to_bytes(supervisions, metadata=metadata, **kwargs)
+
+
+__all__ = ["MarkdownFormat", "MarkdownReader", "MarkdownSegment", "MarkdownWriter"]

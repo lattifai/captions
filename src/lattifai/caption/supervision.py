@@ -386,7 +386,11 @@ class Supervision:
     def from_dict(data: dict) -> "Supervision":
         if "alignment" in data:
             data["alignment"] = {k: [AlignmentItem.deserialize(x) for x in v] for k, v in data["alignment"].items()}
-        return Supervision(**data)
+        # Filter to known fields for forward-compatibility: older Supervision
+        # versions can safely ignore fields added in newer releases.
+        known = Supervision.__dataclass_fields__
+        filtered = {k: v for k, v in data.items() if k in known}
+        return Supervision(**filtered)
 
 
 __all__ = ["Pathlike", "Seconds", "AlignmentItem", "Supervision"]

@@ -10,8 +10,9 @@ from typing import Dict, List, Optional
 import pysubs2
 
 from ..config import CaptionStyle, KaraokeConfig
+from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
-from ..parsers.text_parser import parse_speaker_text
+from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
 from ..supervision import Supervision
 from . import register_format
 from .base import FormatHandler
@@ -65,6 +66,12 @@ class Pysubs2Format(FormatHandler):
             # Fallback: auto-detect format
             subs = pysubs2.SSAFile.from_string(content)
 
+        # Auto-detect title-case speaker candidates from all lines
+        all_texts = [e.text for e in subs.events]
+        candidates = detect_speaker_candidates(all_texts)
+        if candidates:
+            set_speaker_candidates(candidates)
+
         supervisions = []
         for event in subs.events:
             text = event.text
@@ -81,6 +88,10 @@ class Pysubs2Format(FormatHandler):
                     duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
                 )
             )
+
+        # Clear candidates to avoid leaking into subsequent reads
+        if candidates:
+            set_speaker_candidates(set())
 
         return supervisions
 

@@ -1418,7 +1418,7 @@ class TestSpeakersProcessedFile:
     def test_roundtrip_update_timestamps(self, speakers_file, tmp_path):
         """Test round-trip: parse → modify timestamps → write back preserves file structure."""
         # Read original content for comparison
-        original_content = speakers_file.read_text()
+        original_content = speakers_file.read_text(encoding="utf-8")
 
         # Extract supervisions
         supervisions = MarkdownReader.extract_for_alignment(speakers_file)
@@ -1441,7 +1441,7 @@ class TestSpeakersProcessedFile:
 
         # Verify output file exists and has content
         assert output_file.exists()
-        updated_content = output_file.read_text()
+        updated_content = output_file.read_text(encoding="utf-8")
 
         # Key structural elements must be preserved
         assert "---" in updated_content  # Frontmatter delimiters

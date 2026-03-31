@@ -121,6 +121,8 @@ class JSONFormat(FormatHandler):
                     start=start,
                     duration=duration,
                     speaker=item.get("speaker"),
+                    translation=item.get("translation"),
+                    target_lang=item.get("target_lang"),
                     alignment=alignment,
                 )
             )
@@ -194,6 +196,15 @@ class JSONFormat(FormatHandler):
                     if w.score is not None:
                         word_dict["score"] = round(w.score, 4)
                     item["words"].append(word_dict)
+
+            if sup.translation:
+                item["translation"] = sup.translation
+            if sup.target_lang:
+                item["target_lang"] = sup.target_lang
+
+            if hasattr(sup, "custom") and sup.custom:
+                sup.custom.pop("speaker_diarize2", None)  # Remove internal diarization data if present
+                item["custom"] = sup.custom
 
             data.append(item)
 

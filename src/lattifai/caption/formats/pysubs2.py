@@ -10,8 +10,9 @@ from typing import Dict, List, Optional
 import pysubs2
 
 from ..config import CaptionStyle, KaraokeConfig
+from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
-from ..parsers.text_parser import parse_speaker_text
+from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
 from ..supervision import Supervision
 from . import register_format
 from .base import FormatHandler
@@ -65,6 +66,12 @@ class Pysubs2Format(FormatHandler):
             # Fallback: auto-detect format
             subs = pysubs2.SSAFile.from_string(content)
 
+        # Auto-detect title-case speaker candidates from all lines
+        all_texts = [e.text for e in subs.events]
+        candidates = detect_speaker_candidates(all_texts)
+        if candidates:
+            set_speaker_candidates(candidates)
+
         supervisions = []
         for event in subs.events:
             text = event.text
@@ -81,6 +88,10 @@ class Pysubs2Format(FormatHandler):
                     duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
                 )
             )
+
+        # Clear candidates to avoid leaking into subsequent reads
+        if candidates:
+            set_speaker_candidates(set())
 
         return supervisions
 
@@ -172,10 +183,12 @@ class Pysubs2Format(FormatHandler):
         if word_level and not karaoke_enabled:
             supervisions = expand_to_word_supervisions(supervisions)
 
+        from .base import render_bilingual_text
+
         subs = pysubs2.SSAFile()
 
         for sup in supervisions:
-            text = sup.text or ""
+            text = render_bilingual_text(sup)
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{sup.speaker} {text}"
 
@@ -440,7 +453,9 @@ class ASSFormat(Pysubs2Format):
                 )
             else:
                 # Standard mode: restore custom attributes from supervision
-                text = sup.text or ""
+                from .base import render_bilingual_text
+
+                text = render_bilingual_text(sup, separator="\\N")
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{sup.speaker} {text}"
 
@@ -449,9 +464,18 @@ class ASSFormat(Pysubs2Format):
 
         return subs.to_string(format_="ass").encode("utf-8")
 
+    # Default reference resolution for ASS font scaling.
+    # Players scale all coordinates and font sizes from PlayRes to actual video size.
+    DEFAULT_PLAY_RES_X = 1920
+    DEFAULT_PLAY_RES_Y = 1080
+    DEFAULT_FONTSIZE = 48.0
+
     @classmethod
     def _create_ass_file_with_metadata(cls, metadata: Optional[Dict]) -> pysubs2.SSAFile:
         """Create SSAFile and restore global styles from metadata.
+
+        When no PlayRes is provided, defaults to 1920x1080 reference resolution
+        so fonts scale proportionally to the actual video size.
 
         Args:
             metadata: Dict containing ass_info, ass_styles, play_res_x, play_res_y
@@ -461,14 +485,19 @@ class ASSFormat(Pysubs2Format):
         """
         subs = pysubs2.SSAFile()
 
+        # Set sensible defaults for font scaling (overridable by metadata)
+        subs.info["PlayResX"] = str(cls.DEFAULT_PLAY_RES_X)
+        subs.info["PlayResY"] = str(cls.DEFAULT_PLAY_RES_Y)
+        subs.styles["Default"].fontsize = cls.DEFAULT_FONTSIZE
+
         if not metadata:
             return subs
 
-        # Restore Script Info
+        # Restore Script Info (may override PlayRes defaults)
         if "ass_info" in metadata:
             subs.info.update(metadata["ass_info"])
 
-        # Set PlayResX/PlayResY for proper font scaling
+        # Explicit PlayRes overrides take highest priority
         if "play_res_x" in metadata:
             subs.info["PlayResX"] = str(metadata["play_res_x"])
         if "play_res_y" in metadata:
@@ -640,10 +669,12 @@ class SSAFormat(ASSFormat):
         if word_level and not (karaoke_config and karaoke_config.enabled):
             supervisions = expand_to_word_supervisions(supervisions)
 
+        from .base import render_bilingual_text
+
         subs = cls._create_ass_file_with_metadata(metadata)
 
         for sup in supervisions:
-            text = sup.text or ""
+            text = render_bilingual_text(sup, separator="\\N")
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{sup.speaker} {text}"
             event = cls._create_event_from_supervision(sup, text)

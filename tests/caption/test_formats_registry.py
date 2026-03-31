@@ -58,7 +58,7 @@ class TestFormatRegistry:
         assert detect_format("test.srt") == "srt"
         assert detect_format("test.vtt") == "vtt"
         assert detect_format("test.SRT") == "srt"  # Case insensitive
-        assert detect_format("gemini.md") == "gemini"
+        assert detect_format("gemini.md") == "markdown"  # "markdown" is the canonical format ID now
 
 
 class TestFormatHandlers:

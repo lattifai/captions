@@ -179,6 +179,10 @@ class Supervision:
     speaker: Optional[str] = None
     gender: Optional[str] = None
 
+    # Translation fields
+    translation: Optional[str] = None
+    target_lang: Optional[str] = None
+
     # Extension fields
     custom: Optional[Dict[str, Any]] = None
     alignment: Optional[Dict[str, List[AlignmentItem]]] = None
@@ -310,6 +314,10 @@ class Supervision:
     # =========================================================================
 
     @property
+    def is_bilingual(self) -> bool:
+        return self.translation is not None and len(self.translation) > 0
+
+    @property
     def end(self) -> Seconds:
         return round(self.start + self.duration, ndigits=8)
 
@@ -332,6 +340,8 @@ class Supervision:
             language=self.language,
             speaker=self.speaker,
             gender=self.gender,
+            translation=self.translation,
+            target_lang=self.target_lang,
             custom=self.custom,
             alignment=self.alignment,
         )

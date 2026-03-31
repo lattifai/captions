@@ -137,6 +137,13 @@ class SentenceSplitter:
                 start_time = first_sup.start + (first_char_idx / len(first_sup.text)) * first_sup.duration
                 end_time = last_sup.start + ((last_char_idx + 1) / len(last_sup.text)) * last_sup.duration
 
+            # Guard against negative duration from overlapping source supervisions
+            # (e.g., YouTube scroll-style VTT where cues overlap in time).
+            # When the interpolated end precedes start, fall back to the
+            # last supervision's end boundary.
+            if end_time < start_time:
+                end_time = max(last_sup.start + last_sup.duration, start_time + 0.1)
+
             merged_custom = None
             if overlapping_customs:
                 merged_custom = (overlapping_customs[0] or {}).copy()
@@ -350,8 +357,14 @@ class SentenceSplitter:
 
         return sentences
 
-    def _process_special_patterns(self, sentences: List[str]) -> Tuple[List[str], str]:
+    def _process_special_patterns(self, sentences: List[str], segment_text: str = None) -> Tuple[List[str], str]:
         """Process sentences to handle special patterns like [EVENT] >> SPEAKER:.
+
+        Args:
+            sentences: List of split sentences to process
+            segment_text: Original segment text (space-joined supervisions) used to
+                determine the correct separator when merging colon-ending text with
+                the next sentence.
 
         Returns:
             processed: List of processed sentences
@@ -368,7 +381,16 @@ class SentenceSplitter:
             parts = self._resplit_special_sentence_types(sentence)
 
             if self._ends_with_colon(parts[-1]):
-                sep = " " if self._needs_space_after(parts[-1]) else ""
+                # Determine separator from original text context if available
+                if segment_text:
+                    pos = segment_text.find(parts[-1])
+                    if pos != -1:
+                        after_pos = pos + len(parts[-1])
+                        sep = " " if after_pos < len(segment_text) and segment_text[after_pos] == " " else ""
+                    else:
+                        sep = " " if self._needs_space_after(parts[-1]) else ""
+                else:
+                    sep = " " if self._needs_space_after(parts[-1]) else ""
                 if idx < len(sentences) - 1:
                     sentences[idx + 1] = parts[-1] + sep + sentences[idx + 1]
                 else:
@@ -384,6 +406,7 @@ class SentenceSplitter:
         speakers: List[Optional[str]],
         sentences: List[List[str]],
         event_indices: set,
+        texts: List[str] = None,
     ) -> List[Tuple[str, Optional[str]]]:
         """Process split sentences with speaker tracking and remainder handling.
 
@@ -415,7 +438,8 @@ class SentenceSplitter:
                 continue
 
             # Process special patterns
-            processed, pattern_remainder = self._process_special_patterns(seg_sentences)
+            segment_text = texts[seg_idx] if texts else None
+            processed, pattern_remainder = self._process_special_patterns(seg_sentences, segment_text)
             if pattern_remainder:
                 remainder = pattern_remainder
 
@@ -481,7 +505,7 @@ class SentenceSplitter:
         sentences = self._apply_sentence_splitting(texts, event_indices, strip_whitespace)
 
         # Phase 3: Process sentences with speaker tracking
-        texts_with_speakers = self._process_sentences_with_speakers(speakers, sentences, event_indices)
+        texts_with_speakers = self._process_sentences_with_speakers(speakers, sentences, event_indices, texts)
 
         # Phase 4: Distribute time information
         split_texts = [text for text, _ in texts_with_speakers]

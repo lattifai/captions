@@ -275,8 +275,10 @@ class LRCFormat(FormatHandler):
                         lines.append(f"[{word_time}]{word.symbol}")
             else:
                 # Standard LRC mode: only line timestamp
+                from .base import render_bilingual_text
+
                 line_time = cls._format_time(sup.start, config.lrc_precision)
-                text = sup.text or ""
+                text = render_bilingual_text(sup)
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{sup.speaker}: {text}"
                 lines.append(f"[{line_time}]{text}")

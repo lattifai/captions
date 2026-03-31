@@ -134,7 +134,7 @@ def detect_format(path: str) -> Optional[str]:
 
     # Prioritize specific formats that can detect by content
     # These often use shared extensions like .vtt, .txt, or .xml
-    priority_formats = ["vtt", "gemini", "premiere_xml"]
+    priority_formats = ["vtt", "markdown", "premiere_xml"]
     for format_id in priority_formats:
         reader_cls = _READERS.get(format_id)
         if reader_cls and reader_cls.can_read(path_str):
@@ -168,9 +168,9 @@ def detect_format(path: str) -> Optional[str]:
 # Import all format modules to trigger registration
 # These imports MUST come after register_* functions are defined
 # Standard formats
-from . import gemini  # noqa: E402  # YouTube/Gemini markdown
-from . import json as json_format  # noqa: E402  # JSON structured format
+from . import gemini  # noqa: E402  # Backward-compatible aliases for markdown format
 from . import lrc  # noqa: E402  # Enhanced LRC with word-level timestamps
+from . import markdown  # noqa: E402  # Markdown transcript format
 from . import pysubs2  # noqa: E402  # SRT, ASS, SSA, SUB, SAMI
 from . import sbv  # noqa: E402  # SubViewer
 from . import srv3  # noqa: E402  # YouTube SRV3/YTT format
@@ -178,6 +178,7 @@ from . import tabular  # noqa: E402  # CSV, TSV, AUD, TXT
 from . import textgrid  # noqa: E402  # Praat TextGrid
 from . import ttml  # noqa: E402  # TTML, IMSC1, EBU-TT-D
 from . import vtt  # noqa: E402  # WebVTT with YouTube VTT word-level timestamp support
+from . import json as json_format  # noqa: E402  # JSON structured format
 
 # Professional NLE formats
 from .nle import audition  # noqa: E402  # Adobe Audition / Pro Tools markers

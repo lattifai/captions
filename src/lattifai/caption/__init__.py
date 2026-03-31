@@ -9,7 +9,8 @@ This module provides comprehensive caption/subtitle processing capabilities:
 
 from .caption import Caption
 from .config import InputCaptionFormat, OutputCaptionFormat
-from .formats.gemini import GeminiReader, GeminiSegment, GeminiWriter
+from .formats.gemini import GeminiReader, GeminiSegment, GeminiWriter  # backward compat
+from .formats.markdown import MarkdownReader, MarkdownSegment, MarkdownWriter
 from .formats.nle.audition import (
     AuditionCSVConfig,
     AuditionCSVWriter,
@@ -62,7 +63,11 @@ __all__ = [
     "ValidationResult",
     "standardize_captions",
     "apply_margins_to_captions",
-    # Gemini format support
+    # Markdown format support
+    "MarkdownReader",
+    "MarkdownWriter",
+    "MarkdownSegment",
+    # Gemini format support (backward-compatible aliases)
     "GeminiReader",
     "GeminiWriter",
     "GeminiSegment",

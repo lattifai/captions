@@ -437,9 +437,11 @@ class VTTFormat(FormatHandler):
 
         lines.append("")
 
+        from .base import render_bilingual_text
+
         subs = pysubs2.SSAFile()
         for sup in supervisions:
-            text = sup.text or ""
+            text = render_bilingual_text(sup)
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{sup.speaker} {text}"
             subs.append(
@@ -513,6 +515,9 @@ class VTTFormat(FormatHandler):
                     text_parts.append(f"<{format_timestamp(word.start)}><c> {symbol}</c>")
                 lines.append("".join(text_parts))
             else:
+                from .base import render_bilingual_text
+
+                text = render_bilingual_text(sup)
                 lines.append(f"{format_timestamp(sup.start)} --> {format_timestamp(sup.end)}")
                 if include_speaker and sup.speaker:
                     text = f"{sup.speaker}: {text}"

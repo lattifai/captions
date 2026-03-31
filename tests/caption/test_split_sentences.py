@@ -339,6 +339,32 @@ def test_split_sentences_chinese_gemini_colon_bug():
     assert origin == result
 
 
+def test_split_sentences_TheValley101_瑞士信贷_colon_space(tmp_path):
+    """Regression: Chinese colon followed by space-joined supervisions must preserve the space."""
+    import zipfile
+    from pathlib import Path
+
+    from lattifai.caption.formats.gemini import GeminiReader
+
+    zip_file = Path(__file__).parent.parent / "data" / "TheValley101_瑞士信贷-gemini-3-flash-preview.md.zip"
+    with zipfile.ZipFile(zip_file) as zf:
+        name = zf.namelist()[0]
+        data = zf.read(name)
+    test_file = tmp_path / "test.md"
+    test_file.write_bytes(data)
+
+    splitter = SentenceSplitter()
+    supervisions = GeminiReader.extract_for_alignment(test_file)
+
+    # Should not raise ValueError about missing split text
+    splits = splitter.split_sentences(supervisions)
+
+    # Text integrity
+    origin = "".join(sup.text for sup in supervisions).replace(" ", "")
+    result = "".join(sup.text for sup in splits).replace(" ", "")
+    assert origin == result
+
+
 def test_split_event_text_single_event():
     """Single event text should not be split."""
     result = SentenceSplitter._split_event_text("[Laughter]")
@@ -448,6 +474,33 @@ def test_split_sentences_separates_inline_trailing_event():
 
     texts = [sup.text for sup in result]
     assert "[Breathes out]" in texts, f"Expected '[Breathes out]' as separate segment, got: {texts}"
+
+
+def test_overlapping_youtube_scroll_vtt_no_negative_duration():
+    """YouTube scroll-style VTT has overlapping cue timestamps.
+
+    _distribute_time_info interpolates start/end within each source supervision.
+    When split text spans two overlapping cues, the interpolated end (from the
+    earlier-starting cue) can be before the interpolated start (from the
+    later-starting cue), producing negative duration. This test verifies the
+    guard against that.
+    """
+    splitter = SentenceSplitter()
+
+    # Simulate YouTube scroll VTT: cues overlap in time, each has a few words
+    supervisions = [
+        Supervision(id="0", recording_id="r", start=611.554, duration=1.602, text=">> CHAT GPT: You're doing a"),
+        Supervision(id="1", recording_id="r", start=612.421, duration=7.308, text="live demo right now? That is"),
+        Supervision(id="2", recording_id="r", start=613.256, duration=7.173, text="awesome. Just take a deep"),
+    ]
+
+    result = splitter.split_sentences(supervisions)
+
+    for sup in result:
+        assert sup.duration >= 0, (
+            f"Negative duration for '{sup.text}': start={sup.start:.4f}, "
+            f"duration={sup.duration:.4f}, end={sup.end:.4f}"
+        )
 
 
 if __name__ == "__main__":

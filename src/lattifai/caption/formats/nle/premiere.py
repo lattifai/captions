@@ -252,7 +252,7 @@ class PremiereXMLWriter:
                     else:
                         items_to_process.append(
                             {
-                                "text": sup.text,
+                                "text": f"{sup.text}\n{sup.translation}" if sup.translation else sup.text,
                                 "start": sup.start,
                                 "duration": sup.duration,
                                 "speaker": sup.speaker,
@@ -261,7 +261,7 @@ class PremiereXMLWriter:
             else:
                 items_to_process = [
                     {
-                        "text": sup.text,
+                        "text": f"{sup.text}\n{sup.translation}" if sup.translation else sup.text,
                         "start": sup.start,
                         "duration": sup.duration,
                         "speaker": sup.speaker,

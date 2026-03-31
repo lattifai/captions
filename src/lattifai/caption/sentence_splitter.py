@@ -59,6 +59,21 @@ class SentenceSplitter:
                 hub_prefix="segment-any-text",
                 ort_providers=providers + ["CPUExecutionProvider"],
             )
+        # Fix for transformers 5.x: minimal tokenizer_config.json may lose
+        # special token mappings. Patch them back for xlm-roberta-base and
+        # refresh the cached special_tokens list that SaT.__init__ snapshots.
+        tok = sat.tokenizer
+        if tok.cls_token_id is None or tok.sep_token_id is None:
+            tok.add_special_tokens({
+                "cls_token": "<s>",
+                "sep_token": "</s>",
+                "bos_token": "<s>",
+                "eos_token": "</s>",
+                "unk_token": "<unk>",
+                "pad_token": "<pad>",
+            })
+            sat.special_tokens = [tok.cls_token, tok.sep_token, tok.pad_token]
+
         self._splitter = sat
 
     @staticmethod

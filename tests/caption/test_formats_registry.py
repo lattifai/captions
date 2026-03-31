@@ -60,6 +60,13 @@ class TestFormatRegistry:
         assert detect_format("test.SRT") == "srt"  # Case insensitive
         assert detect_format("gemini.md") == "markdown"  # "markdown" is the canonical format ID now
 
+    def test_get_reader_md_alias(self):
+        """Test that 'md' resolves to the markdown reader (extension alias)."""
+        md_reader = get_reader("md")
+        markdown_reader = get_reader("markdown")
+        assert md_reader is not None, "get_reader('md') should resolve to MarkdownFormat"
+        assert md_reader is markdown_reader
+
 
 class TestFormatHandlers:
     """Test format handler implementations."""
@@ -109,6 +116,35 @@ class TestFormatIntegration:
         srt_path = tmp_path / "test.srt"
         caption.write(srt_path)
         assert srt_path.exists()
+
+    def test_caption_read_md_file(self, tmp_path):
+        """Test Caption.read auto-detects .md files without 'gemini' in the name."""
+        md_content = (
+            "## [00:00:00] Introduction\n\n"
+            "**Speaker:** Hello world. [00:00:05]\n\n"
+            "**Speaker:** Second line. [00:00:10]\n"
+        )
+        md_path = tmp_path / "transcript.md"
+        md_path.write_text(md_content, encoding="utf-8")
+
+        caption = Caption.read(str(md_path))
+        assert len(caption.supervisions) > 0
+        assert caption.source_format in ("markdown", "md")
+
+    def test_caption_read_md_normalize_text(self, tmp_path):
+        """Test Caption.read normalizes HTML entities in .md files."""
+        md_content = "**Host:** Rock &amp; Roll [00:00:00]\n\n**Host:** It&#39;s great [00:00:05]\n"
+        md_path = tmp_path / "entities.md"
+        md_path.write_text(md_content, encoding="utf-8")
+
+        caption = Caption.read(str(md_path), normalize_text=True)
+        texts = [s.text for s in caption.supervisions]
+        assert "Rock & Roll" in texts[0]
+        assert "It's great" in texts[1]
+
+        caption_raw = Caption.read(str(md_path), normalize_text=False)
+        texts_raw = [s.text for s in caption_raw.supervisions]
+        assert "&amp;" in texts_raw[0]
 
     def test_to_bytes_all_formats(self):
         """Test to_bytes works for common formats."""

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from ..supervision import Pathlike, Supervision
-from . import register_format
+from . import _READERS, _WRITERS, register_format
 from .base import FormatHandler, FormatReader
 
 
@@ -1123,9 +1123,15 @@ class MarkdownFormat(FormatHandler):
         return MarkdownReader.extract_frontmatter(content)
 
     @classmethod
-    def read(cls, path: Pathlike, **kwargs) -> List[Supervision]:
+    def read(cls, path: Pathlike, normalize_text: bool = True, **kwargs) -> List[Supervision]:
         """Read markdown transcript file."""
-        return MarkdownReader.extract_for_alignment(path, **kwargs)
+        supervisions = MarkdownReader.extract_for_alignment(path, **kwargs)
+        if normalize_text:
+            from ..parsers.text_parser import normalize_text as normalize_text_fn
+
+            for sup in supervisions:
+                sup.text = normalize_text_fn(sup.text)
+        return supervisions
 
     @classmethod
     def write(
@@ -1148,5 +1154,9 @@ class MarkdownFormat(FormatHandler):
         """Convert to markdown format bytes."""
         return MarkdownWriter.to_bytes(supervisions, metadata=metadata, **kwargs)
 
+
+# Register "md" as an alias so get_reader("md") and Caption.read("file.md") work
+_READERS["md"] = MarkdownFormat
+_WRITERS["md"] = MarkdownFormat
 
 __all__ = ["MarkdownFormat", "MarkdownReader", "MarkdownSegment", "MarkdownWriter"]

@@ -100,6 +100,12 @@ class KaraokeConfig:
     enabled: bool = False
     effect: Literal["sweep", "instant", "outline"] = "sweep"
     style: CaptionStyle = field(default_factory=CaptionStyle)
+    speaker_color: str = ""
+    """Speaker name color in ASS inline override.
+    - "": no special color (inherits from style)
+    - "#RRGGBB": single color for all speakers (e.g., "#FFA500")
+    - "#FFA500,#00BFFF,#FF69B4": comma-separated, auto-assigned per speaker in appearance order
+    - "auto": built-in 8-color palette, auto-assigned per speaker"""
 
     # LRC specific
     lrc_precision: Literal["centisecond", "millisecond"] = "millisecond"

@@ -184,8 +184,8 @@ class JSONFormat(FormatHandler):
             if sup.speaker:
                 item["speaker"] = sup.speaker
 
-            # Add words field when word_level=True and alignment exists
-            if word_level and sup.alignment and "word" in sup.alignment:
+            # Add words field when alignment exists (always preserve in JSON, a lossless format)
+            if sup.alignment and "word" in sup.alignment:
                 item["words"] = []
                 for w in sup.alignment["word"]:
                     word_dict = {

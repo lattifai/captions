@@ -593,6 +593,7 @@ class Caption:
         karaoke_config: Optional["KaraokeConfig"] = None,
         metadata: Optional[Dict[str, Any]] = None,
         translation_first: bool = False,
+        speaker_color: str = "",
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
@@ -608,6 +609,11 @@ class Caption:
                 Can be used to override or supplement format-specific metadata.
             translation_first: When True, render translation text above original text
                 in bilingual output. Default is False (original text first).
+            speaker_color: Speaker name color mode for ASS output.
+                - "": no special color (default)
+                - "#RRGGBB": single color for all speakers
+                - "#RRGGBB,#00BFFF,...": comma-separated, auto-assigned per speaker
+                - "auto": built-in 8-color palette, auto-assigned per speaker
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
@@ -661,6 +667,11 @@ class Caption:
 
             writer_cls = Pysubs2Format
 
+        # Merge speaker_color: explicit param takes precedence, fallback to karaoke_config
+        effective_speaker_color = speaker_color
+        if not effective_speaker_color and karaoke_config:
+            effective_speaker_color = karaoke_config.speaker_color or ""
+
         if isinstance(path, (str, Path)):
             return writer_cls.write(
                 supervisions,
@@ -669,6 +680,7 @@ class Caption:
                 word_level=word_level,
                 karaoke_config=karaoke_config,
                 metadata=effective_metadata,
+                speaker_color=effective_speaker_color,
             )
 
         content = writer_cls.to_bytes(
@@ -677,6 +689,7 @@ class Caption:
             word_level=word_level,
             karaoke_config=karaoke_config,
             metadata=effective_metadata,
+            speaker_color=effective_speaker_color,
         )
         if isinstance(path, io.BytesIO):
             path.write(content)

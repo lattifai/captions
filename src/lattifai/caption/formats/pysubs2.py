@@ -441,6 +441,7 @@ class ASSFormat(Pysubs2Format):
         """
         from .base import expand_to_word_supervisions
 
+        speaker_color = kwargs.pop("speaker_color", "")
         karaoke_enabled = karaoke_config is not None and karaoke_config.enabled
 
         # Expand to word-per-segment if word_level=True and karaoke is not enabled
@@ -461,6 +462,9 @@ class ASSFormat(Pysubs2Format):
             else:
                 subs.styles["Karaoke"] = cls._create_karaoke_style(karaoke_config.style)
 
+        # Speaker color cache: maps speaker name → BBGGRR color string (assigned on first appearance)
+        _speaker_color_cache = {}
+
         for sup in supervisions:
             alignment = getattr(sup, "alignment", None)
             word_items = alignment.get("word") if alignment else None
@@ -468,24 +472,37 @@ class ASSFormat(Pysubs2Format):
             # Karaoke mode with word alignment
             if word_level and karaoke_enabled and word_items:
                 karaoke_text = cls._build_karaoke_text(word_items, karaoke_config.effect)
+                if cls._should_include_speaker(sup, include_speaker):
+                    prefix = cls._format_speaker_prefix(sup.speaker)
+                    spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
+                    if spk_color:
+                        karaoke_text = f"{{\\c&H{spk_color}&}}{prefix}{{\\c}}{karaoke_text}"
+                    else:
+                        karaoke_text = f"{prefix}{karaoke_text}"
                 event_start = int(word_items[0].start * 1000)
                 event_end = int(word_items[-1].end * 1000)
 
-                subs.append(
-                    pysubs2.SSAEvent(
-                        start=event_start,
-                        end=event_end,
-                        text=karaoke_text,
-                        style="Karaoke",
-                    )
+                event = pysubs2.SSAEvent(
+                    start=event_start,
+                    end=event_end,
+                    text=karaoke_text,
+                    style="Karaoke",
                 )
+                if sup.speaker:
+                    event.name = sup.speaker
+                subs.append(event)
             else:
                 # Standard mode: restore custom attributes from supervision
                 from .base import render_bilingual_text
 
                 text = render_bilingual_text(sup, separator="\\N")
                 if cls._should_include_speaker(sup, include_speaker):
-                    text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
+                    prefix = cls._format_speaker_prefix(sup.speaker)
+                    spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
+                    if spk_color:
+                        text = f"{{\\c&H{spk_color}&}}{prefix}{{\\c}}{text}"
+                    else:
+                        text = f"{prefix}{text}"
 
                 event = cls._create_event_from_supervision(sup, text)
                 subs.append(event)
@@ -668,6 +685,55 @@ class ASSFormat(Pysubs2Format):
 
         return " ".join(parts)
 
+    # Built-in 8-color palette for auto speaker coloring (BBGGRR format for ASS)
+    # Source: 神仙系高级感配色 by 不二创艺
+    _SPEAKER_PALETTE = [
+        "A94D70",  # 晶石紫 Crystal Purple  (#704DA9)
+        "A8B6F8",  # 樱花粉 Sakura Pink     (#F8B6A8)
+        "D0D881",  # 蒂芙尼蓝 Tiffany Blue  (#81D8D0)
+        "2AC99D",  # 苹果绿 Apple Green     (#9DC92A)
+        "1DCBF6",  # 那不勒斯黄 Naples Yellow (#F6CB1D)
+        "F66109",  # 湖蓝 Lake Blue         (#0961F6)
+        "92DCFB",  # 亮金 Bright Gold       (#FBDC92)
+        "E6D0DB",  # 白藤色 Wisteria        (#DBD0E6)
+    ]
+
+    @classmethod
+    def _resolve_speaker_color(cls, speaker: str, speaker_color_spec: str, cache: dict) -> str:
+        """Resolve ASS BBGGRR color string for a speaker.
+
+        Args:
+            speaker: Speaker name
+            speaker_color_spec: Color spec from KaraokeConfig.speaker_color
+            cache: Mutable dict tracking assigned colors {speaker_name: "BBGGRR"}
+
+        Returns:
+            BBGGRR color string for ASS inline override, or "" if no coloring
+        """
+        if not speaker_color_spec:
+            return ""
+
+        if speaker in cache:
+            return cache[speaker]
+
+        # Parse palette: "auto" uses built-in, comma-separated uses user-provided
+        if speaker_color_spec == "auto":
+            palette = cls._SPEAKER_PALETTE
+        else:
+            # Parse "#RRGGBB,#RRGGBB,..." into ["BBGGRR", "BBGGRR", ...]
+            palette = []
+            for c in speaker_color_spec.split(","):
+                c = c.strip().lstrip("#")
+                if len(c) == 6:
+                    # Convert RRGGBB → BBGGRR for ASS
+                    palette.append(f"{c[4:6]}{c[2:4]}{c[0:2]}")
+            if not palette:
+                return ""
+
+        # Assign next color from palette (cycle if more speakers than colors)
+        color = palette[len(cache) % len(palette)]
+        cache[speaker] = color
+        return color
 
 @register_format("ssa")
 class SSAFormat(ASSFormat):

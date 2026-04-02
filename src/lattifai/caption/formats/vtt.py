@@ -88,6 +88,8 @@ class VTTFormat(FormatHandler):
     @classmethod
     def _read_standard_vtt(cls, source, normalize_text: bool = True) -> List[Supervision]:
         """Read standard VTT using pysubs2."""
+        from ..parsers.text_parser import detect_speaker_candidates, set_speaker_candidates
+
         try:
             if cls.is_content(source):
                 subs = pysubs2.SSAFile.from_string(source, format_="vtt")
@@ -99,6 +101,12 @@ class VTTFormat(FormatHandler):
             else:
                 subs = pysubs2.load(str(source), encoding="utf-8")
 
+        # Auto-detect title-case speaker candidates
+        all_texts = [e.text for e in subs.events]
+        candidates = detect_speaker_candidates(all_texts)
+        if candidates:
+            set_speaker_candidates(candidates)
+
         supervisions = []
         for event in subs.events:
             text = event.text
@@ -106,6 +114,14 @@ class VTTFormat(FormatHandler):
                 text = normalize_text_fn(text)
 
             speaker, text = parse_speaker_text(text)
+
+            # Strip speaker prefix from text when event.name matches
+            if not speaker and event.name:
+                for sep in (": ", "： "):
+                    prefix = event.name + sep
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                        break
 
             supervisions.append(
                 Supervision(
@@ -115,6 +131,9 @@ class VTTFormat(FormatHandler):
                     duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
                 )
             )
+
+        if candidates:
+            set_speaker_candidates(set())
 
         return supervisions
 
@@ -443,7 +462,7 @@ class VTTFormat(FormatHandler):
         for sup in supervisions:
             text = render_bilingual_text(sup)
             if cls._should_include_speaker(sup, include_speaker):
-                text = f"{sup.speaker} {text}"
+                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             subs.append(
                 pysubs2.SSAEvent(
                     start=int(sup.start * 1000),

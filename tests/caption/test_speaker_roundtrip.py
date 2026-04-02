@@ -151,6 +151,92 @@ BOB: Third speaker format
 
         print("✓ Write without speaker in text successful")
 
+    def test_srt_titlecase_speaker_roundtrip(self, tmp_path):
+        """Test title-case speaker names (no colon) roundtrip in SRT.
+
+        SRT has no dedicated speaker field. Title-case names are detected by
+        detect_speaker_candidates which requires ≥3 occurrences of the same
+        name pattern. This test uses a realistic interview scenario.
+        """
+        supervisions = [
+            Supervision(text="Welcome to the show.", start=1.0, duration=3.0, speaker="Host"),
+            Supervision(text="Thanks for having me.", start=5.0, duration=2.0, speaker="Terence Tao"),
+            Supervision(text="Let's start with math.", start=8.0, duration=2.0, speaker="Host"),
+            Supervision(text="Sure, great topic.", start=11.0, duration=2.0, speaker="Terence Tao"),
+            Supervision(text="How did you get into it?", start=14.0, duration=2.0, speaker="Host"),
+            Supervision(text="It started early.", start=17.0, duration=2.0, speaker="Terence Tao"),
+        ]
+
+        srt_file = tmp_path / "test.srt"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(srt_file, include_speaker_in_text=True)
+
+        # Verify written format has separator
+        content = srt_file.read_text()
+        assert "Host: Welcome to the show." in content
+        assert "Terence Tao: Thanks for having me." in content
+
+        # Read back — detect_speaker_candidates finds Host (3x) and Terence Tao (3x)
+        caption_read = Caption.read(srt_file)
+        assert len(caption_read.supervisions) == 6
+        for sup in caption_read.supervisions:
+            assert sup.speaker is not None, f"Speaker lost for: {sup.text}"
+            assert not sup.text.startswith("Host:"), f"Speaker prefix leaked into text: {sup.text}"
+            assert not sup.text.startswith("Terence Tao:"), f"Speaker prefix leaked into text: {sup.text}"
+
+    def test_ass_speaker_roundtrip_with_include(self, tmp_path):
+        """Test ASS roundtrip: include_speaker_in_text=True preserves speaker."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0, speaker="Host"),
+            Supervision(text="Goodbye", start=4.0, duration=2.0, speaker="Guest"),
+        ]
+
+        ass_file = tmp_path / "test.ass"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(ass_file, include_speaker_in_text=True)
+
+        content = ass_file.read_text()
+        # Name field should have speaker
+        assert ",Host," in content
+        assert ",Guest," in content
+        # Text should have speaker with separator
+        assert "Host: Hello world" in content
+        assert "Guest: Goodbye" in content
+
+        # Read back
+        caption_read = Caption.read(ass_file)
+        assert len(caption_read.supervisions) == 2
+        assert caption_read.supervisions[0].speaker is not None
+        assert caption_read.supervisions[0].text == "Hello world"
+        assert caption_read.supervisions[1].text == "Goodbye"
+
+    def test_ass_speaker_roundtrip_without_include(self, tmp_path):
+        """Test ASS roundtrip: include_speaker_in_text=False uses Name field only."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0, speaker="Host"),
+            Supervision(text="Goodbye", start=4.0, duration=2.0, speaker="Guest"),
+        ]
+
+        ass_file = tmp_path / "test.ass"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(ass_file, include_speaker_in_text=False)
+
+        content = ass_file.read_text()
+        # Name field should still have speaker
+        assert ",Host," in content
+        assert ",Guest," in content
+        # Text should NOT have speaker prefix
+        assert ",,Hello world" in content
+        assert ",,Goodbye" in content
+
+        # Read back — speaker recovered from Name field
+        caption_read = Caption.read(ass_file)
+        assert len(caption_read.supervisions) == 2
+        assert caption_read.supervisions[0].speaker == "Host"
+        assert caption_read.supervisions[0].text == "Hello world"
+        assert caption_read.supervisions[1].speaker == "Guest"
+        assert caption_read.supervisions[1].text == "Goodbye"
+
 
 def run_tests():
     """Run all tests."""

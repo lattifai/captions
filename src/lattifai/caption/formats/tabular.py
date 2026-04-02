@@ -241,11 +241,27 @@ class AUDFormat(FormatHandler):
         """Read AUD format."""
         import re
 
+        from ..parsers.text_parser import detect_speaker_candidates, set_speaker_candidates
+
         if cls.is_content(source):
             lines = source.strip().split("\n")
         else:
             with open(source, "r", encoding="utf-8") as f:
                 lines = f.readlines()
+
+        # Extract text column for candidate detection
+        text_parts = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                text_parts.append("\t".join(parts[2:]).strip())
+
+        candidates = detect_speaker_candidates(text_parts)
+        if candidates:
+            set_speaker_candidates(candidates)
 
         supervisions = []
         for line in lines:
@@ -262,12 +278,14 @@ class AUDFormat(FormatHandler):
                 end = float(parts[1])
                 text = "\t".join(parts[2:]).strip()
 
-                # Extract speaker from [[speaker]] prefix
+                # Extract speaker: try [[speaker]]text first, then Speaker: text
                 speaker = None
                 speaker_match = re.match(r"^\[\[([^\]]+)\]\]\s*(.*)$", text)
                 if speaker_match:
                     speaker = speaker_match.group(1)
                     text = speaker_match.group(2)
+                else:
+                    speaker, text = parse_speaker_text(text)
 
                 if normalize_text:
                     text = normalize_text_fn(text)
@@ -276,6 +294,9 @@ class AUDFormat(FormatHandler):
                     supervisions.append(Supervision(text=text, start=start, duration=end - start, speaker=speaker))
             except (ValueError, IndexError):
                 continue
+
+        if candidates:
+            set_speaker_candidates(set())
 
         return supervisions
 
@@ -294,7 +315,7 @@ class AUDFormat(FormatHandler):
         for sup in supervisions:
             text = sup.text.strip().replace("\t", " ")
             if cls._should_include_speaker(sup, include_speaker):
-                text = f"{sup.speaker} {text}"
+                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             lines.append(f"{sup.start}\t{sup.end}\t{text}")
 
         return "\n".join(lines).encode("utf-8")
@@ -313,6 +334,8 @@ class TXTFormat(FormatHandler):
     @classmethod
     def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
         """Read TXT format."""
+        from ..parsers.text_parser import detect_speaker_candidates, set_speaker_candidates
+
         if cls.is_content(source):
             lines = source.strip().split("\n")
         else:
@@ -321,6 +344,18 @@ class TXTFormat(FormatHandler):
 
         if normalize_text:
             lines = [normalize_text_fn(line) for line in lines]
+
+        # Strip timestamps first, then detect speaker candidates on the text portion
+        text_lines = []
+        for line in lines:
+            if not line:
+                continue
+            _, _, remaining = parse_timestamp_text(line)
+            text_lines.append(remaining if remaining != line else line)
+
+        candidates = detect_speaker_candidates(text_lines)
+        if candidates:
+            set_speaker_candidates(candidates)
 
         supervisions = []
         for line in lines:
@@ -334,6 +369,9 @@ class TXTFormat(FormatHandler):
             else:
                 speaker, text = parse_speaker_text(line)
                 supervisions.append(Supervision(text=text, speaker=speaker))
+
+        if candidates:
+            set_speaker_candidates(set())
 
         return supervisions
 
@@ -352,7 +390,7 @@ class TXTFormat(FormatHandler):
         for sup in supervisions:
             text = sup.text or ""
             if cls._should_include_speaker(sup, include_speaker):
-                text = f"{sup.speaker} {text}"
+                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             lines.append(f"[{sup.start:.2f}-{sup.end:.2f}] {text}")
 
         return "\n".join(lines).encode("utf-8")

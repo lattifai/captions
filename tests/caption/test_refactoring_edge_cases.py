@@ -72,11 +72,12 @@ class TestRefactoringEdgeCases:
 
         content = output_file.read_text(encoding="utf-8")
 
-        # ALICE appears in name field but should NOT appear in text portion
-        # BOB should appear in both name field and text portion
-        assert "BOB How are you" in content
-        # Text for ALICE should be just "Hello world" not "ALICE Hello world"
-        assert "Hello world" in content
+        # ALICE has original_speaker=False → text should NOT have speaker prefix
+        # BOB has original_speaker=True → text should have speaker prefix with separator
+        assert ",ALICE," in content  # Name field
+        assert ",BOB," in content  # Name field
+        assert ",,Hello world" in content  # ALICE: no prefix in text
+        assert ",,BOB: How are you" in content  # BOB: prefix with separator
 
     def test_original_speaker_flag_csv_format(self, tmp_path):
         """Test original_speaker flag behavior in CSV format.
@@ -139,11 +140,11 @@ class TestRefactoringEdgeCases:
         caption.write(aud_file, include_speaker_in_text=True)
 
         content = aud_file.read_text(encoding="utf-8")
-        # New format: "speaker text" instead of "[[speaker]]text"
-        assert "ALICE Hello" in content
+        # Speaker prepended with ': ' separator
+        assert "ALICE: Hello" in content
 
     def test_txt_speaker_format(self, tmp_path):
-        """Verify TXT speaker formatting (speaker text)."""
+        """Verify TXT speaker formatting (speaker: text)."""
         supervisions = [
             Supervision(text="Hello", start=1.0, duration=2.0, speaker="ALICE"),
         ]
@@ -152,5 +153,5 @@ class TestRefactoringEdgeCases:
         caption.write(txt_file, include_speaker_in_text=True)
 
         content = txt_file.read_text(encoding="utf-8")
-        # New format: "[start-end] speaker text" instead of "[start-end] [speaker]: text"
-        assert "ALICE Hello" in content
+        # Speaker prepended with ': ' separator
+        assert "ALICE: Hello" in content

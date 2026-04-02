@@ -80,6 +80,15 @@ class Pysubs2Format(FormatHandler):
 
             speaker, text = parse_speaker_text(text)
 
+            # Strip speaker prefix from text when event.name matches but
+            # parse_speaker_text couldn't extract it (title-case with <3 occurrences)
+            if not speaker and event.name:
+                for sep in (": ", "： "):
+                    prefix = event.name + sep
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                        break
+
             supervisions.append(
                 Supervision(
                     text=text,
@@ -190,7 +199,7 @@ class Pysubs2Format(FormatHandler):
         for sup in supervisions:
             text = render_bilingual_text(sup)
             if cls._should_include_speaker(sup, include_speaker):
-                text = f"{sup.speaker} {text}"
+                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
 
             subs.append(
                 pysubs2.SSAEvent(
@@ -280,6 +289,12 @@ class ASSFormat(Pysubs2Format):
             else:
                 subs = pysubs2.load(str(source), encoding="utf-8")
 
+        # Auto-detect title-case speaker candidates from text content
+        all_texts = [e.text for e in subs.events]
+        candidates = detect_speaker_candidates(all_texts)
+        if candidates:
+            set_speaker_candidates(candidates)
+
         supervisions = []
         for event in subs.events:
             text = event.text
@@ -287,6 +302,16 @@ class ASSFormat(Pysubs2Format):
                 text = normalize_text_fn(text)
 
             speaker, text = parse_speaker_text(text)
+
+            # When parse_speaker_text can't extract speaker from text but
+            # the Name field has one, strip the matching prefix from text
+            # so roundtripping include_speaker_in_text=True doesn't duplicate.
+            if not speaker and event.name:
+                for sep in (": ", "： "):
+                    prefix = event.name + sep
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                        break
 
             # Preserve ASS-specific event attributes
             custom = {
@@ -307,6 +332,9 @@ class ASSFormat(Pysubs2Format):
                     custom=custom,
                 )
             )
+
+        if candidates:
+            set_speaker_candidates(set())
 
         return supervisions
 
@@ -457,7 +485,7 @@ class ASSFormat(Pysubs2Format):
 
                 text = render_bilingual_text(sup, separator="\\N")
                 if cls._should_include_speaker(sup, include_speaker):
-                    text = f"{sup.speaker} {text}"
+                    text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
 
                 event = cls._create_event_from_supervision(sup, text)
                 subs.append(event)
@@ -676,7 +704,7 @@ class SSAFormat(ASSFormat):
         for sup in supervisions:
             text = render_bilingual_text(sup, separator="\\N")
             if cls._should_include_speaker(sup, include_speaker):
-                text = f"{sup.speaker} {text}"
+                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             event = cls._create_event_from_supervision(sup, text)
             subs.append(event)
 

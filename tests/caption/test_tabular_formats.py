@@ -203,10 +203,10 @@ Speaker2\t4000\t6000\tSecond caption
 
         assert output_file.exists()
 
-        # Read back and verify - new format uses "speaker text" instead of "[[speaker]]text"
+        # Read back and verify - speaker prepended with ': ' separator
         content = output_file.read_text()
-        assert "Speaker1 First line" in content
-        assert "Speaker2 Second line" in content
+        assert "Speaker1: First line" in content
+        assert "Speaker2: Second line" in content
 
         print(f"✓ AUD with speaker written correctly")
 
@@ -438,12 +438,12 @@ Second line without timestamp
         lines = content.strip().split("\n")
 
         assert len(lines) == 3
-        # Format is now: [start-end] speaker text
+        # Format is now: [start-end] speaker: text
         assert "[1.00-3.00]" in lines[0]
-        assert "ALICE Hello" in lines[0]
+        assert "ALICE: Hello" in lines[0]
 
         assert "[4.00-5.50]" in lines[1]
-        assert "BOB World" in lines[1]
+        assert "BOB: World" in lines[1]
 
         assert "[6.00-8.50]" in lines[2]
         assert "Test" in lines[2]
@@ -589,8 +589,8 @@ class TestAUDSpeakerFormatDetails:
 
         content = aud_file.read_text()
 
-        # New format: "speaker text" not "[[speaker]]text"
-        assert "SPEAKER_01 Test message" in content
+        # Speaker prepended with separator, not "[[speaker]]" format
+        assert "SPEAKER_01: Test message" in content
         assert "[[" not in content
 
     def test_aud_write_no_speaker(self, tmp_path):
@@ -624,8 +624,8 @@ class TestTXTSpeakerFormatDetails:
 
         content = txt_file.read_text()
 
-        # New format: "[start-end] speaker text" not "[start-end] [speaker]: text"
-        assert "[1.00-3.00] ALICE Hello world" in content
+        # Format: "[start-end] speaker: text"
+        assert "[1.00-3.00] ALICE: Hello world" in content
         assert "[ALICE]:" not in content
 
     def test_txt_write_no_speaker(self, tmp_path):

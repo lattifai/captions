@@ -75,20 +75,68 @@ def set_speaker_candidates(candidates: set) -> None:
 def detect_speaker_candidates(lines) -> set:
     """Auto-detect recurring title-case speaker names from caption lines.
 
-    Scans all lines for ``Title Case Name:`` prefixes (1-4 capitalized words
-    followed by a colon). Names appearing ≥3 times are returned as candidates.
+    Scans for ``Title Case Name:`` prefixes (1-4 capitalized words + colon).
+
+    Detection signals (any one sufficient):
+    1. **Frequency**: any single name ≥3 times → high confidence.
+    2. **Dialogue pattern**: ≥2 distinct names + alternation (A→B) +
+       recurrence (≥1 name ≥2x) + gaps (unlabeled lines between labeled
+       lines). Real speakers have continuation lines between turns;
+       consecutive labels (Note/Warning) do not.
     """
-    # Match "Title Case Name:" at the start of a line (1-4 words)
     name_colon = re.compile(
         r"^([A-Z][a-zA-Z\u00C0-\u024F'\-]+" r"(?:\s+[A-Z][a-zA-Z\u00C0-\u024F'\-]+){0,3})" r"[:：]\s+"
     )
     counts: dict = {}
+    sequence: list = []  # (name, line_index) for gap detection
+    line_idx = 0
     for line in lines:
-        if isinstance(line, str):
+        if isinstance(line, str) and line.strip():
             m = name_colon.match(line)
             if m:
-                counts[m.group(1)] = counts.get(m.group(1), 0) + 1
-    return {name for name, c in counts.items() if c >= 3}
+                name = m.group(1)
+                counts[name] = counts.get(name, 0) + 1
+                sequence.append((name, line_idx))
+            line_idx += 1
+
+    if not counts:
+        return set()
+
+    # Signal 1: names appearing ≥3 times are high-confidence speakers.
+    # Promote adjacent names only if they ALSO recur (≥2x). One-off labels
+    # like "Chapter One:" adjacent to a real speaker are NOT promoted.
+    confident = {name for name, c in counts.items() if c >= 3}
+    if confident:
+        names = [s[0] for s in sequence]
+        promoted = set(confident)
+        for a, b in zip(names, names[1:]):
+            if a in confident and b not in confident and counts[b] >= 2:
+                promoted.add(b)
+            elif b in confident and a not in confident and counts[a] >= 2:
+                promoted.add(a)
+        return promoted
+
+    # Signal 2: dialogue pattern — requires ≥2 distinct names + structural evidence.
+    # Two sub-cases:
+    #   a) Sparse labels (gaps between labeled lines): alternation + recurrence + gaps.
+    #      Gaps prove speaker turns have continuation lines; labels don't.
+    #   b) Fully labeled (every line has a name): every adjacent pair must differ.
+    #      Writer output has speaker on every line; labels repeat (Note→Note).
+    if len(counts) >= 2:
+        names = [s[0] for s in sequence]
+        indices = [s[1] for s in sequence]
+        has_alternation = any(a != b for a, b in zip(names, names[1:]))
+        has_recurrence = any(c >= 2 for c in counts.values())
+        has_gaps = any(b - a > 1 for a, b in zip(indices, indices[1:]))
+        all_labeled = len(sequence) == line_idx
+        all_alternate = len(names) >= 2 and all(a != b for a, b in zip(names, names[1:]))
+
+        if has_alternation and has_recurrence and has_gaps:
+            return set(counts.keys())
+        if all_labeled and all_alternate and len(names) >= 4:
+            return set(counts.keys())
+
+    return set()
 
 
 def parse_speaker_text(line) -> Tuple[Optional[str], str]:

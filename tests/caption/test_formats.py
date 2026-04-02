@@ -226,9 +226,9 @@ class TestPysubs2SpeakerFormat:
         caption.write(output_file, include_speaker_in_text=True)
 
         content = output_file.read_text()
-        # New format: "speaker text"
-        assert "ALICE Hello world" in content
-        assert "BOB Goodbye" in content
+        # Speaker prepended with ': ' separator for parseable roundtripping
+        assert "ALICE: Hello world" in content
+        assert "BOB: Goodbye" in content
 
     def test_pysubs2_speaker_not_in_text(self, tmp_path):
         """Test that speaker is not in text when include_speaker_in_text=False."""

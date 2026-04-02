@@ -667,11 +667,6 @@ class Caption:
 
             writer_cls = Pysubs2Format
 
-        # Merge speaker_color: explicit param takes precedence, fallback to karaoke_config
-        effective_speaker_color = speaker_color
-        if not effective_speaker_color and karaoke_config:
-            effective_speaker_color = karaoke_config.speaker_color or ""
-
         if isinstance(path, (str, Path)):
             return writer_cls.write(
                 supervisions,
@@ -680,7 +675,7 @@ class Caption:
                 word_level=word_level,
                 karaoke_config=karaoke_config,
                 metadata=effective_metadata,
-                speaker_color=effective_speaker_color,
+                speaker_color=speaker_color,
             )
 
         content = writer_cls.to_bytes(
@@ -689,7 +684,7 @@ class Caption:
             word_level=word_level,
             karaoke_config=karaoke_config,
             metadata=effective_metadata,
-            speaker_color=effective_speaker_color,
+            speaker_color=speaker_color,
         )
         if isinstance(path, io.BytesIO):
             path.write(content)

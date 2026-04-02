@@ -99,13 +99,14 @@ class KaraokeConfig:
 
     enabled: bool = False
     effect: Literal["sweep", "instant", "outline"] = "sweep"
+    preset: str = ""
+    """Karaoke color preset name. When set, overrides style colors.
+    Available presets: azure-gold, sakura-purple, mint-ocean, gardenia-green,
+    sunset-warm, prussian-elegant, burgundy-classic, china-red,
+    mars-teal, spring-field, navy-pink, apricot-dark.
+    Use "" (empty) for manual style configuration."""
+
     style: CaptionStyle = field(default_factory=CaptionStyle)
-    speaker_color: str = ""
-    """Speaker name color in ASS inline override.
-    - "": no special color (inherits from style)
-    - "#RRGGBB": single color for all speakers (e.g., "#FFA500")
-    - "#FFA500,#00BFFF,#FF69B4": comma-separated, auto-assigned per speaker in appearance order
-    - "auto": built-in 8-color palette, auto-assigned per speaker"""
 
     # LRC specific
     lrc_precision: Literal["centisecond", "millisecond"] = "millisecond"
@@ -113,6 +114,115 @@ class KaraokeConfig:
 
     # TTML specific
     ttml_timing_mode: Literal["Word", "Line"] = "Word"
+
+    def __post_init__(self):
+        """Apply preset colors to style if a preset is specified."""
+        if self.preset:
+            resolved = resolve_karaoke_preset(self.preset)
+            if resolved:
+                self.style.primary_color = resolved["primary_color"]
+                self.style.secondary_color = resolved["secondary_color"]
+                self.style.outline_color = resolved["outline_color"]
+                self.style.back_color = resolved["back_color"]
+                if "outline_width" in resolved:
+                    self.style.outline_width = resolved["outline_width"]
+                if "shadow_depth" in resolved:
+                    self.style.shadow_depth = resolved["shadow_depth"]
+
+
+# Karaoke color presets — curated from 不二创艺, 徐挺好, 色彩中国, 莱利纺织
+# Each preset: primary (unsung text), secondary (highlight sweep), outline, back (shadow)
+KARAOKE_PRESETS: Dict[str, Dict[str, str]] = {
+    "azure-gold": {
+        "primary_color": "#FFFFFF",
+        "secondary_color": "#FFC209",  # 金柠暖阳
+        "outline_color": "#1387C0",  # 晴空海蓝
+        "back_color": "#0A3D5C",
+        "outline_width": 2.0,
+    },
+    "sakura-purple": {
+        "primary_color": "#F7C3D9",  # 柔樱粉
+        "secondary_color": "#7953B1",  # 紫鸢深紫
+        "outline_color": "#063C85",  # 深海藏蓝
+        "back_color": "#1A1A2E",
+        "outline_width": 2.0,
+    },
+    "mint-ocean": {
+        "primary_color": "#A1FEEF",  # 薄荷冰青
+        "secondary_color": "#658AE4",  # 柔空蓝
+        "outline_color": "#28314E",  # 深海夜蓝
+        "back_color": "#0A0A1A",
+        "outline_width": 2.0,
+    },
+    "gardenia-green": {
+        "primary_color": "#FFFFFF",
+        "secondary_color": "#9DC92A",  # 苹果绿
+        "outline_color": "#77964A",  # 碧山
+        "back_color": "#1C2B1A",
+        "outline_width": 2.0,
+    },
+    "sunset-warm": {
+        "primary_color": "#FAEDD1",  # 奶油米白
+        "secondary_color": "#F4520D",  # 暖橙光
+        "outline_color": "#1387C0",  # 晴空海蓝
+        "back_color": "#0A1628",
+        "outline_width": 2.0,
+    },
+    "prussian-elegant": {
+        "primary_color": "#FFFFFF",
+        "secondary_color": "#FBC03D",  # 栀子黄
+        "outline_color": "#003153",  # 普鲁士蓝
+        "back_color": "#001A2C",
+        "outline_width": 2.5,
+    },
+    "burgundy-classic": {
+        "primary_color": "#F7F2DF",  # 宣纸白
+        "secondary_color": "#CC5D84",  # 琅玕紫
+        "outline_color": "#800020",  # 勃艮第红
+        "back_color": "#2A000D",
+        "outline_width": 2.0,
+    },
+    "china-red": {
+        "primary_color": "#FFFFFF",
+        "secondary_color": "#FEA72E",  # 杏黄
+        "outline_color": "#B05923",  # 提香红
+        "back_color": "#3A1A0A",
+        "outline_width": 2.0,
+    },
+    "mars-teal": {
+        "primary_color": "#FFFFFF",
+        "secondary_color": "#008C8C",  # 马尔斯绿
+        "outline_color": "#003153",  # 普鲁士蓝
+        "back_color": "#001A1A",
+        "outline_width": 2.0,
+    },
+    "spring-field": {
+        "primary_color": "#FBFFF2",  # 荔枝白
+        "secondary_color": "#46B065",  # Spring Fields 中绿
+        "outline_color": "#008E6B",  # Spring Fields 深绿
+        "back_color": "#0A2A1A",
+        "outline_width": 2.0,
+    },
+    "navy-pink": {
+        "primary_color": "#FFFFFF",
+        "secondary_color": "#F7C3D9",  # 柔樱粉
+        "outline_color": "#063C85",  # 深海藏蓝
+        "back_color": "#021A3A",
+        "outline_width": 2.0,
+    },
+    "apricot-dark": {
+        "primary_color": "#FEA72E",  # 杏黄
+        "secondary_color": "#F7F2DF",  # 宣纸白
+        "outline_color": "#3A3C50",  # 玄青
+        "back_color": "#1A1A28",
+        "outline_width": 2.0,
+    },
+}
+
+
+def resolve_karaoke_preset(name: str) -> Optional[Dict]:
+    """Resolve a karaoke preset name to style dict. Returns None if not found."""
+    return KARAOKE_PRESETS.get(name.lower().strip())
 
 
 @dataclass

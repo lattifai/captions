@@ -86,7 +86,7 @@ class Pysubs2Format(FormatHandler):
                 for sep in (": ", "： "):
                     prefix = event.name + sep
                     if text.startswith(prefix):
-                        text = text[len(prefix):]
+                        text = text[len(prefix) :]
                         break
 
             supervisions.append(
@@ -310,7 +310,7 @@ class ASSFormat(Pysubs2Format):
                 for sep in (": ", "： "):
                     prefix = event.name + sep
                     if text.startswith(prefix):
-                        text = text[len(prefix):]
+                        text = text[len(prefix) :]
                         break
 
             # Preserve ASS-specific event attributes
@@ -685,17 +685,19 @@ class ASSFormat(Pysubs2Format):
 
         return " ".join(parts)
 
-    # Built-in 8-color palette for auto speaker coloring (BBGGRR format for ASS)
-    # Source: 神仙系高级感配色 by 不二创艺
+    # Built-in 10-color palette for auto speaker coloring (BBGGRR format for ASS)
+    # Curated from: 不二创艺, 徐挺好, 色彩中国, 莱利纺织
     _SPEAKER_PALETTE = [
-        "A94D70",  # 晶石紫 Crystal Purple  (#704DA9)
-        "A8B6F8",  # 樱花粉 Sakura Pink     (#F8B6A8)
-        "D0D881",  # 蒂芙尼蓝 Tiffany Blue  (#81D8D0)
+        "C08713",  # 晴空海蓝 Azure         (#1387C0)
+        "09C2FF",  # 金柠暖阳 Warm Yellow   (#FFC209)
+        "D9C3F7",  # 柔樱粉 Soft Pink       (#F7C3D9)
         "2AC99D",  # 苹果绿 Apple Green     (#9DC92A)
-        "1DCBF6",  # 那不勒斯黄 Naples Yellow (#F6CB1D)
-        "F66109",  # 湖蓝 Lake Blue         (#0961F6)
-        "92DCFB",  # 亮金 Bright Gold       (#FBDC92)
-        "E6D0DB",  # 白藤色 Wisteria        (#DBD0E6)
+        "EFFEA1",  # 薄荷冰青 Mint Ice      (#A1FEEF)
+        "0D52F4",  # 暖橙光 Warm Orange     (#F4520D)
+        "E48A65",  # 柔空蓝 Sky Blue        (#658AE4)
+        "3DC0FB",  # 栀子黄 Gardenia Yellow (#FBC03D)
+        "845DCC",  # 琅玕紫 Langgan Purple  (#CC5D84)
+        "8C8C00",  # 马尔斯绿 Mars Green    (#008C8C)
     ]
 
     @classmethod
@@ -734,6 +736,7 @@ class ASSFormat(Pysubs2Format):
         color = palette[len(cache) % len(palette)]
         cache[speaker] = color
         return color
+
 
 @register_format("ssa")
 class SSAFormat(ASSFormat):

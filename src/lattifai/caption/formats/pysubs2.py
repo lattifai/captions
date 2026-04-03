@@ -443,6 +443,7 @@ class ASSFormat(Pysubs2Format):
         from .base import expand_to_word_supervisions
 
         speaker_color = kwargs.pop("speaker_color", "")
+        background_color = kwargs.pop("background_color", "")
         karaoke_enabled = karaoke_config is not None and karaoke_config.enabled
 
         # Expand to word-per-segment if word_level=True and karaoke is not enabled
@@ -462,6 +463,12 @@ class ASSFormat(Pysubs2Format):
                 subs.styles["Karaoke"] = subs.styles["Default"].copy()
             else:
                 subs.styles["Karaoke"] = cls._create_karaoke_style(karaoke_config.style)
+
+        # Apply background_color to Default style (non-karaoke mode)
+        if background_color and not karaoke_enabled and "Default" in subs.styles:
+            subs.styles["Default"].backcolor = cls._hex_to_ass_color(background_color)
+            subs.styles["Default"].borderstyle = 3
+            subs.styles["Default"].shadow = 0
 
         # Speaker color cache: maps speaker name → BBGGRR color string (assigned on first appearance)
         _speaker_color_cache = {}
@@ -625,17 +632,29 @@ class ASSFormat(Pysubs2Format):
         # Convert int alignment to pysubs2.Alignment enum
         alignment = pysubs2.Alignment(style.alignment)
 
+        # When background_color is set, switch to borderstyle=3 (opaque box)
+        has_bg = bool(style.background_color)
+        if has_bg:
+            back = cls._hex_to_ass_color(style.background_color)
+            borderstyle = 3
+            shadow = 0  # ASS ignores shadow in borderstyle=3
+        else:
+            back = cls._hex_to_ass_color(style.back_color)
+            borderstyle = 1
+            shadow = style.shadow_depth
+
         return pysubs2.SSAStyle(
             fontname=style.font_name,
             fontsize=style.font_size,
             primarycolor=cls._hex_to_ass_color(style.primary_color),
             secondarycolor=cls._hex_to_ass_color(style.secondary_color),
             outlinecolor=cls._hex_to_ass_color(style.outline_color),
-            backcolor=cls._hex_to_ass_color(style.back_color),
+            backcolor=back,
             bold=style.bold,
             italic=style.italic,
             outline=style.outline_width,
-            shadow=style.shadow_depth,
+            shadow=shadow,
+            borderstyle=borderstyle,
             alignment=alignment,
             marginl=style.margin_l,
             marginr=style.margin_r,
@@ -644,25 +663,32 @@ class ASSFormat(Pysubs2Format):
 
     @staticmethod
     def _hex_to_ass_color(hex_color: str) -> pysubs2.Color:
-        """Convert #RRGGBB to pysubs2 Color.
+        """Convert #RRGGBB or #RRGGBBAA to pysubs2 Color.
 
-        ASS uses &HAABBGGRR format (reversed RGB with alpha).
+        ASS uses &HAABBGGRR format (reversed RGB with INVERTED alpha).
+        Standard hex: AA=FF means opaque, 00 means transparent.
+        ASS alpha:    00 means opaque, FF means transparent (inverted).
 
         Args:
-            hex_color: Color in #RRGGBB format
+            hex_color: Color in #RRGGBB or #RRGGBBAA format
 
         Returns:
             pysubs2.Color object
         """
-        # Remove # prefix if present
         hex_color = hex_color.lstrip("#")
 
-        # Parse RGB
         r = int(hex_color[0:2], 16)
         g = int(hex_color[2:4], 16)
         b = int(hex_color[4:6], 16)
 
-        return pysubs2.Color(r=r, g=g, b=b, a=0)
+        # Parse alpha if present (#RRGGBBAA), then invert for ASS
+        if len(hex_color) >= 8:
+            standard_alpha = int(hex_color[6:8], 16)  # FF=opaque, 00=transparent
+            ass_alpha = 255 - standard_alpha  # 00=opaque, FF=transparent
+        else:
+            ass_alpha = 0  # Fully opaque (no alpha = opaque in ASS)
+
+        return pysubs2.Color(r=r, g=g, b=b, a=ass_alpha)
 
     @staticmethod
     def _build_karaoke_text(words: list, effect: str = "sweep") -> str:

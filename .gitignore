@@ -81,3 +81,5 @@ dmypy.json
 
 # pyright
 .pyright/
+
+docs/

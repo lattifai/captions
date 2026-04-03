@@ -48,13 +48,16 @@ class CaptionStyle:
         primary_color: Main text color (#RRGGBB)
         secondary_color: Secondary/highlight color (#RRGGBB)
         outline_color: Text outline color (#RRGGBB)
-        back_color: Shadow color (#RRGGBB)
+        back_color: Shadow/back color (#RRGGBB). In ASS borderstyle=1 this is the
+            drop shadow color. Legacy field kept for backward compatibility.
         font_name: Font family name (use CaptionFonts constants or any system font)
         font_size: Font size in points
         bold: Enable bold text
         italic: Enable italic text
         outline_width: Outline thickness
         shadow_depth: Shadow distance
+        background_color: Background box color. Empty = no box (default).
+            Supports #RRGGBB (solid) and #RRGGBBAA (semi-transparent).
         alignment: ASS alignment (1-9, numpad style), 2=bottom-center
         margin_l: Left margin in pixels
         margin_r: Right margin in pixels
@@ -76,6 +79,16 @@ class CaptionStyle:
     # Border and shadow
     outline_width: float = 0
     shadow_depth: float = 1.0
+
+    # Background box
+    background_color: str = ""
+    """Subtitle background box color.
+    - "":           no background box (default — text floats on video)
+    - "#RRGGBB":    solid opaque background box
+    - "#RRGGBBAA":  semi-transparent background box (e.g., "#00000080" = 50% black)
+    Supported formats: ASS (borderstyle=3), TTML, FCPXML, VTT (CSS).
+    Silently ignored by formats without background support (SRT, LRC, etc.).
+    """
 
     # Position
     alignment: int = 2
@@ -129,6 +142,8 @@ class KaraokeConfig:
                     self.style.outline_width = resolved["outline_width"]
                 if "shadow_depth" in resolved:
                     self.style.shadow_depth = resolved["shadow_depth"]
+                if "background_color" in resolved:
+                    self.style.background_color = resolved["background_color"]
 
 
 @dataclass

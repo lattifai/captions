@@ -594,6 +594,7 @@ class Caption:
         metadata: Optional[Dict[str, Any]] = None,
         translation_first: bool = False,
         speaker_color: str = "",
+        background_color: str = "",
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
@@ -613,7 +614,12 @@ class Caption:
                 - "": no special color (default)
                 - "#RRGGBB": single color for all speakers
                 - "#RRGGBB,#00BFFF,...": comma-separated, auto-assigned per speaker
-                - "auto": built-in 8-color palette, auto-assigned per speaker
+                - "auto": built-in 10-color palette, auto-assigned per speaker
+            background_color: Subtitle background box color.
+                - "": no background box (default)
+                - "#RRGGBB": solid opaque background
+                - "#RRGGBBAA": semi-transparent background (e.g., "#00000080")
+                Supported: ASS, TTML, FCPXML, VTT. Ignored by other formats.
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
@@ -667,6 +673,10 @@ class Caption:
 
             writer_cls = Pysubs2Format
 
+        # Apply background_color to karaoke style if present
+        if background_color and karaoke_config and not karaoke_config.style.background_color:
+            karaoke_config.style.background_color = background_color
+
         if isinstance(path, (str, Path)):
             return writer_cls.write(
                 supervisions,
@@ -676,6 +686,7 @@ class Caption:
                 karaoke_config=karaoke_config,
                 metadata=effective_metadata,
                 speaker_color=speaker_color,
+                background_color=background_color,
             )
 
         content = writer_cls.to_bytes(
@@ -685,6 +696,7 @@ class Caption:
             karaoke_config=karaoke_config,
             metadata=effective_metadata,
             speaker_color=speaker_color,
+            background_color=background_color,
         )
         if isinstance(path, io.BytesIO):
             path.write(content)

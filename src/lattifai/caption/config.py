@@ -101,13 +101,16 @@ class CaptionStyle:
 class KaraokeConfig:
     """Karaoke export configuration.
 
+    Karaoke-specific settings only. Subtitle styling (font, colors, background)
+    lives in CaptionStyle, not here.
+
     Attributes:
         enabled: Whether karaoke mode is enabled
         effect: Karaoke effect type
             - "sweep": Gradual fill from left to right (ASS \\kf tag)
             - "instant": Instant highlight (ASS \\k tag)
             - "outline": Outline then fill (ASS \\ko tag)
-        style: Caption style configuration (font, colors, position)
+        color_scheme: Predefined color scheme name (overrides style colors)
         lrc_precision: LRC time precision ("centisecond" or "millisecond")
         lrc_metadata: LRC metadata dict (ar, ti, al, etc.)
         ttml_timing_mode: TTML timing attribute ("Word" or "Line")
@@ -120,8 +123,6 @@ class KaraokeConfig:
     See KARAOKE_COLOR_SCHEMES in colors.py for available schemes.
     Use "" (empty) for manual style configuration."""
 
-    style: CaptionStyle = field(default_factory=CaptionStyle)
-
     # LRC specific
     lrc_precision: Literal["centisecond", "millisecond"] = "millisecond"
     lrc_metadata: Dict[str, str] = field(default_factory=dict)
@@ -129,21 +130,29 @@ class KaraokeConfig:
     # TTML specific
     ttml_timing_mode: Literal["Word", "Line"] = "Word"
 
-    def __post_init__(self):
-        """Apply color scheme to style if one is specified."""
-        if self.color_scheme:
-            resolved = resolve_karaoke_color_scheme(self.color_scheme)
-            if resolved:
-                self.style.primary_color = resolved["primary_color"]
-                self.style.secondary_color = resolved["secondary_color"]
-                self.style.outline_color = resolved["outline_color"]
-                self.style.back_color = resolved["back_color"]
-                if "outline_width" in resolved:
-                    self.style.outline_width = resolved["outline_width"]
-                if "shadow_depth" in resolved:
-                    self.style.shadow_depth = resolved["shadow_depth"]
-                if "background_color" in resolved:
-                    self.style.background_color = resolved["background_color"]
+
+def apply_color_scheme(style: CaptionStyle, scheme_name: str) -> None:
+    """Apply a karaoke color scheme to a CaptionStyle, overriding colors only.
+
+    Font, alignment, margins, and other non-color fields are preserved.
+
+    Args:
+        style: CaptionStyle to modify in-place
+        scheme_name: Color scheme name (e.g., "azure-gold")
+    """
+    resolved = resolve_karaoke_color_scheme(scheme_name)
+    if not resolved:
+        return
+    style.primary_color = resolved["primary_color"]
+    style.secondary_color = resolved["secondary_color"]
+    style.outline_color = resolved["outline_color"]
+    style.back_color = resolved["back_color"]
+    if "outline_width" in resolved:
+        style.outline_width = resolved["outline_width"]
+    if "shadow_depth" in resolved:
+        style.shadow_depth = resolved["shadow_depth"]
+    if "background_color" in resolved:
+        style.background_color = resolved["background_color"]
 
 
 @dataclass

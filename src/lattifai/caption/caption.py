@@ -595,6 +595,7 @@ class Caption:
         translation_first: bool = False,
         speaker_color: str = "",
         background_color: str = "",
+        style: Optional["CaptionStyle"] = None,
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
@@ -673,10 +674,6 @@ class Caption:
 
             writer_cls = Pysubs2Format
 
-        # Apply background_color to karaoke style if present
-        if background_color and karaoke_config and not karaoke_config.style.background_color:
-            karaoke_config.style.background_color = background_color
-
         if isinstance(path, (str, Path)):
             return writer_cls.write(
                 supervisions,
@@ -687,6 +684,7 @@ class Caption:
                 metadata=effective_metadata,
                 speaker_color=speaker_color,
                 background_color=background_color,
+                style=style,
             )
 
         content = writer_cls.to_bytes(
@@ -697,6 +695,7 @@ class Caption:
             metadata=effective_metadata,
             speaker_color=speaker_color,
             background_color=background_color,
+            style=style,
         )
         if isinstance(path, io.BytesIO):
             path.write(content)

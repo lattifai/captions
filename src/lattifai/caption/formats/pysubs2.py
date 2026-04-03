@@ -444,6 +444,7 @@ class ASSFormat(Pysubs2Format):
 
         speaker_color = kwargs.pop("speaker_color", "")
         background_color = kwargs.pop("background_color", "")
+        caption_style = kwargs.pop("style", None)  # CaptionStyle from caller
         karaoke_enabled = karaoke_config is not None and karaoke_config.enabled
 
         # Expand to word-per-segment if word_level=True and karaoke is not enabled
@@ -453,22 +454,24 @@ class ASSFormat(Pysubs2Format):
         # Create ASS file and restore global styles from metadata
         subs = cls._create_ass_file_with_metadata(metadata)
 
-        # Add karaoke style with priority:
-        # 1. metadata ass_styles.Karaoke (already loaded above)
-        # 2. Copy from metadata ass_styles.Default (inherits user's font/color settings)
-        # 3. Fallback to karaoke_config.style defaults
+        # Resolve effective style: caption_style is the single source of truth.
+        # background_color top-level param overrides style.background_color if set.
+        effective_style = caption_style or CaptionStyle()
+        if background_color and not effective_style.background_color:
+            effective_style.background_color = background_color
+
+        # Add karaoke style from effective_style
         has_metadata_styles = metadata and "ass_styles" in metadata
         if karaoke_enabled and "Karaoke" not in subs.styles:
             if has_metadata_styles and "Default" in metadata["ass_styles"]:
                 subs.styles["Karaoke"] = subs.styles["Default"].copy()
             else:
-                subs.styles["Karaoke"] = cls._create_karaoke_style(karaoke_config.style)
+                subs.styles["Karaoke"] = cls._create_karaoke_style(effective_style)
 
-        # Apply background_color to Default style (non-karaoke mode)
-        if background_color and not karaoke_enabled and "Default" in subs.styles:
-            subs.styles["Default"].backcolor = cls._hex_to_ass_color(background_color)
-            subs.styles["Default"].borderstyle = 3
-            subs.styles["Default"].shadow = 0
+        # Apply CaptionStyle to Default ASS style (when no metadata styles override)
+        has_custom_default = has_metadata_styles and "Default" in (metadata.get("ass_styles") or {})
+        if caption_style and not has_custom_default and "Default" in subs.styles:
+            subs.styles["Default"] = cls._create_karaoke_style(effective_style)
 
         # Speaker color cache: maps speaker name → BBGGRR color string (assigned on first appearance)
         _speaker_color_cache = {}

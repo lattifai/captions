@@ -99,10 +99,10 @@ class KaraokeConfig:
 
     enabled: bool = False
     effect: Literal["sweep", "instant", "outline"] = "sweep"
-    preset: str = ""
-    """Karaoke color preset name. When set, overrides style colors.
-    Available presets: azure-gold, sakura-purple, mint-ocean, gardenia-green,
-    sunset-warm, prussian-elegant, burgundy-classic, china-red,
+    color_scheme: str = ""
+    """Karaoke color scheme name. When set, overrides style colors.
+    Available schemes: azure-gold, sakura-purple, mint-ocean, gardenia-green,
+    sunset-warm, prussian-elegant, burgundy-classic, langgan-spring,
     mars-teal, spring-field, navy-pink, apricot-dark.
     Use "" (empty) for manual style configuration."""
 
@@ -116,9 +116,9 @@ class KaraokeConfig:
     ttml_timing_mode: Literal["Word", "Line"] = "Word"
 
     def __post_init__(self):
-        """Apply preset colors to style if a preset is specified."""
-        if self.preset:
-            resolved = resolve_karaoke_preset(self.preset)
+        """Apply color scheme to style if one is specified."""
+        if self.color_scheme:
+            resolved = resolve_karaoke_color_scheme(self.color_scheme)
             if resolved:
                 self.style.primary_color = resolved["primary_color"]
                 self.style.secondary_color = resolved["secondary_color"]
@@ -130,9 +130,9 @@ class KaraokeConfig:
                     self.style.shadow_depth = resolved["shadow_depth"]
 
 
-# Karaoke color presets — curated from 不二创艺, 徐挺好, 色彩中国, 莱利纺织
-# Each preset: primary (unsung text), secondary (highlight sweep), outline, back (shadow)
-KARAOKE_PRESETS: Dict[str, Dict[str, str]] = {
+# Karaoke color schemes — curated from 不二创艺, 徐挺好, 色彩中国, 莱利纺织
+# Each scheme: primary (unsung text), secondary (highlight sweep), outline, back (shadow)
+KARAOKE_COLOR_SCHEMES: Dict[str, Dict[str, str]] = {
     "azure-gold": {
         "primary_color": "#FFFFFF",
         "secondary_color": "#FFC209",  # 金柠暖阳
@@ -182,11 +182,11 @@ KARAOKE_PRESETS: Dict[str, Dict[str, str]] = {
         "back_color": "#2A000D",
         "outline_width": 2.0,
     },
-    "china-red": {
-        "primary_color": "#FFFFFF",
-        "secondary_color": "#FEA72E",  # 杏黄
-        "outline_color": "#B05923",  # 提香红
-        "back_color": "#3A1A0A",
+    "langgan-spring": {
+        "primary_color": "#C1D796",  # 春辰 (unsung text)
+        "secondary_color": "#CC5D84",  # 琅玕紫 (highlight sweep)
+        "outline_color": "#8A3A5A",  # 琅玕紫暗化
+        "back_color": "#2A1020",
         "outline_width": 2.0,
     },
     "mars-teal": {
@@ -220,9 +220,9 @@ KARAOKE_PRESETS: Dict[str, Dict[str, str]] = {
 }
 
 
-def resolve_karaoke_preset(name: str) -> Optional[Dict]:
-    """Resolve a karaoke preset name to style dict. Returns None if not found."""
-    return KARAOKE_PRESETS.get(name.lower().strip())
+def resolve_karaoke_color_scheme(name: str) -> Optional[Dict]:
+    """Resolve a karaoke color scheme name to style dict. Returns None if not found."""
+    return KARAOKE_COLOR_SCHEMES.get(name.lower().strip())
 
 
 @dataclass

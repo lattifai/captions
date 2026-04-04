@@ -369,11 +369,12 @@ class AuditionCSVFormat(FormatWriter):
         Returns:
             Path to written file
         """
-        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata not supported by Audition CSV)
+        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata, speaker_color not supported by Audition CSV)
         kwargs.pop("word_level", None)
         kwargs.pop("karaoke", None)
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
+        kwargs.pop("speaker_color", None)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.write(supervisions, output_path, config)
 
@@ -394,11 +395,12 @@ class AuditionCSVFormat(FormatWriter):
         Returns:
             Audition CSV content as bytes
         """
-        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata not supported by Audition CSV)
+        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata, speaker_color not supported by Audition CSV)
         kwargs.pop("word_level", None)
         kwargs.pop("karaoke", None)
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
+        kwargs.pop("speaker_color", None)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.to_bytes(supervisions, config)
 

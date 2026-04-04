@@ -230,10 +230,10 @@ class TestASSKaraoke:
                 },
             )
         ]
-        # Custom karaoke style with font_size=64
+        # Custom style with font_size=64 passed via style param
         custom_style = CaptionStyle(font_size=64, font_name="Courier")
-        karaoke_config = KaraokeConfig(enabled=True, style=custom_style)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        karaoke_config = KaraokeConfig(enabled=True)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config, style=custom_style)
         content = result.decode("utf-8")
 
         karaoke_line = [l for l in content.splitlines() if l.startswith("Style: Karaoke,")]

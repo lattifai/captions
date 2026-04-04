@@ -375,6 +375,7 @@ class AuditionCSVFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.write(supervisions, output_path, config)
 
@@ -401,6 +402,7 @@ class AuditionCSVFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.to_bytes(supervisions, config)
 

@@ -388,6 +388,7 @@ class PremiereXMLFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = PremiereXMLConfig(**kwargs)
         return PremiereXMLWriter.write(supervisions, output_path, config)
 
@@ -414,6 +415,7 @@ class PremiereXMLFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = PremiereXMLConfig(**kwargs)
         return PremiereXMLWriter.to_bytes(supervisions, config)
 

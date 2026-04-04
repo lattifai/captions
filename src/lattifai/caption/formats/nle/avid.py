@@ -297,6 +297,7 @@ class AvidDSFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.write(supervisions, output_path, config)
 
@@ -323,6 +324,7 @@ class AvidDSFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.to_bytes(supervisions, config)
 

@@ -96,6 +96,15 @@ class CaptionStyle:
     margin_r: int = 20
     margin_v: int = 20
 
+    # Speaker
+    speaker_color: str = ""
+    """Speaker name color mode for ASS output.
+    - "":           no special color (default)
+    - "#RRGGBB":    single color for all speakers
+    - "#RRGGBB,#00BFFF,...": comma-separated, auto-assigned per speaker
+    - "auto":       built-in 10-color palette, auto-assigned per speaker
+    """
+
 
 @dataclass
 class KaraokeConfig:

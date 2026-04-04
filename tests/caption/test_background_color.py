@@ -46,13 +46,12 @@ class TestCaptionStyleBackgroundColor:
 class TestASSBackgroundColor:
     """ASS writer background_color handling."""
 
-    def _write_ass(self, sups, background_color="", karaoke_config=None, **kwargs):
+    def _write_ass(self, sups, karaoke_config=None, **kwargs):
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
         return ASSFormat.to_bytes(
             sups,
             include_speaker=False,
-            background_color=background_color,
             karaoke_config=karaoke_config,
             **kwargs,
         ).decode("utf-8")

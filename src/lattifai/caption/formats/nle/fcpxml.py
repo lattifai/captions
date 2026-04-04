@@ -422,6 +422,7 @@ class FCPXMLFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.write(supervisions, output_path, config)
 
@@ -448,6 +449,7 @@ class FCPXMLFormat(FormatWriter):
         kwargs.pop("karaoke_config", None)
         kwargs.pop("metadata", None)
         kwargs.pop("speaker_color", None)
+        kwargs.pop("style", None)
         config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.to_bytes(supervisions, config)
 

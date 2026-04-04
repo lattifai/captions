@@ -116,7 +116,7 @@ class TestKaraokeColorScheme:
             "sunset-warm",
             "prussian-elegant",
             "burgundy-classic",
-            "china-red",
+            "langgan-spring",
             "mars-teal",
             "spring-field",
             "navy-pink",
@@ -163,7 +163,7 @@ class TestKaraokeColorScheme:
 
         assert resolve_karaoke_color_scheme("Azure-Gold") is not None
         assert resolve_karaoke_color_scheme("  azure-gold  ") is not None
-        assert resolve_karaoke_color_scheme("CHINA-RED") is not None
+        assert resolve_karaoke_color_scheme("LANGGAN-SPRING") is not None
 
     def test_color_scheme_empty_string_keeps_defaults(self):
         """Empty color_scheme string (default) should not modify style."""

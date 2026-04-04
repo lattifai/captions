@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 
 import pysubs2
 
+from ..colors import SPEAKER_PALETTE, resolve_speaker_color
 from ..config import CaptionStyle, KaraokeConfig
 from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
@@ -685,57 +686,17 @@ class ASSFormat(Pysubs2Format):
 
         return " ".join(parts)
 
-    # Built-in 10-color palette for auto speaker coloring (BBGGRR format for ASS)
-    # Curated from: 不二创艺, 徐挺好, 色彩中国, 莱利纺织
-    _SPEAKER_PALETTE = [
-        "C08713",  # 晴空海蓝 Azure         (#1387C0)
-        "09C2FF",  # 金柠暖阳 Warm Yellow   (#FFC209)
-        "D9C3F7",  # 柔樱粉 Soft Pink       (#F7C3D9)
-        "2AC99D",  # 苹果绿 Apple Green     (#9DC92A)
-        "EFFEA1",  # 薄荷冰青 Mint Ice      (#A1FEEF)
-        "0D52F4",  # 暖橙光 Warm Orange     (#F4520D)
-        "E48A65",  # 柔空蓝 Sky Blue        (#658AE4)
-        "3DC0FB",  # 栀子黄 Gardenia Yellow (#FBC03D)
-        "845DCC",  # 琅玕紫 Langgan Purple  (#CC5D84)
-        "8C8C00",  # 马尔斯绿 Mars Green    (#008C8C)
-    ]
+    # Backward-compatible alias — canonical source is colors.SPEAKER_PALETTE
+    _SPEAKER_PALETTE = SPEAKER_PALETTE
 
     @classmethod
     def _resolve_speaker_color(cls, speaker: str, speaker_color_spec: str, cache: dict) -> str:
         """Resolve ASS BBGGRR color string for a speaker.
 
-        Args:
-            speaker: Speaker name
-            speaker_color_spec: Color spec from KaraokeConfig.speaker_color
-            cache: Mutable dict tracking assigned colors {speaker_name: "BBGGRR"}
-
-        Returns:
-            BBGGRR color string for ASS inline override, or "" if no coloring
+        Delegates to colors.resolve_speaker_color() — kept as thin wrapper
+        for backward compatibility with tests referencing ASSFormat._resolve_speaker_color.
         """
-        if not speaker_color_spec:
-            return ""
-
-        if speaker in cache:
-            return cache[speaker]
-
-        # Parse palette: "auto" uses built-in, comma-separated uses user-provided
-        if speaker_color_spec == "auto":
-            palette = cls._SPEAKER_PALETTE
-        else:
-            # Parse "#RRGGBB,#RRGGBB,..." into ["BBGGRR", "BBGGRR", ...]
-            palette = []
-            for c in speaker_color_spec.split(","):
-                c = c.strip().lstrip("#")
-                if len(c) == 6:
-                    # Convert RRGGBB → BBGGRR for ASS
-                    palette.append(f"{c[4:6]}{c[2:4]}{c[0:2]}")
-            if not palette:
-                return ""
-
-        # Assign next color from palette (cycle if more speakers than colors)
-        color = palette[len(cache) % len(palette)]
-        cache[speaker] = color
-        return color
+        return resolve_speaker_color(speaker, speaker_color_spec, cache)
 
 
 @register_format("ssa")

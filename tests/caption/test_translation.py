@@ -151,8 +151,8 @@ class TestJSONBilingual:
         c = Caption(supervisions=[sup])
         data = c.to_bytes(output_format="json")
         parsed = json.loads(data)
-        assert parsed[0]["translation"] == "你好"
-        assert parsed[0]["target_lang"] == "zh"
+        assert parsed["supervisions"][0]["translation"] == "你好"
+        assert parsed["supervisions"][0]["target_lang"] == "zh"
 
         # Read back
         c2 = Caption.from_string(data.decode("utf-8"), format="json")
@@ -163,8 +163,8 @@ class TestJSONBilingual:
         sup = Supervision(text="Hello", start=1.0, duration=2.0)
         c = Caption(supervisions=[sup])
         data = json.loads(c.to_bytes(output_format="json"))
-        assert "translation" not in data[0]
-        assert "target_lang" not in data[0]
+        assert "translation" not in data["supervisions"][0]
+        assert "target_lang" not in data["supervisions"][0]
 
 
 # ---------------------------------------------------------------------------

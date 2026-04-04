@@ -593,12 +593,13 @@ class Caption:
         karaoke_config: Optional["KaraokeConfig"] = None,
         metadata: Optional[Dict[str, Any]] = None,
         translation_first: bool = False,
-        speaker_color: str = "",
-        background_color: str = "",
         style: Optional["CaptionStyle"] = None,
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
+
+        All visual rendering options (speaker_color, background_color, font, colors)
+        are controlled via the ``style`` parameter (CaptionStyle).
 
         Args:
             path: Path to output caption file, BytesIO object, or None to return bytes
@@ -611,16 +612,8 @@ class Caption:
                 Can be used to override or supplement format-specific metadata.
             translation_first: When True, render translation text above original text
                 in bilingual output. Default is False (original text first).
-            speaker_color: Speaker name color mode for ASS output.
-                - "": no special color (default)
-                - "#RRGGBB": single color for all speakers
-                - "#RRGGBB,#00BFFF,...": comma-separated, auto-assigned per speaker
-                - "auto": built-in 10-color palette, auto-assigned per speaker
-            background_color: Subtitle background box color.
-                - "": no background box (default)
-                - "#RRGGBB": solid opaque background
-                - "#RRGGBBAA": semi-transparent background (e.g., "#00000080")
-                Supported: ASS, TTML, FCPXML, VTT. Ignored by other formats.
+            style: CaptionStyle controlling visual rendering. Includes font, colors,
+                background_color, speaker_color, alignment, margins, etc.
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
@@ -644,6 +637,18 @@ class Caption:
         effective_metadata = dict(self.metadata) if self.metadata else {}
         if metadata:
             effective_metadata.update(metadata)
+
+        # For JSON format: build full Caption-level metadata dict
+        # so JSONFormat._build_document() can mirror Caption fields 1:1
+        caption_level_metadata = {
+            "language": self.language,
+            "target_lang": self.target_lang,
+            "kind": self.kind,
+            "source_format": self.source_format,
+            "metadata": effective_metadata,
+        }
+        # Remove None values
+        caption_level_metadata = {k: v for k, v in caption_level_metadata.items() if v is not None}
 
         # Determine output format
         if output_format:
@@ -674,6 +679,9 @@ class Caption:
 
             writer_cls = Pysubs2Format
 
+        # For JSON writer: pass Caption-level fields so document structure mirrors Caption 1:1
+        writer_metadata = caption_level_metadata if ext == "json" else effective_metadata
+
         if isinstance(path, (str, Path)):
             return writer_cls.write(
                 supervisions,
@@ -681,9 +689,7 @@ class Caption:
                 include_speaker=include_speaker_in_text,
                 word_level=word_level,
                 karaoke_config=karaoke_config,
-                metadata=effective_metadata,
-                speaker_color=speaker_color,
-                background_color=background_color,
+                metadata=writer_metadata,
                 style=style,
             )
 
@@ -692,9 +698,7 @@ class Caption:
             include_speaker=include_speaker_in_text,
             word_level=word_level,
             karaoke_config=karaoke_config,
-            metadata=effective_metadata,
-            speaker_color=speaker_color,
-            background_color=background_color,
+            metadata=writer_metadata,
             style=style,
         )
         if isinstance(path, io.BytesIO):

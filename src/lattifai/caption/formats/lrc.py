@@ -182,7 +182,7 @@ class LRCFormat(FormatHandler):
         output_path,
         include_speaker: bool = True,
         word_level: bool = False,
-        karaoke_config: Optional[KaraokeConfig] = None,
+        karaoke: Optional[KaraokeConfig] = None,
         **kwargs,
     ) -> Path:
         """Write supervisions to LRC file.
@@ -192,7 +192,7 @@ class LRCFormat(FormatHandler):
             output_path: Path to output file
             include_speaker: Whether to include speaker labels in text
             word_level: Enable word-level output
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
+            karaoke: Karaoke configuration. When provided with enabled=True,
                 use enhanced LRC with inline timestamps
             **kwargs: Additional options
 
@@ -204,7 +204,7 @@ class LRCFormat(FormatHandler):
             supervisions,
             include_speaker=include_speaker,
             word_level=word_level,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke,
             **kwargs,
         )
         output_path.write_bytes(content)
@@ -216,7 +216,7 @@ class LRCFormat(FormatHandler):
         supervisions: List[Supervision],
         include_speaker: bool = True,
         word_level: bool = False,
-        karaoke_config: Optional[KaraokeConfig] = None,
+        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         **kwargs,
     ) -> bytes:
@@ -226,14 +226,14 @@ class LRCFormat(FormatHandler):
             supervisions: List of Supervision objects
             include_speaker: Whether to include speaker labels
             word_level: Enable word-level output
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
+            karaoke: Karaoke configuration. When provided with enabled=True,
                 use enhanced LRC with inline timestamps
             metadata: Optional metadata dict containing lrc_* keys to restore
 
         Returns:
             Caption content as bytes
         """
-        config = karaoke_config or KaraokeConfig(enabled=False)
+        config = karaoke or KaraokeConfig(enabled=False)
         karaoke_enabled = config.enabled
         lines = []
 

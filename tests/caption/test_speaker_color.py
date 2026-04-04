@@ -141,7 +141,7 @@ class TestSpeakerColorKaraokeMode:
         """speaker_color='auto' should produce different \\c tags for different speakers."""
         sups = _make_sups_with_speakers("Alice", "Bob")
         config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color="auto"))
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color="auto"))
         content = result.decode("utf-8")
 
         # Both speakers should have color override tags
@@ -159,7 +159,7 @@ class TestSpeakerColorKaraokeMode:
         """speaker_color='#FF0000' should apply the same color to all speakers."""
         sups = _make_sups_with_speakers("Alice", "Bob")
         config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color="#FF0000"))
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color="#FF0000"))
         content = result.decode("utf-8")
 
         import re
@@ -174,7 +174,7 @@ class TestSpeakerColorKaraokeMode:
         sups = _make_sups_with_speakers("Alice", "Bob")
         config = KaraokeConfig(enabled=True)
         result = ASSFormat.to_bytes(
-            sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color="#FF0000,#00FF00")
+            sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color="#FF0000,#00FF00")
         )
         content = result.decode("utf-8")
 
@@ -189,7 +189,7 @@ class TestSpeakerColorKaraokeMode:
         """speaker_color='' should produce no \\c color override tags."""
         sups = _make_sups_with_speakers("Alice", "Bob")
         config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color=""))
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color=""))
         content = result.decode("utf-8")
 
         # Should have karaoke tags but no speaker color tags
@@ -201,7 +201,7 @@ class TestSpeakerColorKaraokeMode:
         sups = _make_sups_with_speakers("Alice")
         config = KaraokeConfig(enabled=True)
         result = ASSFormat.to_bytes(
-            sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color="auto"), include_speaker=True
+            sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color="auto"), include_speaker=True
         )
         content = result.decode("utf-8")
 
@@ -278,7 +278,7 @@ class TestSpeakerColorEdgeCases:
         """A single speaker with 'auto' should still get a color."""
         sups = _make_sups_with_speakers("Solo")
         config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color="auto"))
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color="auto"))
         content = result.decode("utf-8")
 
         assert "{\\c&H" in content
@@ -287,7 +287,7 @@ class TestSpeakerColorEdgeCases:
         """After speaker color, a \\c reset tag should appear to restore default color."""
         sups = _make_sups_with_speakers("Alice")
         config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config, style=CaptionStyle(speaker_color="auto"))
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config, style=CaptionStyle(speaker_color="auto"))
         content = result.decode("utf-8")
 
         # Should have reset tag {\\c} after the speaker prefix

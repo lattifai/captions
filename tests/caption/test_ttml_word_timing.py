@@ -26,7 +26,7 @@ class TestTTMLWordTiming:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert 'itunes:timing="Word"' in content or "timing" in content.lower()
@@ -47,7 +47,7 @@ class TestTTMLWordTiming:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert "<span" in content
@@ -71,7 +71,7 @@ class TestTTMLWordTiming:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert "<p " in content
@@ -81,7 +81,7 @@ class TestTTMLWordTiming:
         """Without alignment, should output normal TTML."""
         sups = [Supervision(text="No alignment", start=10.0, duration=2.0)]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = TTMLFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert "No alignment" in content

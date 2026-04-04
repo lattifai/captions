@@ -41,7 +41,7 @@ class TestWordLevelIntegration:
             assert writer is not None, f"Format {fmt} not registered"
 
             # Should not raise TypeError
-            result = writer.to_bytes([supervision_with_alignment], word_level=True, karaoke_config=karaoke_config)
+            result = writer.to_bytes([supervision_with_alignment], word_level=True, karaoke=karaoke_config)
             assert isinstance(result, bytes)
             assert len(result) > 0
 
@@ -54,18 +54,17 @@ class TestWordLevelIntegration:
         config = KaraokeConfig(
             enabled=True,
             effect="instant",
-            style=style,
             lrc_metadata={"ar": "Test Artist"},
         )
 
         # LRC
         lrc_writer = get_writer("lrc")
-        lrc_result = lrc_writer.to_bytes([supervision_with_alignment], word_level=True, karaoke_config=config)
+        lrc_result = lrc_writer.to_bytes([supervision_with_alignment], word_level=True, karaoke=config)
         assert b"[ar:Test Artist]" in lrc_result
 
-        # ASS
+        # ASS — pass style separately
         ass_writer = get_writer("ass")
-        ass_result = ass_writer.to_bytes([supervision_with_alignment], word_level=True, karaoke_config=config)
+        ass_result = ass_writer.to_bytes([supervision_with_alignment], word_level=True, karaoke=config, style=style)
         assert b"{\\k" in ass_result  # instant effect uses \k
 
     def test_graceful_fallback(self):
@@ -76,7 +75,7 @@ class TestWordLevelIntegration:
         for fmt in ["lrc", "ass", "ttml"]:
             writer = get_writer(fmt)
             # Should not raise, should output line-level
-            result = writer.to_bytes([sup_no_alignment], word_level=True, karaoke_config=karaoke_config)
+            result = writer.to_bytes([sup_no_alignment], word_level=True, karaoke=karaoke_config)
             assert b"No alignment data" in result or b"No alignment" in result
 
 
@@ -107,9 +106,9 @@ class TestKaraokeTimestampBoundary:
 
         writer = get_writer("vtt")
         karaoke_config = KaraokeConfig(enabled=True)
-        result = writer.to_bytes(
-            [supervision_with_word_alignment], word_level=True, karaoke_config=karaoke_config
-        ).decode("utf-8")
+        result = writer.to_bytes([supervision_with_word_alignment], word_level=True, karaoke=karaoke_config).decode(
+            "utf-8"
+        )
 
         # Parse cue timestamp line
         ts_pattern = re.compile(r"(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})")
@@ -134,9 +133,9 @@ class TestKaraokeTimestampBoundary:
 
         writer = get_writer("vtt")
         karaoke_config = KaraokeConfig(enabled=True)
-        result = writer.to_bytes(
-            [supervision_with_word_alignment], word_level=True, karaoke_config=karaoke_config
-        ).decode("utf-8")
+        result = writer.to_bytes([supervision_with_word_alignment], word_level=True, karaoke=karaoke_config).decode(
+            "utf-8"
+        )
 
         # Parse cue timestamp
         ts_pattern = re.compile(r"(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})")
@@ -167,9 +166,9 @@ class TestKaraokeTimestampBoundary:
 
         writer = get_writer("ass")
         karaoke_config = KaraokeConfig(enabled=True)
-        result = writer.to_bytes(
-            [supervision_with_word_alignment], word_level=True, karaoke_config=karaoke_config
-        ).decode("utf-8")
+        result = writer.to_bytes([supervision_with_word_alignment], word_level=True, karaoke=karaoke_config).decode(
+            "utf-8"
+        )
 
         # Parse Dialogue line
         dialogue_pattern = re.compile(r"Dialogue:\s*\d+,(\d+:\d+:\d+\.\d+),(\d+:\d+:\d+\.\d+)")
@@ -194,9 +193,9 @@ class TestKaraokeTimestampBoundary:
 
         writer = get_writer("ass")
         karaoke_config = KaraokeConfig(enabled=True, effect="sweep")
-        result = writer.to_bytes(
-            [supervision_with_word_alignment], word_level=True, karaoke_config=karaoke_config
-        ).decode("utf-8")
+        result = writer.to_bytes([supervision_with_word_alignment], word_level=True, karaoke=karaoke_config).decode(
+            "utf-8"
+        )
 
         # Parse \kf durations (in centiseconds)
         kf_pattern = re.compile(r"\\kf(\d+)")
@@ -223,9 +222,9 @@ class TestKaraokeTimestampBoundary:
 
         writer = get_writer("lrc")
         karaoke_config = KaraokeConfig(enabled=True)
-        result = writer.to_bytes(
-            [supervision_with_word_alignment], word_level=True, karaoke_config=karaoke_config
-        ).decode("utf-8")
+        result = writer.to_bytes([supervision_with_word_alignment], word_level=True, karaoke=karaoke_config).decode(
+            "utf-8"
+        )
 
         # Parse enhanced LRC word timestamps <mm:ss.xx>
         word_pattern = re.compile(r"<(\d+):(\d+)\.(\d+)>")
@@ -249,9 +248,9 @@ class TestKaraokeTimestampBoundary:
 
         writer = get_writer("ttml")
         karaoke_config = KaraokeConfig(enabled=True)
-        result = writer.to_bytes(
-            [supervision_with_word_alignment], word_level=True, karaoke_config=karaoke_config
-        ).decode("utf-8")
+        result = writer.to_bytes([supervision_with_word_alignment], word_level=True, karaoke=karaoke_config).decode(
+            "utf-8"
+        )
 
         # Parse paragraph begin/end
         p_pattern = re.compile(r'<p[^>]*begin="([^"]+)"[^>]*end="([^"]+)"')

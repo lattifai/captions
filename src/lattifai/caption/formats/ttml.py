@@ -331,7 +331,7 @@ class TTMLFormatBase(FormatHandler):
         config: TTMLConfig,
         include_speaker: bool = True,
         word_level: bool = False,
-        karaoke_config: Optional[KaraokeConfig] = None,
+        karaoke: Optional[KaraokeConfig] = None,
     ) -> ET.Element:
         """Build TTML document structure.
 
@@ -340,13 +340,13 @@ class TTMLFormatBase(FormatHandler):
             config: TTML configuration
             include_speaker: Whether to include speaker names
             word_level: Whether to output word-level timing
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
+            karaoke: Karaoke configuration. When provided with enabled=True,
                 use span-based karaoke; otherwise use p-per-word
         """
         from .base import expand_to_word_supervisions
 
         # Check if karaoke is enabled
-        karaoke_enabled = karaoke_config is not None and karaoke_config.enabled
+        karaoke_enabled = karaoke is not None and karaoke.enabled
 
         # If word_level=True and karaoke is not enabled, expand to word-per-paragraph
         if word_level and not karaoke_enabled:
@@ -376,7 +376,7 @@ class TTMLFormatBase(FormatHandler):
 
         # Add iTunes timing attribute for karaoke mode
         if word_level and karaoke_enabled:
-            timing_mode = karaoke_config.ttml_timing_mode
+            timing_mode = karaoke.ttml_timing_mode
             root.set(f"{{{ITUNES_NS}}}timing", timing_mode)
 
         # Head section
@@ -491,7 +491,7 @@ class TTMLFormat(TTMLFormatBase):
         include_speaker: bool = True,
         config: Optional[TTMLConfig] = None,
         word_level: bool = False,
-        karaoke_config: Optional[KaraokeConfig] = None,
+        karaoke: Optional[KaraokeConfig] = None,
         **kwargs,
     ) -> Path:
         """Write TTML format.
@@ -502,7 +502,7 @@ class TTMLFormat(TTMLFormatBase):
             include_speaker: Whether to include speaker names
             config: TTML configuration
             word_level: Whether to output word-level timing
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
+            karaoke: Karaoke configuration. When provided with enabled=True,
                 use span-based karaoke; otherwise use p-per-word
         """
         if config is None:
@@ -517,7 +517,7 @@ class TTMLFormat(TTMLFormatBase):
             config,
             include_speaker=include_speaker,
             word_level=word_level,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke,
         )
         xml_content = cls._prettify_xml(root)
 
@@ -531,7 +531,7 @@ class TTMLFormat(TTMLFormatBase):
         include_speaker: bool = True,
         config: Optional[TTMLConfig] = None,
         word_level: bool = False,
-        karaoke_config: Optional[KaraokeConfig] = None,
+        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         **kwargs,
     ) -> bytes:
@@ -542,7 +542,7 @@ class TTMLFormat(TTMLFormatBase):
             include_speaker: Whether to include speaker names
             config: TTML configuration
             word_level: Whether to output word-level timing
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
+            karaoke: Karaoke configuration. When provided with enabled=True,
                 use span-based karaoke; otherwise use p-per-word
             metadata: Optional metadata dict containing ttml_* keys to restore
         """
@@ -561,7 +561,7 @@ class TTMLFormat(TTMLFormatBase):
             config,
             include_speaker=include_speaker,
             word_level=word_level,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke,
         )
         xml_content = cls._prettify_xml(root)
         return xml_content.encode("utf-8")

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from lattifai.caption import Caption, Supervision
+from lattifai.caption.config import CaptionStyle
 from lattifai.caption.formats.srv3 import SRV3Format
 from lattifai.caption.supervision import AlignmentItem
 
@@ -190,7 +191,7 @@ class TestSRV3Integration:
         caption = Caption.read(SRV3_FILE)
 
         # Convert to JSON with word-level
-        json_content = caption.to_string("json", word_level=True)
+        json_content = caption.to_string("json", style=CaptionStyle(word_level=True))
 
         # Should contain words array
         assert '"words"' in json_content
@@ -444,7 +445,7 @@ class TestSRV3RoundTrip:
         original_count = len(caption)
 
         # Write to srv3 string
-        srv3_str = caption.to_string("srv3", word_level=True)
+        srv3_str = caption.to_string("srv3", style=CaptionStyle(word_level=True))
 
         # Read back
         caption2 = Caption.from_string(srv3_str, format="srv3")

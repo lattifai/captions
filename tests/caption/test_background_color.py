@@ -46,13 +46,13 @@ class TestCaptionStyleBackgroundColor:
 class TestASSBackgroundColor:
     """ASS writer background_color handling."""
 
-    def _write_ass(self, sups, karaoke_config=None, **kwargs):
+    def _write_ass(self, sups, karaoke=None, **kwargs):
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
         return ASSFormat.to_bytes(
             sups,
             include_speaker=False,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke,
             **kwargs,
         ).decode("utf-8")
 
@@ -111,7 +111,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, karaoke_config=config, word_level=True, style=style)
+        result = self._write_ass(sups, karaoke=config, word_level=True, style=style)
         lines = result.split("\n")
         karaoke_style_line = [l for l in lines if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
@@ -134,7 +134,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, karaoke_config=config, word_level=True, style=style)
+        result = self._write_ass(sups, karaoke=config, word_level=True, style=style)
         karaoke_style_line = [l for l in result.split("\n") if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
         fields = karaoke_style_line[0].split(",")

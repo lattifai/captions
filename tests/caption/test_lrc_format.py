@@ -40,7 +40,7 @@ class TestLRCFormatWrite:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = LRCFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = LRCFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert "[00:15.200]" in content
@@ -75,7 +75,7 @@ class TestLRCFormatWrite:
         """LRC should include metadata when karaoke_config.enabled=True."""
         sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
         config = KaraokeConfig(enabled=True, lrc_metadata={"ar": "Artist", "ti": "Title", "al": "Album"})
-        result = LRCFormat.to_bytes(sups, word_level=False, karaoke_config=config)
+        result = LRCFormat.to_bytes(sups, word_level=False, karaoke=config)
         content = result.decode("utf-8")
 
         assert "[ar:Artist]" in content
@@ -86,7 +86,7 @@ class TestLRCFormatWrite:
         """LRC should support centisecond precision."""
         sups = [Supervision(text="Hello", start=15.234, duration=1.0)]
         config = KaraokeConfig(enabled=False, lrc_precision="centisecond")
-        result = LRCFormat.to_bytes(sups, word_level=False, karaoke_config=config)
+        result = LRCFormat.to_bytes(sups, word_level=False, karaoke=config)
         content = result.decode("utf-8")
 
         # Centisecond: [00:15.23] not [00:15.234]
@@ -96,7 +96,7 @@ class TestLRCFormatWrite:
         """Word-level should fallback to line-level without alignment data."""
         sups = [Supervision(text="No alignment", start=10.0, duration=2.0)]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = LRCFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = LRCFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert "[00:10.000]No alignment" in content
@@ -190,7 +190,7 @@ class TestLRCFormatRoundTrip:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        content = LRCFormat.to_bytes(original, word_level=True, karaoke_config=karaoke_config).decode("utf-8")
+        content = LRCFormat.to_bytes(original, word_level=True, karaoke=karaoke_config).decode("utf-8")
         restored = LRCFormat.read(content)
 
         assert len(restored) == 1

@@ -105,6 +105,16 @@ class CaptionStyle:
     - "auto":       built-in 10-color palette, auto-assigned per speaker
     """
 
+    # Output behavior
+    include_speaker_in_text: bool = True
+    """Include speaker labels in caption text (e.g., '[Alice] Hello' vs 'Hello')."""
+
+    word_level: bool = False
+    """Word-level output: word-per-segment in normal mode, word timestamps in karaoke/JSON."""
+
+    translation_first: bool = False
+    """Place translation text above original text in bilingual output."""
+
 
 @dataclass
 class KaraokeConfig:
@@ -252,7 +262,7 @@ InputCaptionFormat = Literal[
 OutputCaptionFormat = Literal[
     # Standard subtitle formats
     "srt",
-    "vtt",  # WebVTT (use karaoke_config.enabled=True for YouTube VTT style output)
+    "vtt",  # WebVTT (use karaoke.enabled=True for YouTube VTT style output)
     "ass",
     "ssa",
     "sub",

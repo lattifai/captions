@@ -1,3 +1,5 @@
+from lattifai.caption.config import CaptionStyle
+
 #!/usr/bin/env python3
 """
 Test suite for TSV, CSV, and AUD format reading and writing
@@ -150,7 +152,7 @@ Speaker2\t4000\t6000\tSecond caption
         # Write to TSV file
         output_file = tmp_path / "output.tsv"
         caption = Caption.from_supervisions(supervisions)
-        result_path = caption.write(output_file, include_speaker_in_text=True)
+        result_path = caption.write(output_file)
 
         assert output_file.exists()
         assert result_path == output_file
@@ -176,7 +178,7 @@ Speaker2\t4000\t6000\tSecond caption
         # Write to CSV file
         output_file = tmp_path / "output.csv"
         caption = Caption.from_supervisions(supervisions)
-        result_path = caption.write(output_file, include_speaker_in_text=False)
+        result_path = caption.write(output_file, style=CaptionStyle(include_speaker_in_text=False))
 
         assert output_file.exists()
 
@@ -258,7 +260,7 @@ Speaker2\t4000\t6000\tSecond caption
         # Write to TSV file
         tsv_file = tmp_path / "roundtrip.tsv"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(tsv_file, include_speaker_in_text=True)
+        caption.write(tsv_file)
 
         # Read back
         caption_read = Caption.read(tsv_file)
@@ -431,7 +433,7 @@ Second line without timestamp
 
         txt_file = tmp_path / "output.txt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(txt_file, include_speaker_in_text=True)
+        caption.write(txt_file)
 
         # Read and verify content
         content = txt_file.read_text()
@@ -462,7 +464,7 @@ Second line without timestamp
         # Write
         txt_file = tmp_path / "roundtrip.txt"
         caption = Caption.from_supervisions(original_supervisions)
-        caption.write(txt_file, include_speaker_in_text=True)
+        caption.write(txt_file)
 
         # Read back
         caption_read = Caption.read(txt_file)
@@ -518,7 +520,7 @@ class TestCSVSpeakerFormat:
 
         csv_file = tmp_path / "output.csv"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(csv_file, include_speaker_in_text=True)
+        caption.write(csv_file)
 
         content = csv_file.read_text()
         lines = content.strip().split("\n")
@@ -542,7 +544,7 @@ class TestCSVSpeakerFormat:
 
         csv_file = tmp_path / "output.csv"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(csv_file, include_speaker_in_text=False)
+        caption.write(csv_file, style=CaptionStyle(include_speaker_in_text=False))
 
         content = csv_file.read_text()
 
@@ -564,7 +566,7 @@ class TestCSVSpeakerFormat:
 
         csv_file = tmp_path / "output.csv"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(csv_file, include_speaker_in_text=True)
+        caption.write(csv_file)
 
         content = csv_file.read_text()
 
@@ -620,7 +622,7 @@ class TestTXTSpeakerFormatDetails:
 
         txt_file = tmp_path / "output.txt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(txt_file, include_speaker_in_text=True)
+        caption.write(txt_file)
 
         content = txt_file.read_text()
 
@@ -636,7 +638,7 @@ class TestTXTSpeakerFormatDetails:
 
         txt_file = tmp_path / "output.txt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(txt_file, include_speaker_in_text=True)
+        caption.write(txt_file)
 
         content = txt_file.read_text()
 

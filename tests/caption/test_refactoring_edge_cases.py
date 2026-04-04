@@ -41,7 +41,7 @@ class TestRefactoringEdgeCases:
         output_file = tmp_path / f"test.{format_ext}"
 
         # Write with include_speaker_in_text=True
-        caption.write(output_file, include_speaker_in_text=True)
+        caption.write(output_file)
 
         # Read back or check content
         content = output_file.read_text(encoding="utf-8")
@@ -68,7 +68,7 @@ class TestRefactoringEdgeCases:
 
         caption = Caption.from_supervisions(supervisions)
         output_file = tmp_path / "test.ass"
-        caption.write(output_file, include_speaker_in_text=True)
+        caption.write(output_file)
 
         content = output_file.read_text(encoding="utf-8")
 
@@ -94,7 +94,7 @@ class TestRefactoringEdgeCases:
 
         caption = Caption.from_supervisions(supervisions)
         output_file = tmp_path / "test.csv"
-        caption.write(output_file, include_speaker_in_text=True)
+        caption.write(output_file)
 
         content = output_file.read_text(encoding="utf-8")
 
@@ -111,7 +111,7 @@ class TestRefactoringEdgeCases:
         ]
         caption = Caption.from_supervisions(supervisions)
         srt_file = tmp_path / "test.srt"
-        caption.write(srt_file, include_speaker_in_text=True)
+        caption.write(srt_file)
 
         content = srt_file.read_text(encoding="utf-8")
         # Should be "[SPEAKER_01]: Hello", not "[SPEAKER_01]:: Hello"
@@ -125,7 +125,7 @@ class TestRefactoringEdgeCases:
         ]
         caption = Caption.from_supervisions(supervisions)
         sbv_file = tmp_path / "test.sbv"
-        caption.write(sbv_file, include_speaker_in_text=True)
+        caption.write(sbv_file)
 
         content = sbv_file.read_text(encoding="utf-8")
         assert "ALICE: Hello" in content
@@ -137,7 +137,7 @@ class TestRefactoringEdgeCases:
         ]
         caption = Caption.from_supervisions(supervisions)
         aud_file = tmp_path / "test.aud"
-        caption.write(aud_file, include_speaker_in_text=True)
+        caption.write(aud_file)
 
         content = aud_file.read_text(encoding="utf-8")
         # Speaker prepended with ': ' separator
@@ -150,7 +150,7 @@ class TestRefactoringEdgeCases:
         ]
         caption = Caption.from_supervisions(supervisions)
         txt_file = tmp_path / "test.txt"
-        caption.write(txt_file, include_speaker_in_text=True)
+        caption.write(txt_file)
 
         content = txt_file.read_text(encoding="utf-8")
         # Speaker prepended with ': ' separator

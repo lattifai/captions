@@ -2,7 +2,7 @@
 
 This module provides a unified VTT format handler that:
 - Reads both standard VTT and YouTube VTT (with word-level timestamps)
-- Writes standard VTT or YouTube VTT (when karaoke_config.enabled=True)
+- Writes standard VTT or YouTube VTT (when karaoke.enabled=True)
 
 YouTube VTT format uses word-level tags like:
     Word1<00:00:10.559><c> Word2</c><00:00:11.000><c> Word3</c>
@@ -32,7 +32,7 @@ class VTTFormat(FormatHandler):
 
     Writing:
         - Standard VTT by default
-        - YouTube VTT style when word_level=True and karaoke_config.enabled=True
+        - YouTube VTT style when word_level=True and karaoke.enabled=True
     """
 
     extensions = [".vtt"]
@@ -120,7 +120,7 @@ class VTTFormat(FormatHandler):
                 for sep in (": ", "： "):
                     prefix = event.name + sep
                     if text.startswith(prefix):
-                        text = text[len(prefix):]
+                        text = text[len(prefix) :]
                         break
 
             supervisions.append(
@@ -351,7 +351,7 @@ class VTTFormat(FormatHandler):
         include_speaker: bool = True,
         fps: float = 25.0,
         word_level: bool = False,
-        karaoke_config: Optional[KaraokeConfig] = None,
+        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         **kwargs,
     ) -> bytes:
@@ -362,7 +362,7 @@ class VTTFormat(FormatHandler):
             include_speaker: Whether to include speaker in output
             fps: Frames per second (not used for VTT)
             word_level: If True and alignment exists, output word-per-segment or karaoke
-            karaoke_config: Karaoke configuration. When enabled, output YouTube VTT
+            karaoke: Karaoke configuration. When enabled, output YouTube VTT
                 style with word-level timestamps: <00:00:10.559><c> word</c>
             metadata: Optional metadata dict containing kind and language
 
@@ -371,7 +371,7 @@ class VTTFormat(FormatHandler):
         """
         from .base import expand_to_word_supervisions
 
-        karaoke_enabled = karaoke_config is not None and karaoke_config.enabled
+        karaoke_enabled = karaoke is not None and karaoke.enabled
 
         # If karaoke enabled, output YouTube VTT style
         if word_level and karaoke_enabled:

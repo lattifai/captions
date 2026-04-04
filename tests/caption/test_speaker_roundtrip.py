@@ -1,3 +1,5 @@
+from lattifai.caption.config import CaptionStyle
+
 #!/usr/bin/env python3
 """
 Test suite for speaker label roundtrip consistency
@@ -26,7 +28,7 @@ class TestSpeakerRoundtrip:
         # Write to SRT file
         srt_file = tmp_path / "test.srt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(srt_file, include_speaker_in_text=True)
+        caption.write(srt_file)
 
         # Read back
         caption_read = Caption.read(srt_file)
@@ -53,7 +55,7 @@ class TestSpeakerRoundtrip:
         # Write to VTT file
         vtt_file = tmp_path / "test.vtt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(vtt_file, include_speaker_in_text=True)
+        caption.write(vtt_file)
 
         # Read back
         caption_read = Caption.read(vtt_file)
@@ -80,7 +82,7 @@ class TestSpeakerRoundtrip:
         # Write to TXT file
         txt_file = tmp_path / "test.txt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(txt_file, include_speaker_in_text=True)
+        caption.write(txt_file)
 
         # Read and check content format - new format: "speaker text"
         content = txt_file.read_text()
@@ -136,7 +138,7 @@ BOB: Third speaker format
         # Write without speaker
         srt_file = tmp_path / "test.srt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(srt_file, include_speaker_in_text=False)
+        caption.write(srt_file, style=CaptionStyle(include_speaker_in_text=False))
 
         # Read back
         caption_read = Caption.read(srt_file)
@@ -169,7 +171,7 @@ BOB: Third speaker format
 
         srt_file = tmp_path / "test.srt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(srt_file, include_speaker_in_text=True)
+        caption.write(srt_file)
 
         # Verify written format has separator
         content = srt_file.read_text()
@@ -193,7 +195,7 @@ BOB: Third speaker format
 
         ass_file = tmp_path / "test.ass"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(ass_file, include_speaker_in_text=True)
+        caption.write(ass_file)
 
         content = ass_file.read_text()
         # Name field should have speaker
@@ -219,7 +221,7 @@ BOB: Third speaker format
 
         ass_file = tmp_path / "test.ass"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(ass_file, include_speaker_in_text=False)
+        caption.write(ass_file, style=CaptionStyle(include_speaker_in_text=False))
 
         content = ass_file.read_text()
         # Name field should still have speaker

@@ -1,3 +1,5 @@
+from lattifai.caption.config import CaptionStyle
+
 """Test suite for detect_speaker_candidates robustness.
 
 Covers all edge cases for title-case speaker name detection:
@@ -370,7 +372,7 @@ class TestWriteReadRoundtrip:
         ]
 
         srt_file = tmp_path / "test.srt"
-        Caption.from_supervisions(supervisions).write(srt_file, include_speaker_in_text=True)
+        Caption.from_supervisions(supervisions).write(srt_file)
 
         result = Caption.read(srt_file)
         assert len(result.supervisions) == 6
@@ -388,7 +390,7 @@ class TestWriteReadRoundtrip:
         ]
 
         ass_file = tmp_path / "test.ass"
-        Caption.from_supervisions(supervisions).write(ass_file, include_speaker_in_text=True)
+        Caption.from_supervisions(supervisions).write(ass_file)
 
         result = Caption.read(ass_file)
         assert len(result.supervisions) == 2
@@ -407,7 +409,7 @@ class TestWriteReadRoundtrip:
         ]
 
         ass_file = tmp_path / "test.ass"
-        Caption.from_supervisions(supervisions).write(ass_file, include_speaker_in_text=False)
+        Caption.from_supervisions(supervisions).write(ass_file, style=CaptionStyle(include_speaker_in_text=False))
 
         result = Caption.read(ass_file)
         assert result.supervisions[0].speaker == "Alice"
@@ -425,7 +427,7 @@ class TestWriteReadRoundtrip:
         ]
 
         vtt_file = tmp_path / "test.vtt"
-        Caption.from_supervisions(supervisions).write(vtt_file, include_speaker_in_text=True)
+        Caption.from_supervisions(supervisions).write(vtt_file)
 
         result = Caption.read(vtt_file)
         assert result.supervisions[0].text == "First line."
@@ -447,7 +449,7 @@ class TestWriteReadRoundtrip:
         ]
 
         srt_file = tmp_path / "test.srt"
-        Caption.from_supervisions(supervisions).write(srt_file, include_speaker_in_text=True)
+        Caption.from_supervisions(supervisions).write(srt_file)
 
         result = Caption.read(srt_file)
         assert len(result.supervisions) == 6
@@ -473,7 +475,7 @@ class TestWriteReadRoundtrip:
         ]
 
         srt_file = tmp_path / "test.srt"
-        Caption.from_supervisions(supervisions).write(srt_file, include_speaker_in_text=True)
+        Caption.from_supervisions(supervisions).write(srt_file)
 
         result = Caption.read(srt_file)
         for orig, read in zip(supervisions, result.supervisions):

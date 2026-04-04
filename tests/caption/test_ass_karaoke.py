@@ -26,7 +26,7 @@ class TestASSKaraoke:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         # \kf45 means 45 centiseconds (0.45s)
@@ -49,7 +49,7 @@ class TestASSKaraoke:
             )
         ]
         config = KaraokeConfig(enabled=True, effect="instant")
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config)
         content = result.decode("utf-8")
 
         assert "{\\k45}Hello" in content
@@ -70,7 +70,7 @@ class TestASSKaraoke:
             )
         ]
         config = KaraokeConfig(enabled=True, effect="outline")
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=config)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=config)
         content = result.decode("utf-8")
 
         assert "{\\ko50}Hello" in content
@@ -90,7 +90,7 @@ class TestASSKaraoke:
             )
         ]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         # Should have Karaoke style defined
@@ -100,7 +100,7 @@ class TestASSKaraoke:
         """Without alignment, should output normal ASS."""
         sups = [Supervision(text="No alignment", start=10.0, duration=2.0)]
         karaoke_config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
         content = result.decode("utf-8")
 
         assert "No alignment" in content
@@ -152,7 +152,7 @@ class TestASSKaraoke:
         result = ASSFormat.to_bytes(
             sups,
             word_level=True,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke_config,
             metadata=metadata,
         )
         content = result.decode("utf-8")
@@ -201,7 +201,7 @@ class TestASSKaraoke:
         result = ASSFormat.to_bytes(
             sups,
             word_level=True,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke_config,
             metadata=metadata,
         )
         content = result.decode("utf-8")
@@ -233,7 +233,7 @@ class TestASSKaraoke:
         # Custom style with font_size=64 passed via style param
         custom_style = CaptionStyle(font_size=64, font_name="Courier")
         karaoke_config = KaraokeConfig(enabled=True)
-        result = ASSFormat.to_bytes(sups, word_level=True, karaoke_config=karaoke_config, style=custom_style)
+        result = ASSFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config, style=custom_style)
         content = result.decode("utf-8")
 
         karaoke_line = [l for l in content.splitlines() if l.startswith("Style: Karaoke,")]

@@ -373,8 +373,8 @@ class Caption:
     def to_string(
         self,
         format: str = "srt",
-        word_level: bool = False,
-        karaoke_config: Optional["KaraokeConfig"] = None,
+        style: Optional["CaptionStyle"] = None,
+        karaoke: Optional["KaraokeConfig"] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
@@ -382,17 +382,14 @@ class Caption:
 
         Args:
             format: Output format (e.g., 'srt', 'vtt', 'ass')
-            word_level: Use word-level output format if supported (e.g., LRC, ASS, TTML)
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
-                enables karaoke styling (ASS \\kf tags, enhanced LRC, etc.)
+            style: CaptionStyle controlling rendering and output behavior
+            karaoke: Karaoke configuration
             metadata: Optional metadata dict to pass to writer. If None, uses self.metadata.
 
         Returns:
             String containing formatted captions
         """
-        return self.to_bytes(
-            output_format=format, word_level=word_level, karaoke_config=karaoke_config, metadata=metadata
-        ).decode("utf-8")
+        return self.to_bytes(output_format=format, style=style, karaoke=karaoke, metadata=metadata).decode("utf-8")
 
     def to_dict(self) -> Dict:
         """
@@ -476,9 +473,8 @@ class Caption:
     def to_bytes(
         self,
         output_format: Optional[str] = None,
-        include_speaker_in_text: bool = True,
-        word_level: bool = False,
-        karaoke_config: Optional["KaraokeConfig"] = None,
+        style: Optional["CaptionStyle"] = None,
+        karaoke: Optional["KaraokeConfig"] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> bytes:
         """
@@ -486,10 +482,8 @@ class Caption:
 
         Args:
             output_format: Output format (e.g., 'srt', 'vtt', 'ass'). Defaults to source_format or 'srt'
-            include_speaker_in_text: Whether to include speaker labels in text
-            word_level: Use word-level output format if supported (e.g., LRC, ASS, TTML)
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
-                enables karaoke styling (ASS \\kf tags, enhanced LRC, etc.)
+            style: CaptionStyle controlling rendering and output behavior
+            karaoke: Karaoke configuration
             metadata: Optional metadata dict to pass to writer. If None, uses self.metadata.
 
         Returns:
@@ -497,17 +491,14 @@ class Caption:
 
         Example:
             >>> caption = Caption.read("input.srt")
-            >>> # Get as bytes in original format
             >>> data = caption.to_bytes()
-            >>> # Get as bytes in specific format
             >>> vtt_data = caption.to_bytes(output_format="vtt")
         """
         return self.write(
             None,
             output_format=output_format,
-            include_speaker_in_text=include_speaker_in_text,
-            word_level=word_level,
-            karaoke_config=karaoke_config,
+            style=style,
+            karaoke=karaoke,
             metadata=metadata,
         )
 
@@ -588,37 +579,60 @@ class Caption:
         self,
         path: Union[Pathlike, io.BytesIO, None] = None,
         output_format: Optional[str] = None,
-        include_speaker_in_text: bool = True,
-        word_level: bool = False,
-        karaoke_config: Optional["KaraokeConfig"] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        translation_first: bool = False,
         style: Optional["CaptionStyle"] = None,
+        karaoke: Optional["KaraokeConfig"] = None,
+        standardization: Optional["StandardizationConfig"] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
 
-        All visual rendering options (speaker_color, background_color, font, colors)
-        are controlled via the ``style`` parameter (CaptionStyle).
+        All output behavior is controlled via ``style`` (CaptionStyle) which includes
+        visual rendering (font, colors, background, speaker_color) and output policy
+        (include_speaker_in_text, word_level, translation_first).
 
         Args:
             path: Path to output caption file, BytesIO object, or None to return bytes
             output_format: Output format (e.g., 'srt', 'vtt', 'ass')
-            include_speaker_in_text: Whether to include speaker labels in text
-            word_level: Use word-level output format if supported (e.g., LRC, ASS, TTML)
-            karaoke_config: Karaoke configuration. When provided with enabled=True,
-                enables karaoke styling (ASS \\kf tags, enhanced LRC, etc.)
-            metadata: Optional metadata dict to pass to writer. If None, uses self.metadata.
-                Can be used to override or supplement format-specific metadata.
-            translation_first: When True, render translation text above original text
-                in bilingual output. Default is False (original text first).
-            style: CaptionStyle controlling visual rendering. Includes font, colors,
-                background_color, speaker_color, alignment, margins, etc.
+            style: CaptionStyle controlling visual rendering and output behavior
+            karaoke: Karaoke configuration (effect, color_scheme)
+            standardization: Broadcast standardization (min/max duration, CPS, margins)
+            metadata: Optional metadata dict to pass to writer
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
         """
+        from .config import CaptionStyle, apply_color_scheme
+
+        effective_style = style or CaptionStyle()
+        if karaoke and karaoke.color_scheme:
+            apply_color_scheme(effective_style, karaoke.color_scheme)
+
+        # Extract output behavior from style
+        include_speaker = effective_style.include_speaker_in_text
+        word_level = effective_style.word_level
+        translation_first = effective_style.translation_first
+
         supervisions = self.supervisions
+
+        # Apply broadcast standardization if configured
+        if standardization:
+            from .standardize import CaptionStandardizer
+
+            standardizer = CaptionStandardizer(
+                min_duration=standardization.min_duration,
+                max_duration=standardization.max_duration,
+                min_gap=standardization.min_gap,
+                max_lines=standardization.max_lines,
+                max_chars_per_line=standardization.max_chars_per_line,
+            )
+            supervisions = standardizer.process(supervisions)
+            if standardization.start_margin is not None:
+                supervisions = standardizer.apply_margins(
+                    supervisions,
+                    start_margin=standardization.start_margin,
+                    end_margin=standardization.end_margin or 0.10,
+                )
 
         # Swap text and translation for translation-first bilingual output
         if translation_first:
@@ -639,7 +653,6 @@ class Caption:
             effective_metadata.update(metadata)
 
         # For JSON format: build full Caption-level metadata dict
-        # so JSONFormat._build_document() can mirror Caption fields 1:1
         caption_level_metadata = {
             "language": self.language,
             "target_lang": self.target_lang,
@@ -647,7 +660,6 @@ class Caption:
             "source_format": self.source_format,
             "metadata": effective_metadata,
         }
-        # Remove None values
         caption_level_metadata = {k: v for k, v in caption_level_metadata.items() if v is not None}
 
         # Determine output format
@@ -658,7 +670,7 @@ class Caption:
         else:
             output_format = detect_format(str(path)) or Path(str(path)).suffix.lstrip(".").lower() or "srt"
 
-        # Special casing for professional formats as before
+        # Special casing for professional formats
         ext = output_format
         if isinstance(path, (str, Path)):
             path_str = str(path)
@@ -679,27 +691,26 @@ class Caption:
 
             writer_cls = Pysubs2Format
 
-        # For JSON writer: pass Caption-level fields so document structure mirrors Caption 1:1
         writer_metadata = caption_level_metadata if ext == "json" else effective_metadata
 
         if isinstance(path, (str, Path)):
             return writer_cls.write(
                 supervisions,
                 path,
-                include_speaker=include_speaker_in_text,
+                include_speaker=include_speaker,
                 word_level=word_level,
-                karaoke_config=karaoke_config,
+                karaoke=karaoke,
                 metadata=writer_metadata,
-                style=style,
+                style=effective_style,
             )
 
         content = writer_cls.to_bytes(
             supervisions,
-            include_speaker=include_speaker_in_text,
+            include_speaker=include_speaker,
             word_level=word_level,
-            karaoke_config=karaoke_config,
+            karaoke=karaoke,
             metadata=writer_metadata,
-            style=style,
+            style=effective_style,
         )
         if isinstance(path, io.BytesIO):
             path.write(content)

@@ -6,7 +6,10 @@ from typing import Optional, Tuple
 # Example: [1.23-4.56] Hello world
 TIMESTAMP_PATTERN = re.compile(r"^\[([\d.]+)-([\d.]+)\]\s*(.*)$")
 
-# 来自于字幕中常见的说话人标记格式
+# Speaker change markers in captions:
+# - ">> Name:" or "&gt;&gt; Name:" — speaker with name
+# - ">>" or "&gt;&gt;" alone — anonymous speaker change (YouTube auto-captions)
+SPEAKER_CHANGE_RE = re.compile(r"^(?:>>|&gt;&gt;)\s*$")
 SPEAKER_PATTERN = re.compile(r"((?:>>|&gt;&gt;|>|&gt;).*?[:：])\s*(.*)")
 
 # Transcriber Output Example:
@@ -140,12 +143,30 @@ def detect_speaker_candidates(lines) -> set:
 
 
 def parse_speaker_text(line) -> Tuple[Optional[str], str]:
-    """Parse a line of text to extract speaker and content."""
+    """Parse a line of text to extract speaker and content.
+
+    Returns:
+        (speaker, text) where speaker is:
+        - ">>" for anonymous speaker change markers
+        - "Name:" for named speakers
+        - None if no speaker detected
+    """
+    # Anonymous speaker change: bare >> or &gt;&gt; (no colon needed)
+    stripped = line.strip()
+    if SPEAKER_CHANGE_RE.match(stripped):
+        return ">>", ""
+
+    # Also handle >> prefixed to text without colon: ">> some text"
+    for prefix in ("&gt;&gt;", ">>"):
+        if stripped.startswith(prefix):
+            rest = stripped[len(prefix):].strip()
+            if rest and ":" not in rest and "：" not in rest:
+                return ">>", rest
 
     if ":" not in line and "：" not in line:
         return None, line
 
-    # 匹配以 >> 开头的行，并去除开头的名字和冒号
+    # Named speaker with >> prefix and colon: ">> Name: text"
     match = SPEAKER_PATTERN.match(line)
     if match:
         return match.group(1).strip(), match.group(2).strip()

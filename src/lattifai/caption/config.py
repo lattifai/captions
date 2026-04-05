@@ -40,13 +40,9 @@ class CaptionFonts:
     MALGUN_GOTHIC = "Malgun Gothic"
 
 
-@dataclass(frozen=True)
+@dataclass
 class CaptionStyle:
-    """Caption style configuration for ASS/TTML formats.
-
-    Frozen dataclass — instances are immutable after creation.
-    Use dataclasses.replace() to create modified copies.
-    """
+    """Caption style configuration for ASS/TTML formats."""
 
     # -- Colors (#RRGGBB format) --
 

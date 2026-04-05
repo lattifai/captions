@@ -137,6 +137,9 @@ class VTTFormat(FormatHandler):
 
         return supervisions
 
+    # Speaker change marker in YouTube auto-generated VTTs
+    SPEAKER_CHANGE_RE = re.compile(r"^(?:>>|&gt;&gt;)\s*")
+
     @classmethod
     def _read_youtube_vtt(cls, content: str, normalize_text: bool = True) -> List[Supervision]:
         """Parse YouTube VTT format with word-level timestamps."""
@@ -212,7 +215,7 @@ class VTTFormat(FormatHandler):
                             for prev_idx in range(idx - 1, -1, -1):
                                 if prev_idx not in cues_to_skip:
                                     if len(next_cue["lines"]) > 1:
-                                        append_text = next_cue["lines"][-1].strip()
+                                        append_text = cls.SPEAKER_CHANGE_RE.sub("", next_cue["lines"][-1].strip()).strip()
                                         if append_text:
                                             cues_to_merge_text[prev_idx] = append_text
                                     cues_to_skip.add(idx + 1)
@@ -229,11 +232,20 @@ class VTTFormat(FormatHandler):
 
             word_alignments = []
             text_parts = []
+            has_speaker_change = False
 
             for cue_line in cue_lines:
                 cue_line = cue_line.strip()
                 if not cue_line:
                     continue
+
+                # Detect and strip >> speaker change markers
+                stripped_line = cls.SPEAKER_CHANGE_RE.sub("", cue_line, count=1)
+                if stripped_line != cue_line:
+                    has_speaker_change = True
+                    cue_line = stripped_line.strip()
+                    if not cue_line:
+                        continue
 
                 word_matches = word_timestamp_pattern.findall(cue_line)
                 first_match = first_word_pattern.match(cue_line)
@@ -297,6 +309,7 @@ class VTTFormat(FormatHandler):
                     start=sup_start,
                     duration=max(0.0, sup_end - sup_start),
                     alignment={"word": word_alignments} if word_alignments else None,
+                    speaker=">>" if has_speaker_change else None,
                 )
             )
 

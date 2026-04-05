@@ -34,7 +34,11 @@ SPEAKER_TEXT_CASES = [
     # Test cases with no speaker
     ("This is a normal line of text.", None, "This is a normal line of text."),
     ("A line with a colon: but no speaker.", None, "A line with a colon: but no speaker."),
-    (">> No colon here", None, ">> No colon here"),
+    # Speaker change markers (>> without colon = anonymous change signal)
+    (">>", ">>", ""),
+    ("&gt;&gt;", ">>", ""),
+    (">> No colon here", ">>", "No colon here"),
+    ("&gt;&gt; No colon here", ">>", "No colon here"),
     ("[SPEAKER_01] No colon", None, "[SPEAKER_01] No colon"),
     ("lowercase: not a speaker", None, "lowercase: not a speaker"),
     ("A LONGER NAME THAN FIFTEEN: not a speaker", None, "A LONGER NAME THAN FIFTEEN: not a speaker"),

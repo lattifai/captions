@@ -18,8 +18,8 @@ from typing import Dict, List, Optional
 # Each scheme: primary (unsung text), secondary (highlight sweep), outline, back (shadow)
 KARAOKE_COLOR_SCHEMES: Dict[str, Dict[str, str]] = {
     "azure-gold": {
-        "primary_color": "#FFFFFF",
-        "secondary_color": "#FFC209",  # 金柠暖阳
+        "primary_color": "#FFC209",  # 金柠暖阳 (unsung)
+        "secondary_color": "#FFFFFF",  # 白 (sweep target)
         "outline_color": "#1387C0",  # 晴空海蓝
         "back_color": "#0A3D5C",
         "outline_width": 0.0,

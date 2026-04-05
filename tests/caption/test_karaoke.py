@@ -81,7 +81,7 @@ class TestCaptionStyleDefaults:
         assert style.primary_color == "#FFFFFF"
         assert style.secondary_color == "#00FFFF"
         assert style.font_name == CaptionFonts.ARIAL
-        assert style.font_size == 20
+        assert style.font_size == 48
         assert style.bold is False
 
     def test_custom(self):
@@ -222,6 +222,31 @@ class TestASSKaraokeStyle:
     def test_word_level_false(self, sup_hello_world):
         content = ASSFormat.to_bytes([sup_hello_world], word_level=False).decode()
         assert "{\\k" not in content
+
+    def test_multiline_newline_converted_to_ass_linebreak(self):
+        """Literal \\n in multiline karaoke text must become \\N in ASS output."""
+        sup = _sup(
+            text="I'm very curious\nlike actually do",
+            start=0.0,
+            duration=5.0,
+            words=[
+                AlignmentItem(symbol="I'm", start=0.0, duration=0.12),
+                AlignmentItem(symbol="very", start=0.12, duration=0.40),
+                AlignmentItem(symbol="curious", start=0.52, duration=0.74),
+                AlignmentItem(symbol="like", start=1.26, duration=0.21),
+                AlignmentItem(symbol="actually", start=1.47, duration=1.24),
+                AlignmentItem(symbol="do", start=2.71, duration=1.44),
+            ],
+        )
+        content = ASSFormat.to_bytes(
+            [sup], word_level=True, karaoke=KaraokeConfig(enabled=True)
+        ).decode()
+        # Must NOT contain literal newline inside a Dialogue line
+        for line in content.splitlines():
+            if line.startswith("Dialogue:"):
+                assert "\n" not in line  # trivially true per splitlines
+                assert "\\N" in line  # ASS line break tag present
+                assert "\\n" not in line.split(",", 9)[-1]  # no literal \n in text field
 
 
 # =============================================================================

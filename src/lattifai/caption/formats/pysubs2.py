@@ -472,6 +472,7 @@ class ASSFormat(Pysubs2Format):
             # Karaoke mode with word alignment
             if word_level and karaoke_enabled and word_items:
                 karaoke_text = cls._build_karaoke_text(word_items, karaoke.effect, original_text=sup.text)
+                karaoke_text = karaoke_text.replace("\n", "\\N")
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
                     spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
@@ -560,7 +561,7 @@ class ASSFormat(Pysubs2Format):
         """Convert style dict back to pysubs2.SSAStyle."""
         return pysubs2.SSAStyle(
             fontname=style_dict.get("fontname", "Arial"),
-            fontsize=style_dict.get("fontsize", 20.0),
+            fontsize=style_dict.get("fontsize", cls.DEFAULT_FONTSIZE),
             primarycolor=cls._str_to_color(style_dict.get("primarycolor", "&H00FFFFFF")),
             secondarycolor=cls._str_to_color(style_dict.get("secondarycolor", "&H000000FF")),
             tertiarycolor=cls._str_to_color(style_dict.get("tertiarycolor", "&H00000000")),

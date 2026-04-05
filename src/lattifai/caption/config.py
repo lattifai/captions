@@ -63,8 +63,8 @@ class CaptionStyle:
     font_name: str = CaptionFonts.ARIAL
     """Font family name. Use CaptionFonts constants or any system font."""
 
-    font_size: int = 20
-    """Font size in points."""
+    font_size: int = 48
+    """Font size in points (scaled to PlayRes 1920x1080 for ASS)."""
 
     bold: bool = False
     """Enable bold text."""

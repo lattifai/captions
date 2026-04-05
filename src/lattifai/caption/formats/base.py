@@ -190,11 +190,16 @@ class FormatWriter(ABC):
     def _format_speaker_prefix(speaker: str) -> str:
         """Format speaker name with a colon separator for text prepending.
 
+        Special case: ">>" (anonymous speaker change marker) gets a trailing
+        space only — no colon — so output reads ">> text" not ">>: text".
+
         If the speaker name already ends with ':' or '：', a trailing space
         is appended. Otherwise ': ' is appended so the reader's
         parse_speaker_text() can reliably extract the speaker on read-back.
         """
         stripped = speaker.rstrip()
+        if stripped == ">>":
+            return ">> "
         if stripped and stripped[-1] in (":", "："):
             return f"{stripped} "
         return f"{speaker}: "

@@ -31,20 +31,22 @@ class TimecodeOffset:
 
     Professional timelines often start at 01:00:00:00 instead of 00:00:00:00.
     This class handles the offset conversion.
-
-    Attributes:
-        hours: Hour offset (default 0)
-        minutes: Minute offset (default 0)
-        seconds: Second offset (default 0)
-        frames: Frame offset (default 0)
-        fps: Frame rate for frame-based offset calculation
     """
 
     hours: int = 0
+    """Hour offset (default 0)."""
+
     minutes: int = 0
+    """Minute offset (default 0)."""
+
     seconds: float = 0.0
+    """Second offset (default 0)."""
+
     frames: int = 0
+    """Frame offset (default 0)."""
+
     fps: float = 25.0
+    """Frame rate for frame-based offset calculation."""
 
     @property
     def total_seconds(self) -> float:
@@ -255,7 +257,8 @@ def _merge_supervisions(supervisions: List["Supervision"]) -> "Supervision":
     for sup in supervisions:
         text = sup.text.strip() if sup.text else ""
         if sup.speaker:
-            texts.append(f"- {sup.speaker}: {text}")
+            sep = " " if sup.speaker == ">>" else ": "
+            texts.append(f"- {sup.speaker}{sep}{text}")
         else:
             texts.append(f"- {text}")
 
@@ -328,7 +331,8 @@ def generate_srt_content(
         if include_speaker and sup.speaker:
             # Check if speaker was originally in text
             if not (hasattr(sup, "custom") and sup.custom and not sup.custom.get("original_speaker", True)):
-                text = f"{sup.speaker}: {text}"
+                sep = " " if sup.speaker == ">>" else ": "
+                text = f"{sup.speaker}{sep}{text}"
         lines.append(text)
 
         # Blank line between entries

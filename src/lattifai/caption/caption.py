@@ -17,30 +17,32 @@ from .supervision import AlignmentItem, Pathlike, Supervision, fastcopy
 
 @dataclass
 class Caption:
-    """
-    Container for caption/subtitle data with metadata.
+    """Container for caption/subtitle data with metadata.
 
-    This class encapsulates a list of supervisions (subtitle segments) along with
+    Encapsulates a list of supervisions (subtitle segments) along with
     metadata such as language, kind, format information, and source file details.
-
-    Attributes:
-        supervisions: List of supervision segments containing text and timing information
-        language: Language code (e.g., 'en', 'zh', 'es')
-        kind: Caption kind/type (e.g., 'captions', 'subtitles', 'descriptions')
-        source_format: Original format of the caption file (e.g., 'vtt', 'srt', 'json')
-        source_path: Path to the source caption file
-        metadata: Additional custom metadata as key-value pairs
     """
 
-    # read from subtitle file
     supervisions: List[Supervision] = field(default_factory=list)
+    """List of supervision segments containing text and timing information."""
 
     language: Optional[str] = None
+    """Language code (e.g., 'en', 'zh', 'es')."""
+
     target_lang: Optional[str] = None
+    """Target language code for translation."""
+
     kind: Optional[str] = None
+    """Caption kind/type (e.g., 'captions', 'subtitles', 'descriptions')."""
+
     source_format: Optional[str] = None
+    """Original format of the caption file (e.g., 'vtt', 'srt', 'json')."""
+
     source_path: Optional[Pathlike] = None
+    """Path to the source caption file."""
+
     metadata: Dict[str, Any] = field(default_factory=dict)
+    """Additional custom metadata as key-value pairs."""
 
     def __len__(self) -> int:
         """Return the number of supervision segments."""

@@ -36,19 +36,19 @@ class FrameRate(Enum):
 
 @dataclass
 class AvidDSConfig:
-    """Configuration for Avid DS export.
-
-    Attributes:
-        fps: Frame rate for timecode calculation
-        drop_frame: Whether to use drop-frame timecode (for 29.97fps)
-        max_line_length: Maximum characters per line (Avid SubCap typically limits to 32-40)
-        include_speaker: Whether to include speaker labels in text
-    """
+    """Configuration for Avid DS export."""
 
     fps: float = 25.0
+    """Frame rate for timecode calculation."""
+
     drop_frame: bool = False
+    """Whether to use drop-frame timecode (for 29.97fps)."""
+
     max_line_length: int = 40
+    """Maximum characters per line (Avid SubCap typically limits to 32-40)."""
+
     include_speaker: bool = True
+    """Whether to include speaker labels in text."""
 
 
 class AvidDSWriter:
@@ -202,7 +202,8 @@ class AvidDSWriter:
                     include_this_speaker = False
 
             if include_this_speaker:
-                text = f"{sup.speaker}: {text}"
+                sep = " " if sup.speaker == ">>" else ": "
+                text = f"{sup.speaker}{sep}{text}"
 
             # Wrap text to max line length
             wrapped_lines = cls.wrap_text(text, config.max_line_length)
@@ -250,7 +251,8 @@ class AvidDSWriter:
                     include_this_speaker = False
 
             if include_this_speaker:
-                text = f"{sup.speaker}: {text}"
+                sep = " " if sup.speaker == ">>" else ": "
+                text = f"{sup.speaker}{sep}{text}"
 
             wrapped_lines = cls.wrap_text(text, config.max_line_length)
             text = "\n".join(wrapped_lines)

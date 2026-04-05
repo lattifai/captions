@@ -618,12 +618,17 @@ class ASSFormat(Pysubs2Format):
         alignment = pysubs2.Alignment(config.alignment)
 
         # When background_color is set, switch to borderstyle=3 (opaque box)
+        # ASS borderstyle=3 semantics:
+        #   OutlineColour = opaque box FILL color
+        #   BackColour    = box shadow color
         has_bg = bool(config.background_color)
         if has_bg:
-            back = cls._hex_to_ass_color(config.background_color)
+            outline_clr = cls._hex_to_ass_color(config.background_color)
+            back = cls._hex_to_ass_color(config.back_color)
             borderstyle = 3
-            shadow = 0  # ASS ignores shadow in borderstyle=3
+            shadow = 0
         else:
+            outline_clr = cls._hex_to_ass_color(config.outline_color)
             back = cls._hex_to_ass_color(config.back_color)
             borderstyle = 1
             shadow = config.shadow_depth
@@ -633,7 +638,7 @@ class ASSFormat(Pysubs2Format):
             fontsize=config.font_size,
             primarycolor=cls._hex_to_ass_color(config.primary_color),
             secondarycolor=cls._hex_to_ass_color(config.secondary_color),
-            outlinecolor=cls._hex_to_ass_color(config.outline_color),
+            outlinecolor=outline_clr,
             backcolor=back,
             bold=config.bold,
             italic=config.italic,

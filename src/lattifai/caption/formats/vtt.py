@@ -215,7 +215,9 @@ class VTTFormat(FormatHandler):
                             for prev_idx in range(idx - 1, -1, -1):
                                 if prev_idx not in cues_to_skip:
                                     if len(next_cue["lines"]) > 1:
-                                        append_text = cls.SPEAKER_CHANGE_RE.sub("", next_cue["lines"][-1].strip()).strip()
+                                        append_text = cls.SPEAKER_CHANGE_RE.sub(
+                                            "", next_cue["lines"][-1].strip()
+                                        ).strip()
                                         if append_text:
                                             cues_to_merge_text[prev_idx] = append_text
                                     cues_to_skip.add(idx + 1)
@@ -428,9 +430,9 @@ class VTTFormat(FormatHandler):
             props.append(f"  color: {cls._ass_color_to_css(default_style['primarycolor'])};")
 
         borderstyle = default_style.get("borderstyle", 1)
-        if borderstyle == 3 and "backcolor" in default_style:
-            # Opaque box mode
-            props.append(f"  background-color: {cls._ass_color_to_css(default_style['backcolor'])};")
+        if borderstyle == 3 and "outlinecolor" in default_style:
+            # Opaque box mode: ASS borderstyle=3 uses OutlineColour as the box fill
+            props.append(f"  background-color: {cls._ass_color_to_css(default_style['outlinecolor'])};")
             props.append("  text-shadow: none;")
         else:
             props.append("  background-color: transparent;")
@@ -541,10 +543,13 @@ class VTTFormat(FormatHandler):
                 lines.append(f"{format_timestamp(cue_start)} --> {format_timestamp(cue_end)}")
 
                 text_parts = []
+                if include_speaker and sup.speaker == ">>":
+                    text_parts.append(">> ")
                 for i, word in enumerate(words):
                     symbol = word.symbol
-                    if i == 0 and include_speaker and sup.speaker:
-                        symbol = f"{sup.speaker}: {symbol}"
+                    if i == 0 and include_speaker and sup.speaker and sup.speaker != ">>":
+                        sep = " " if sup.speaker == ">>" else ": "
+                        symbol = f"{sup.speaker}{sep}{symbol}"
                     text_parts.append(f"<{format_timestamp(word.start)}><c> {symbol}</c>")
                 lines.append("".join(text_parts))
             else:
@@ -553,7 +558,8 @@ class VTTFormat(FormatHandler):
                 text = render_bilingual_text(sup, translation_first=translation_first)
                 lines.append(f"{format_timestamp(sup.start)} --> {format_timestamp(sup.end)}")
                 if include_speaker and sup.speaker:
-                    text = f"{sup.speaker}: {text}"
+                    sep = " " if sup.speaker == ">>" else ": "
+                    text = f"{sup.speaker}{sep}{text}"
                 lines.append(text)
             lines.append("")
 

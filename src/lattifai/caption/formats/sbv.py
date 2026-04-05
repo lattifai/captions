@@ -137,7 +137,8 @@ class SBVFormat(FormatHandler):
                     include_this_speaker = False
 
                 if include_this_speaker:
-                    text = f"{sup.speaker}: {text}"
+                    sep = " " if sup.speaker == ">>" else ": "
+                    text = f"{sup.speaker}{sep}{text}"
             lines.append(text)
 
             if i < len(supervisions) - 1:

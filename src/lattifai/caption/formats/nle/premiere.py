@@ -23,27 +23,31 @@ from ..base import FormatReader, FormatWriter, strip_standard_kwargs
 
 @dataclass
 class PremiereXMLConfig:
-    """Configuration for Premiere Pro XML export.
-
-    Attributes:
-        fps: Frame rate for the sequence
-        width: Sequence width in pixels
-        height: Sequence height in pixels
-        use_word_level: Export each word as separate clip (for karaoke effects)
-        separate_speaker_tracks: Put different speakers on different video tracks
-        font_name: Font name for text generators
-        font_size: Font size for text generators
-        sequence_name: Name for the sequence
-    """
+    """Configuration for Premiere Pro XML export."""
 
     fps: float = 25.0
+    """Frame rate for the sequence."""
+
     width: int = 1920
+    """Sequence width in pixels."""
+
     height: int = 1080
+    """Sequence height in pixels."""
+
     use_word_level: bool = False
+    """Export each word as separate clip (for karaoke effects)."""
+
     separate_speaker_tracks: bool = True
+    """Put different speakers on different video tracks."""
+
     font_name: str = "Arial"
+    """Font name for text generators."""
+
     font_size: int = 160
+    """Font size for text generators."""
+
     sequence_name: str = "LattifAI Captions"
+    """Name for the sequence."""
 
 
 class PremiereXMLWriter:

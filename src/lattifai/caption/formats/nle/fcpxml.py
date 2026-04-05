@@ -23,44 +23,48 @@ from ..base import FormatReader, FormatWriter, render_bilingual_text, strip_stan
 
 @dataclass
 class FCPXMLStyle:
-    """Text style configuration for FCPXML captions.
-
-    Attributes:
-        font: Font family name
-        font_size: Font size in points
-        font_color: Font color in RGBA format (e.g., "1 1 1 1" for white)
-        background_color: Background color in RGBA format
-        alignment: Text alignment ("left", "center", "right")
-    """
+    """Text style configuration for FCPXML captions."""
 
     font: str = "Helvetica"
+    """Font family name."""
+
     font_size: int = 100
-    font_color: str = "1 1 1 1"  # White
+    """Font size in points."""
+
+    font_color: str = "1 1 1 1"
+    """Font color in RGBA format (e.g., "1 1 1 1" for white)."""
+
     background_color: Optional[str] = None
+    """Background color in RGBA format."""
+
     alignment: str = "center"
+    """Text alignment ("left", "center", "right")."""
 
 
 @dataclass
 class FCPXMLConfig:
-    """Configuration for FCPXML export.
-
-    Attributes:
-        fps: Frame rate (affects duration calculations)
-        map_speakers_to_roles: Map different speakers to FCP roles
-        default_style: Default text style
-        speaker_styles: Speaker-specific styles
-        project_name: Name for the FCPXML project
-        event_name: Name for the FCPXML event
-        use_bundle: Export as .fcpxmld bundle (directory with Info.fcpxml)
-    """
+    """Configuration for FCPXML export."""
 
     fps: float = 25.0
+    """Frame rate (affects duration calculations)."""
+
     map_speakers_to_roles: bool = True
+    """Map different speakers to FCP roles."""
+
     default_style: FCPXMLStyle = field(default_factory=FCPXMLStyle)
+    """Default text style."""
+
     speaker_styles: Dict[str, FCPXMLStyle] = field(default_factory=dict)
+    """Speaker-specific styles."""
+
     project_name: str = "LattifAI Captions"
+    """Name for the FCPXML project."""
+
     event_name: str = "LattifAI Import"
+    """Name for the FCPXML event."""
+
     use_bundle: bool = True
+    """Export as .fcpxmld bundle (directory with Info.fcpxml)."""
 
 
 class FCPXMLWriter:

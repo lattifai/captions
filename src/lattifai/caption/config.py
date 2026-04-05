@@ -58,7 +58,6 @@ class OutputBehavior:
     """Place translation text above original text in bilingual output."""
 
 
-
 @dataclass
 class ASSConfig:
     """Self-contained configuration for ASS/SSA export.
@@ -148,32 +147,35 @@ class KaraokeConfig:
 
     Karaoke-specific settings only. Subtitle styling (font, colors, background)
     lives in ASSConfig, not here.
-
-    Attributes:
-        enabled: Whether karaoke mode is enabled
-        effect: Karaoke effect type
-            - "sweep": Gradual fill from left to right (ASS \\kf tag)
-            - "instant": Instant highlight (ASS \\k tag)
-            - "outline": Outline then fill (ASS \\ko tag)
-        color_scheme: Predefined color scheme name (overrides style colors)
-        lrc_precision: LRC time precision ("centisecond" or "millisecond")
-        lrc_metadata: LRC metadata dict (ar, ti, al, etc.)
-        ttml_timing_mode: TTML timing attribute ("Word" or "Line")
     """
 
     enabled: bool = False
+    """Whether karaoke mode is enabled."""
+
     effect: Literal["sweep", "instant", "outline"] = "sweep"
+    """Karaoke effect type:
+    - "sweep": Gradual fill from left to right (ASS \\kf tag)
+    - "instant": Instant highlight (ASS \\k tag)
+    - "outline": Outline then fill (ASS \\ko tag)
+    """
+
     color_scheme: str = ""
     """Karaoke color scheme name. When set, overrides style colors.
     See KARAOKE_COLOR_SCHEMES in colors.py for available schemes.
     Use "" (empty) for manual style configuration."""
 
     # LRC specific
+
     lrc_precision: Literal["centisecond", "millisecond"] = "millisecond"
+    """LRC time precision ("centisecond" or "millisecond")."""
+
     lrc_metadata: Dict[str, str] = field(default_factory=dict)
+    """LRC metadata dict (ar, ti, al, etc.)."""
 
     # TTML specific
+
     ttml_timing_mode: Literal["Word", "Line"] = "Word"
+    """TTML timing attribute ("Word" or "Line")."""
 
 
 def apply_color_scheme(scheme_name: str, config: Optional[ASSConfig] = None) -> ASSConfig:
@@ -199,8 +201,15 @@ def apply_color_scheme(scheme_name: str, config: Optional[ASSConfig] = None) -> 
         return config
 
     overrides = {}
-    for key in ("primary_color", "secondary_color", "outline_color", "back_color",
-                "shadow_depth", "outline_width", "background_color"):
+    for key in (
+        "primary_color",
+        "secondary_color",
+        "outline_color",
+        "back_color",
+        "shadow_depth",
+        "outline_width",
+        "background_color",
+    ):
         if key in resolved:
             overrides[key] = resolved[key]
 
@@ -215,28 +224,34 @@ class StandardizationConfig:
     - Netflix Timed Text Style Guide
     - BBC Subtitle Guidelines
     - EBU-TT-D Standard
-
-    Attributes:
-        min_duration: Minimum segment duration (seconds). Netflix recommends 5/6s, BBC 0.3s
-        max_duration: Maximum segment duration (seconds). Netflix/BBC recommends 7s
-        min_gap: Minimum gap between segments (seconds). 80ms prevents subtitle flicker
-        max_lines: Maximum lines per segment. Broadcast standard is typically 2
-        max_chars_per_line: Maximum characters per line. CJK auto-adjusted by ÷2 (e.g., 42 → 21)
-        optimal_cps: Optimal reading speed (chars/sec). Netflix recommends 17-20 CPS
-        start_margin: Start margin (seconds) before first word. None = no adjustment (default)
-        end_margin: End margin (seconds) after last word. None = no adjustment (default)
-        margin_collision_mode: How to handle collisions: 'trim' (reduce margin) or 'gap' (maintain min_gap)
     """
 
     min_duration: float = 0.8
+    """Minimum segment duration (seconds). Netflix recommends 5/6s, BBC 0.3s."""
+
     max_duration: float = 7.0
+    """Maximum segment duration (seconds). Netflix/BBC recommends 7s."""
+
     min_gap: float = 0.08
+    """Minimum gap between segments (seconds). 80ms prevents subtitle flicker."""
+
     max_lines: int = 2
+    """Maximum lines per segment. Broadcast standard is typically 2."""
+
     max_chars_per_line: int = 42
+    """Maximum characters per line. CJK auto-adjusted by ÷2 (e.g., 42 → 21)."""
+
     optimal_cps: float = 17.0
+    """Optimal reading speed (chars/sec). Netflix recommends 17-20 CPS."""
+
     start_margin: Optional[float] = None
+    """Start margin (seconds) before first word. None = no adjustment (default)."""
+
     end_margin: Optional[float] = None
+    """End margin (seconds) after last word. None = no adjustment (default)."""
+
     margin_collision_mode: Literal["trim", "gap"] = "trim"
+    """How to handle collisions: 'trim' (reduce margin) or 'gap' (maintain min_gap)."""
 
     def __post_init__(self):
         """Validate configuration parameters."""

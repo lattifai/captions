@@ -23,21 +23,22 @@ from ..base import FormatReader, FormatWriter, render_bilingual_text, strip_stan
 
 @dataclass
 class AuditionCSVConfig:
-    """Configuration for Adobe Audition CSV marker export.
-
-    Attributes:
-        time_format: Time format for markers ("decimal" or "samples")
-        marker_type: Marker type ("Cue", "Subclip", "Track")
-        include_speaker_in_name: Include speaker name in marker name
-        use_description: Put text content in description field
-        sample_rate: Sample rate (only used when time_format="samples")
-    """
+    """Configuration for Adobe Audition CSV marker export."""
 
     time_format: str = "decimal"
+    """Time format for markers ("decimal" or "samples")."""
+
     marker_type: str = "Cue"
+    """Marker type ("Cue", "Subclip", "Track")."""
+
     include_speaker_in_name: bool = True
+    """Include speaker name in marker name."""
+
     use_description: bool = True
+    """Put text content in description field."""
+
     sample_rate: int = 48000
+    """Sample rate (only used when time_format="samples")."""
 
 
 class AuditionCSVWriter:
@@ -199,15 +200,13 @@ class AuditionCSVWriter:
 
 @dataclass
 class EdiMarkerConfig:
-    """Configuration for EdiMarker (Pro Tools) compatible CSV export.
-
-    Attributes:
-        include_speaker: Include speaker name in marker
-        marker_prefix: Prefix for marker names
-    """
+    """Configuration for EdiMarker (Pro Tools) compatible CSV export."""
 
     include_speaker: bool = True
+    """Include speaker name in marker."""
+
     marker_prefix: str = "M"
+    """Prefix for marker names."""
 
 
 class EdiMarkerWriter:

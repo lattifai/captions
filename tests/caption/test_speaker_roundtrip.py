@@ -1,4 +1,4 @@
-from lattifai.caption.config import OutputBehavior
+from lattifai.caption.config import OutputBehavior, KaraokeConfig
 
 #!/usr/bin/env python3
 """
@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from lattifai.caption import Caption, Supervision
+from lattifai.caption.supervision import AlignmentItem
 
 
 class TestSpeakerRoundtrip:
@@ -211,6 +212,183 @@ BOB: Third speaker format
         assert caption_read.supervisions[0].speaker is not None
         assert caption_read.supervisions[0].text == "Hello world"
         assert caption_read.supervisions[1].text == "Goodbye"
+
+    def test_speaker_change_marker_no_colon_srt(self, tmp_path):
+        """>> speaker should produce '>> text' not '>>: text' in SRT output."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0, speaker=">>"),
+            Supervision(text="Goodbye", start=4.0, duration=2.0, speaker="Alice"),
+        ]
+
+        srt_file = tmp_path / "test.srt"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(srt_file)
+
+        content = srt_file.read_text()
+        # >> speaker should NOT have a colon prefix
+        assert ">>:" not in content, f"Found '>>:' in SRT output:\n{content}"
+        assert ">> Hello world" in content, f"Expected '>> Hello world' in SRT output:\n{content}"
+
+    def test_speaker_change_marker_no_colon_vtt(self, tmp_path):
+        """>> speaker should produce '>> text' not '>>: text' in VTT output."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0, speaker=">>"),
+            Supervision(text="Goodbye", start=4.0, duration=2.0, speaker="Alice"),
+        ]
+
+        vtt_file = tmp_path / "test.vtt"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(vtt_file)
+
+        content = vtt_file.read_text()
+        assert ">>:" not in content, f"Found '>>:' in VTT output:\n{content}"
+        assert ">> Hello world" in content, f"Expected '>> Hello world' in VTT output:\n{content}"
+
+    def test_word_level_youtube_vtt_speaker_change_roundtrip(self, tmp_path):
+        """Word-level YouTube VTT should preserve bare >> speaker markers on roundtrip."""
+        supervisions = [
+            Supervision(
+                text="Hello world",
+                start=1.0,
+                duration=1.0,
+                speaker=">>",
+                alignment={
+                    "word": [
+                        AlignmentItem(symbol="Hello", start=1.0, duration=0.5),
+                        AlignmentItem(symbol="world", start=1.5, duration=0.5),
+                    ]
+                },
+            )
+        ]
+
+        vtt_file = tmp_path / "word_level_speaker_change.vtt"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(
+            vtt_file,
+            behavior=OutputBehavior(word_level=True),
+            karaoke=KaraokeConfig(enabled=True),
+        )
+
+        content = vtt_file.read_text()
+        assert ">> <00:00:01.000><c> Hello</c><00:00:01.500><c> world</c>" in content
+
+        caption_read = Caption.read(vtt_file)
+
+        assert len(caption_read.supervisions) == 1
+        assert caption_read.supervisions[0].speaker == ">>"
+        assert caption_read.supervisions[0].text == "Hello world"
+        assert caption_read.supervisions[0].alignment is not None
+        assert caption_read.supervisions[0].alignment["word"][0].symbol == "Hello"
+
+    def test_speaker_change_marker_no_colon_ass(self, tmp_path):
+        """>> speaker should produce '>> text' not '>>: text' in ASS output."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0, speaker=">>"),
+            Supervision(text="Goodbye", start=4.0, duration=2.0, speaker="Alice"),
+        ]
+
+        ass_file = tmp_path / "test.ass"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(ass_file)
+
+        content = ass_file.read_text()
+        assert ">>:" not in content, f"Found '>>:' in ASS output:\n{content}"
+        assert ">> Hello world" in content, f"Expected '>> Hello world' in ASS output:\n{content}"
+
+    def test_speaker_change_marker_no_colon_txt(self, tmp_path):
+        """>> speaker should produce '>> text' not '>>: text' in TXT output."""
+        supervisions = [
+            Supervision(text="Hello world", start=1.0, duration=2.0, speaker=">>"),
+            Supervision(text="Goodbye", start=4.0, duration=2.0, speaker="Alice"),
+        ]
+
+        txt_file = tmp_path / "test.txt"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(txt_file)
+
+        content = txt_file.read_text()
+        assert ">>:" not in content, f"Found '>>:' in TXT output:\n{content}"
+        assert ">> Hello world" in content, f"Expected '>> Hello world' in TXT output:\n{content}"
+
+    def test_format_speaker_prefix_with_speaker_change(self):
+        """_format_speaker_prefix should return '>> ' for '>>' speaker (no colon)."""
+        from lattifai.caption.formats.base import FormatWriter
+
+        assert FormatWriter._format_speaker_prefix(">>") == ">> "
+        # Normal speakers still get colon
+        assert FormatWriter._format_speaker_prefix("Alice") == "Alice: "
+        assert FormatWriter._format_speaker_prefix("BOB:") == "BOB: "
+
+    def test_speaker_change_marker_word_level_vtt_roundtrip(self, tmp_path):
+        """>> speaker with word-level alignment must survive VTT write/read roundtrip."""
+        supervisions = [
+            Supervision(
+                text="Hello world",
+                start=1.0,
+                duration=2.0,
+                speaker=">>",
+                alignment={
+                    "word": [
+                        AlignmentItem(symbol="Hello", start=1.0, duration=0.8),
+                        AlignmentItem(symbol="world", start=1.9, duration=1.1),
+                    ]
+                },
+            ),
+        ]
+
+        vtt_file = tmp_path / "test.vtt"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(
+            vtt_file,
+            behavior=OutputBehavior(word_level=True),
+            karaoke=KaraokeConfig(enabled=True),
+        )
+
+        content = vtt_file.read_text()
+        # >> should NOT be inside a <c> token — it should be a bare prefix
+        assert ">>:" not in content, f"Found '>>:' in word-level VTT:\n{content}"
+        assert ">> <00:00:01.000><c> Hello</c><00:00:01.900><c> world</c>" in content
+
+        # Read back
+        caption_read = Caption.read(vtt_file)
+        assert len(caption_read.supervisions) == 1
+        sup = caption_read.supervisions[0]
+        assert sup.speaker == ">>", f"Speaker lost on roundtrip, got: {sup.speaker}"
+        assert not sup.text.startswith(">>"), f">> leaked into text: {sup.text}"
+        # First word alignment should be clean
+        if sup.alignment and sup.alignment.get("word"):
+            first_word = sup.alignment["word"][0].symbol
+            assert not first_word.startswith(">>"), f">> leaked into first word: {first_word}"
+
+    def test_ass_opaque_box_color_exports_correctly_to_vtt(self, tmp_path):
+        """ASS borderstyle=3 should export OutlineColour (fill) as VTT background-color."""
+        from lattifai.caption.config import ASSConfig
+
+        supervisions = [
+            Supervision(text="Hello", start=1.0, duration=2.0),
+        ]
+
+        # Red fill box, black shadow — these must be different to catch the bug
+        style = ASSConfig(background_color="#FF0000", back_color="#000000")
+
+        ass_file = tmp_path / "test.ass"
+        caption = Caption.from_supervisions(supervisions)
+        caption.write(ass_file, format_config=style)
+
+        # Read back ASS to get metadata with styles
+        caption_read = Caption.read(ass_file)
+
+        # Now write to VTT (which converts ASS style to CSS)
+        vtt_file = tmp_path / "test.vtt"
+        caption_read.write(vtt_file)
+
+        vtt_content = vtt_file.read_text()
+        # The CSS background-color should be the fill (red #FF0000), not the shadow (black #000000)
+        assert "background-color" in vtt_content, f"No background-color in VTT:\n{vtt_content}"
+        bg_line = [l for l in vtt_content.splitlines() if "background-color" in l][0]
+        # Should contain red, not black
+        assert "#000000" not in bg_line, \
+            f"VTT background-color is shadow color (black) instead of fill (red):\n{bg_line}"
 
     def test_ass_speaker_roundtrip_without_include(self, tmp_path):
         """Test ASS roundtrip: include_speaker_in_text=False uses Name field only."""

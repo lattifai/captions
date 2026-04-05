@@ -321,13 +321,18 @@ class TestVTTStyle:
         assert "0,0,0," in result
 
     def test_build_style_block_with_background(self):
-        """Test STYLE block generation with opaque box (borderstyle=3)."""
+        """Test STYLE block generation with opaque box (borderstyle=3).
+
+        ASS borderstyle=3 semantics: OutlineColour = box fill, BackColour = shadow.
+        VTT should use outlinecolor as CSS background-color.
+        """
         metadata = {
             "ass_styles": {
                 "Default": {
                     "fontname": "Arial",
                     "primarycolor": "&H0000FF00",
-                    "backcolor": "&H00AD448E",
+                    "outlinecolor": "&H00AD448E",
+                    "backcolor": "&H00000000",
                     "borderstyle": 3,
                     "bold": False,
                     "italic": True,
@@ -377,7 +382,10 @@ class TestVTTStyle:
         assert VTTFormat._build_vtt_style_block({"ass_styles": {}}) == []
 
     def test_write_vtt_with_style_metadata(self):
-        """Test full VTT output contains STYLE block when ass_styles provided."""
+        """Test full VTT output contains STYLE block when ass_styles provided.
+
+        ASS borderstyle=3: OutlineColour is the box fill color.
+        """
         supervisions = [
             Supervision(text="Hello world", start=1.0, duration=2.0),
             Supervision(text="Styled subtitle", start=3.5, duration=1.5),
@@ -387,7 +395,8 @@ class TestVTTStyle:
                 "Default": {
                     "fontname": "Arial",
                     "primarycolor": "&H0000FF00",
-                    "backcolor": "&H00AD448E",
+                    "outlinecolor": "&H00AD448E",
+                    "backcolor": "&H00000000",
                     "borderstyle": 3,
                 }
             }

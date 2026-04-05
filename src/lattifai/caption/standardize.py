@@ -125,7 +125,10 @@ class CaptionStandardizer:
         # 2. Timeline cleanup
         processed = self._sanitize_timeline(sorted_segments)
 
-        # 3. Text formatting
+        # 3. Split oversized segments (text exceeds max_lines × max_chars_per_line)
+        processed = self._split_long_segments(processed)
+
+        # 4. Text formatting (line breaks within each segment)
         processed = self._format_texts(processed)
 
         return processed
@@ -187,6 +190,85 @@ class CaptionStandardizer:
             result.append(new_seg)
 
         return result
+
+    def _split_long_segments(self, segments: List[Supervision]) -> List[Supervision]:
+        """Split segments whose text exceeds max_lines × max_chars_per_line.
+
+        Long segments are split into multiple subtitle entries, each fitting
+        within the character budget. Duration is distributed proportionally.
+        Word alignment data is split accordingly when available.
+        """
+        max_text_len = self.config.max_lines * self.config.max_chars_per_line
+        result: List[Supervision] = []
+
+        for seg in segments:
+            text = self._normalize_text(seg.text or "")
+            if len(text) <= max_text_len:
+                result.append(seg)
+                continue
+
+            # Split text into chunks that fit within budget
+            chunks = self._split_text_into_chunks(text, max_text_len)
+            if len(chunks) <= 1:
+                result.append(seg)
+                continue
+
+            # Distribute duration proportionally by text length
+            total_chars = sum(len(c) for c in chunks)
+            words = self._get_word_alignment(seg)
+            current_start = seg.start
+
+            for i, chunk in enumerate(chunks):
+                ratio = len(chunk) / total_chars if total_chars > 0 else 1.0 / len(chunks)
+                chunk_duration = max(self.config.min_duration, seg.duration * ratio)
+
+                # Split word alignment if available
+                chunk_alignment = None
+                if words:
+                    chunk_alignment = self._split_alignment_for_chunk(
+                        words, current_start, current_start + chunk_duration
+                    )
+
+                new_seg = self._copy_segment(
+                    seg,
+                    text=chunk,
+                    start=current_start,
+                    duration=chunk_duration,
+                    alignment={"word": chunk_alignment} if chunk_alignment else getattr(seg, "alignment", None),
+                )
+                result.append(new_seg)
+                current_start += chunk_duration + self.config.min_gap
+
+        return result
+
+    def _split_text_into_chunks(self, text: str, max_chunk_len: int) -> List[str]:
+        """Split text into chunks, each fitting within max_chunk_len characters.
+
+        Splits at natural boundaries (punctuation > whitespace > hard cut).
+        """
+        text = self._normalize_text(text)
+        if len(text) <= max_chunk_len:
+            return [text]
+
+        chunks: List[str] = []
+        remaining = text
+
+        while remaining:
+            if len(remaining) <= max_chunk_len:
+                chunks.append(remaining.strip())
+                break
+
+            split_pos = self._find_split_point(remaining, max_chunk_len)
+            chunks.append(remaining[:split_pos].rstrip())
+            remaining = remaining[split_pos:].lstrip()
+
+        return [c for c in chunks if c]
+
+    def _split_alignment_for_chunk(
+        self, words: List, chunk_start: float, chunk_end: float
+    ) -> List:
+        """Extract word alignment items that fall within a time range."""
+        return [w for w in words if w.start >= chunk_start - 0.01 and w.start < chunk_end]
 
     def _format_texts(self, segments: List[Supervision]) -> List[Supervision]:
         """Apply text formatting to all subtitles."""

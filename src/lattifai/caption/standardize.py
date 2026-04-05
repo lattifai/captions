@@ -228,14 +228,16 @@ class CaptionStandardizer:
 
         Strategy:
         1. Accumulate words until character budget is reached
-        2. At budget boundary, prefer splitting at larger inter-word gaps
+        2. At budget boundary, look back for a natural gap to split at —
+           but ONLY if current chars >= 75% of budget (avoid under-filled segments)
         3. Each sub-segment gets timing from its first/last word + margins
+        4. Prevent orphans: if last group < 25% of budget, merge into previous
         """
         sm = self.config.start_margin or 0.0
         em = self.config.end_margin or 0.0
 
         # Build word groups that fit within max_text_len
-        groups: List[List] = []  # Each group is a list of word alignment items
+        groups: List[List] = []
         current_group: List = []
         current_chars = 0
 
@@ -245,27 +247,33 @@ class CaptionStandardizer:
             new_len = current_chars + separator + word_len
 
             if new_len > max_text_len and current_group:
-                # Budget exceeded: check if splitting here or at a nearby gap is better
+                # Budget exceeded — find best split point
                 best_split = self._find_best_gap_split(
-                    current_group, words, i, max_text_len
+                    current_group, current_chars, max_text_len
                 )
-                if best_split is not None and best_split < len(current_group):
-                    # Move some words from current_group to next group
+                if best_split is not None:
                     overflow = current_group[best_split:]
                     current_group = current_group[:best_split]
                     groups.append(current_group)
                     current_group = overflow + [word]
-                    current_chars = sum(len(w.symbol) for w in current_group) + len(current_group) - 1
                 else:
                     groups.append(current_group)
                     current_group = [word]
-                    current_chars = word_len
+                current_chars = sum(len(w.symbol) for w in current_group) + max(0, len(current_group) - 1)
             else:
                 current_group.append(word)
                 current_chars = new_len
 
         if current_group:
             groups.append(current_group)
+
+        # Prevent orphans: merge last group into previous if too short
+        min_orphan_len = int(max_text_len * 0.25)
+        if len(groups) >= 2:
+            last_chars = sum(len(w.symbol) for w in groups[-1]) + max(0, len(groups[-1]) - 1)
+            if last_chars < min_orphan_len:
+                groups[-2].extend(groups[-1])
+                groups.pop()
 
         # Create sub-segments from word groups
         result: List[Supervision] = []
@@ -277,11 +285,9 @@ class CaptionStandardizer:
             first_start = group[0].start
             last_end = group[-1].start + group[-1].duration
 
-            # Apply margins
             seg_start = max(0, first_start - sm)
             seg_end = last_end + em
 
-            # Ensure min_gap with previous segment
             if result:
                 prev_end = result[-1].start + result[-1].duration
                 if seg_start < prev_end + self.config.min_gap:
@@ -300,12 +306,15 @@ class CaptionStandardizer:
         return result if result else [seg]
 
     def _find_best_gap_split(
-        self, current_group: List, all_words: List, next_idx: int, max_text_len: int
+        self, current_group: List, current_chars: int, max_text_len: int
     ) -> Optional[int]:
-        """Find the best split point in current_group based on inter-word gaps.
+        """Find the best split point based on inter-word gaps.
 
-        Looks for the largest gap between words near the end of current_group
-        (within the last 40% of the group) to find a natural pause point.
+        Only considers gap-based early splitting when the group is already
+        >= 75% of the budget. This prevents under-filled segments.
+
+        Within the valid range, prefers the largest inter-word gap (>300ms)
+        as a natural speech pause point.
 
         Returns:
             Index within current_group to split at, or None to split at the end.
@@ -313,20 +322,31 @@ class CaptionStandardizer:
         if len(current_group) < 3:
             return None
 
-        # Search the last 40% of the group for the largest gap
-        search_from = max(1, int(len(current_group) * 0.6))
+        # Find the 75% budget threshold in word count
+        min_chars_for_gap = int(max_text_len * 0.75)
+        min_word_idx = None
+        running_chars = 0
+        for idx, w in enumerate(current_group):
+            running_chars += len(w.symbol) + (1 if idx > 0 else 0)
+            if running_chars >= min_chars_for_gap and min_word_idx is None:
+                min_word_idx = idx + 1  # Split AFTER this word
+
+        if min_word_idx is None or min_word_idx >= len(current_group):
+            return None  # Group too short for gap-based splitting
+
+        # Search from 75% threshold to end for the largest gap
         best_idx = None
         best_gap = -1.0
 
-        for i in range(search_from, len(current_group)):
+        for i in range(max(1, min_word_idx), len(current_group)):
             prev_end = current_group[i - 1].start + current_group[i - 1].duration
             gap = current_group[i].start - prev_end
             if gap > best_gap:
                 best_gap = gap
                 best_idx = i
 
-        # Only use gap-based split if the gap is meaningful (>100ms)
-        if best_gap > 0.1 and best_idx is not None:
+        # Only use gap-based split if gap is a clear speech pause (>300ms)
+        if best_gap > 0.3 and best_idx is not None:
             return best_idx
 
         return None

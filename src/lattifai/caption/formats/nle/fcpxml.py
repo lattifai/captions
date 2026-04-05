@@ -412,8 +412,10 @@ class FCPXMLFormat(FormatWriter):
         Returns:
             Path to written file
         """
+        config = kwargs.pop("config", None)
         strip_standard_kwargs(kwargs)
-        config = FCPXMLConfig(**kwargs)
+        if not isinstance(config, FCPXMLConfig):
+            config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.write(supervisions, output_path, config)
 
     @classmethod
@@ -426,13 +428,15 @@ class FCPXMLFormat(FormatWriter):
 
         Args:
             supervisions: List of supervision segments
-            **kwargs: style, additional config options
+            **kwargs: style, config (FCPXMLConfig), additional config options
 
         Returns:
             FCPXML content as bytes
         """
+        config = kwargs.pop("config", None)
         strip_standard_kwargs(kwargs)
-        config = FCPXMLConfig(**kwargs)
+        if not isinstance(config, FCPXMLConfig):
+            config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.to_bytes(supervisions, config)
 
 

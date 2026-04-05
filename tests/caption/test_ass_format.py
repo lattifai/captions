@@ -9,7 +9,7 @@ import re
 import pytest
 
 from lattifai.caption import Caption, Supervision
-from lattifai.caption.config import CaptionStyle, KaraokeConfig, StandardizationConfig
+from lattifai.caption.config import ASSConfig, OutputBehavior, KaraokeConfig, StandardizationConfig
 from lattifai.caption.formats.pysubs2 import ASSFormat
 from lattifai.caption.standardize import CaptionStandardizer
 from lattifai.caption.supervision import AlignmentItem
@@ -256,8 +256,8 @@ class TestASSSpeaker:
     def test_speaker_excluded_from_text(self, simple_sups, tmp_path):
         """include_speaker_in_text=False: speaker only in Name field."""
         ass_file = tmp_path / "no_speaker_text.ass"
-        style = CaptionStyle(include_speaker_in_text=False)
-        Caption.from_supervisions(simple_sups).write(ass_file, style=style)
+        behavior = OutputBehavior(include_speaker_in_text=False)
+        Caption.from_supervisions(simple_sups).write(ass_file, behavior=behavior)
         content = ass_file.read_text()
         assert ",Alice," in content  # Name field
         assert "Alice:" not in content  # Not in text
@@ -283,7 +283,7 @@ class TestASSSpeaker:
         ]
         ass_file = tmp_path / "rt2.ass"
         Caption.from_supervisions(sups).write(
-            ass_file, style=CaptionStyle(include_speaker_in_text=False)
+            ass_file, behavior=OutputBehavior(include_speaker_in_text=False)
         )
 
         read_back = Caption.read(ass_file)
@@ -563,14 +563,14 @@ class TestASSStyle:
 
     def test_custom_font(self, simple_sups):
         """Custom font_name should appear in Default style."""
-        style = CaptionStyle(font_name="PingFang SC")
-        content = ASSFormat.to_bytes(simple_sups, style=style).decode("utf-8")
+        config = ASSConfig(font_name="PingFang SC")
+        content = ASSFormat.to_bytes(simple_sups, config=config).decode("utf-8")
         assert "PingFang SC" in content
 
     def test_custom_font_size(self, simple_sups):
         """Custom font_size should appear in Default style."""
-        style = CaptionStyle(font_size=24)
-        content = ASSFormat.to_bytes(simple_sups, style=style).decode("utf-8")
+        config = ASSConfig(font_size=24)
+        content = ASSFormat.to_bytes(simple_sups, config=config).decode("utf-8")
         style_lines = [l for l in content.splitlines() if l.startswith("Style: Default")]
         assert len(style_lines) == 1
         fields = style_lines[0].split(",")
@@ -601,10 +601,10 @@ class TestASSKaraoke:
 
     def test_karaoke_with_speaker_color(self, word_aligned_sups):
         r"""Karaoke + speaker_color='auto' should produce \c color tags."""
-        config = KaraokeConfig(enabled=True)
-        style = CaptionStyle(speaker_color="auto")
+        karaoke = KaraokeConfig(enabled=True)
+        config = ASSConfig(speaker_color="auto")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, karaoke=config, style=style
+            word_aligned_sups, word_level=True, karaoke=karaoke, config=config
         ).decode("utf-8")
         assert "{\\c&H" in content
 

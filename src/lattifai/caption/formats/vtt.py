@@ -363,7 +363,6 @@ class VTTFormat(FormatHandler):
         fps: float = 25.0,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
-        style=None,
         **kwargs,
     ) -> bytes:
         """Convert to VTT bytes with optional karaoke and metadata preservation.
@@ -374,18 +373,17 @@ class VTTFormat(FormatHandler):
             karaoke: Karaoke configuration. When enabled, output YouTube VTT
                 style with word-level timestamps: <00:00:10.559><c> word</c>
             metadata: Optional metadata dict containing kind and language
-            style: CaptionStyle controlling output behavior
 
         Returns:
             VTT content as bytes
         """
         from .base import expand_to_word_supervisions
 
-        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
+        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
 
         karaoke_enabled = karaoke is not None and karaoke.enabled
 
-        tf = style.translation_first
+        tf = behavior.translation_first
 
         # If karaoke enabled, output YouTube VTT style
         if word_level and karaoke_enabled:

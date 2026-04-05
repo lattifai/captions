@@ -380,8 +380,10 @@ class PremiereXMLFormat(FormatWriter):
         Returns:
             Path to written file
         """
+        config = kwargs.pop("config", None)
         strip_standard_kwargs(kwargs)
-        config = PremiereXMLConfig(**kwargs)
+        if not isinstance(config, PremiereXMLConfig):
+            config = PremiereXMLConfig(**kwargs)
         return PremiereXMLWriter.write(supervisions, output_path, config)
 
     @classmethod
@@ -394,13 +396,15 @@ class PremiereXMLFormat(FormatWriter):
 
         Args:
             supervisions: List of supervision segments
-            **kwargs: style, additional config options
+            **kwargs: style, config (PremiereXMLConfig), additional config options
 
         Returns:
             Premiere Pro XML content as bytes
         """
+        config = kwargs.pop("config", None)
         strip_standard_kwargs(kwargs)
-        config = PremiereXMLConfig(**kwargs)
+        if not isinstance(config, PremiereXMLConfig):
+            config = PremiereXMLConfig(**kwargs)
         return PremiereXMLWriter.to_bytes(supervisions, config)
 
 

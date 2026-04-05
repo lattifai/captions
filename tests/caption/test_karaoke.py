@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from lattifai.caption.config import CaptionFonts, CaptionStyle, KaraokeConfig
+from lattifai.caption.config import ASSConfig, CaptionFonts, OutputBehavior, KaraokeConfig
 from lattifai.caption.formats import get_writer
 from lattifai.caption.formats.pysubs2 import ASSFormat
 from lattifai.caption.formats.ttml import TTMLFormat
@@ -45,7 +45,7 @@ def sup_hello_beautiful_world():
 
 @pytest.fixture
 def sup_with_gaps():
-    """Supervision where word timestamps have gaps (10.5→11.3, 11.5→12.7, 13.0→14.2)."""
+    """Supervision where word timestamps have gaps (10.5->11.3, 11.5->12.7, 13.0->14.2)."""
     return Supervision(
         text="Hello beautiful world",
         start=10.0,
@@ -61,7 +61,7 @@ def sup_with_gaps():
 
 
 # =============================================================================
-# 1. Config: CaptionStyle, KaraokeConfig, color schemes
+# 1. Config: OutputBehavior, KaraokeConfig, color schemes
 # =============================================================================
 
 
@@ -75,20 +75,30 @@ class TestCaptionFonts:
         assert CaptionFonts.NOTO_SANS_JP == "Noto Sans JP"
 
 
-class TestCaptionStyleDefaults:
+class TestOutputBehaviorDefaults:
     def test_defaults(self):
-        style = CaptionStyle()
-        assert style.primary_color == "#FFFFFF"
-        assert style.secondary_color == "#00FFFF"
-        assert style.font_name == CaptionFonts.ARIAL
-        assert style.font_size == 48
-        assert style.bold is False
+        behavior = OutputBehavior()
+        assert behavior.include_speaker_in_text is True
+        assert behavior.word_level is False
+        assert behavior.translation_first is False
 
     def test_custom(self):
-        style = CaptionStyle(primary_color="#FF00FF", font_name=CaptionFonts.NOTO_SANS_SC, font_size=56, bold=True)
-        assert style.primary_color == "#FF00FF"
-        assert style.font_name == "Noto Sans SC"
-        assert style.font_size == 56
+        behavior = OutputBehavior(include_speaker_in_text=False, word_level=True, translation_first=True)
+        assert behavior.include_speaker_in_text is False
+        assert behavior.word_level is True
+        assert behavior.translation_first is True
+
+    def test_ass_config_defaults(self):
+        config = ASSConfig()
+        assert config.font_size == 48
+        assert config.secondary_color == "#00FFFF"
+        assert config.outline_color == "#000000"
+        assert config.alignment == 2
+
+    def test_ass_config_custom(self):
+        config = ASSConfig(font_size=56, secondary_color="#FF0000")
+        assert config.font_size == 56
+        assert config.secondary_color == "#FF0000"
 
 
 class TestKaraokeConfigDefaults:
@@ -112,18 +122,18 @@ class TestColorSchemes:
     def test_apply_preserves_font(self):
         from lattifai.caption.config import apply_color_scheme
 
-        style = CaptionStyle(font_name="PingFang SC", font_size=24)
-        apply_color_scheme(style, "azure-gold")
-        assert style.font_name == "PingFang SC"
-        assert style.font_size == 24
+        config = ASSConfig(font_name="PingFang SC", font_size=24)
+        new_config = apply_color_scheme("azure-gold", config=config)
+        assert new_config.font_name == "PingFang SC"
+        assert new_config.font_size == 24
 
     def test_apply_overrides_colors(self):
         from lattifai.caption.config import apply_color_scheme
 
-        style = CaptionStyle(primary_color="#FF0000")
-        new_style = apply_color_scheme(style, "sakura-purple")
-        assert new_style.primary_color == "#F7C3D9"
-        assert style.primary_color == "#FF0000"  # original unchanged
+        config = ASSConfig(primary_color="#FF0000")
+        new_config = apply_color_scheme("sakura-purple", config=config)
+        assert new_config.primary_color == "#F7C3D9"
+        assert config.primary_color == "#FF0000"  # original unchanged
 
     def test_all_12_schemes_resolve(self):
         from lattifai.caption.config import KARAOKE_COLOR_SCHEMES, resolve_karaoke_color_scheme
@@ -137,10 +147,10 @@ class TestColorSchemes:
     def test_unknown_scheme_no_change(self):
         from lattifai.caption.config import apply_color_scheme
 
-        style = CaptionStyle()
-        result = apply_color_scheme(style, "nonexistent")
-        assert result is style  # same object returned when scheme not found
-        assert result.primary_color == "#FFFFFF"
+        config = ASSConfig()
+        result_config = apply_color_scheme("nonexistent", config=config)
+        assert result_config is config  # same object returned when scheme not found
+        assert result_config.primary_color == "#FFFFFF"
 
     def test_case_insensitive(self):
         from lattifai.caption.config import resolve_karaoke_color_scheme
@@ -208,8 +218,8 @@ class TestASSKaraokeStyle:
 
     def test_custom_style_param(self):
         sup = _sup("Hello", 0.0, 1.0, [AlignmentItem(symbol="Hello", start=0.0, duration=0.5)])
-        style = CaptionStyle(font_size=64, font_name="Courier")
-        content = ASSFormat.to_bytes([sup], word_level=True, karaoke=KaraokeConfig(enabled=True), style=style).decode()
+        config = ASSConfig(font_name="Courier", font_size=64)
+        content = ASSFormat.to_bytes([sup], word_level=True, karaoke=KaraokeConfig(enabled=True), config=config).decode()
         parts = [l for l in content.splitlines() if l.startswith("Style: Karaoke,")][0].split(",")
         assert parts[1] == "Courier"
 
@@ -301,13 +311,13 @@ class TestCrossFormatWordLevel:
             assert len(result) > 0
 
     def test_custom_config(self, sup_hello_beautiful_world):
-        style = CaptionStyle(primary_color="#FF00FF", font_name=CaptionFonts.NOTO_SANS_SC)
+        ass_config = ASSConfig(primary_color="#FF00FF", font_name=CaptionFonts.NOTO_SANS_SC)
         config = KaraokeConfig(enabled=True, effect="instant", lrc_metadata={"ar": "Test Artist"})
 
         lrc_result = get_writer("lrc").to_bytes([sup_hello_beautiful_world], word_level=True, karaoke=config)
         assert b"[ar:Test Artist]" in lrc_result
 
-        ass_result = get_writer("ass").to_bytes([sup_hello_beautiful_world], word_level=True, karaoke=config, style=style)
+        ass_result = get_writer("ass").to_bytes([sup_hello_beautiful_world], word_level=True, karaoke=config, config=ass_config)
         assert b"{\\k" in ass_result
 
     def test_graceful_fallback(self):
@@ -372,7 +382,7 @@ class TestKaraokeTimestampBoundary:
         ).decode()
         kf_values = [int(m) for m in re.findall(r"\\kf(\d+)", content)]
         assert len(kf_values) == 3
-        # Gap-aware: Hello=100cs (10.5→11.5), beautiful=150cs (11.5→13.0), world=120cs
+        # Gap-aware: Hello=100cs (10.5->11.5), beautiful=150cs (11.5->13.0), world=120cs
         assert abs(kf_values[0] - 100) <= 2
         assert abs(kf_values[1] - 150) <= 2
         assert abs(kf_values[2] - 120) <= 2

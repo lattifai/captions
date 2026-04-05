@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from lattifai.caption import Caption, Supervision
-from lattifai.caption.config import CaptionStyle
+from lattifai.caption.config import OutputBehavior
 
 
 class TestCaptionFormats:
@@ -239,7 +239,7 @@ class TestPysubs2SpeakerFormat:
 
         caption = Caption.from_supervisions(supervisions)
         output_file = tmp_path / "output.srt"
-        caption.write(output_file, style=CaptionStyle(include_speaker_in_text=False))
+        caption.write(output_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         content = output_file.read_text()
         assert "Hello world" in content
@@ -296,7 +296,7 @@ class TestPysubs2SpeakerFormat:
 
         caption = Caption.from_supervisions(supervisions)
         output_file = tmp_path / "output.vtt"
-        caption.write(output_file, style=CaptionStyle(include_speaker_in_text=False))
+        caption.write(output_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         content = output_file.read_text()
         # Words should be present

@@ -285,7 +285,7 @@ class AvidDSFormat(FormatWriter):
         Returns:
             Path to written file
         """
-        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
+        _, include_speaker, _ = cls._unpack_behavior(**kwargs)
         strip_standard_kwargs(kwargs)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.write(supervisions, output_path, config)
@@ -305,7 +305,7 @@ class AvidDSFormat(FormatWriter):
         Returns:
             Avid DS content as bytes
         """
-        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
+        _, include_speaker, _ = cls._unpack_behavior(**kwargs)
         strip_standard_kwargs(kwargs)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.to_bytes(supervisions, config)

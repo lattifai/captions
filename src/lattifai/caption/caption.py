@@ -373,23 +373,23 @@ class Caption:
     def to_string(
         self,
         format: str = "srt",
-        style: Optional["CaptionStyle"] = None,
+        behavior: Optional["OutputBehavior"] = None,
         karaoke: Optional["KaraokeConfig"] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        format_config=None,
     ) -> str:
         """
         Return caption content in specified format.
 
         Args:
             format: Output format (e.g., 'srt', 'vtt', 'ass')
-            style: CaptionStyle controlling rendering and output behavior
+            behavior: OutputBehavior controlling rendering and output behavior
             karaoke: Karaoke configuration
-            metadata: Optional metadata dict to pass to writer. If None, uses self.metadata.
+            format_config: Format-specific configuration (ASSConfig, TTMLConfig, etc.)
 
         Returns:
             String containing formatted captions
         """
-        return self.to_bytes(output_format=format, style=style, karaoke=karaoke, metadata=metadata).decode("utf-8")
+        return self.to_bytes(output_format=format, behavior=behavior, karaoke=karaoke, format_config=format_config).decode("utf-8")
 
     def to_dict(self) -> Dict:
         """
@@ -473,18 +473,18 @@ class Caption:
     def to_bytes(
         self,
         output_format: Optional[str] = None,
-        style: Optional["CaptionStyle"] = None,
+        behavior: Optional["OutputBehavior"] = None,
         karaoke: Optional["KaraokeConfig"] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        format_config=None,
     ) -> bytes:
         """
         Convert caption to bytes.
 
         Args:
             output_format: Output format (e.g., 'srt', 'vtt', 'ass'). Defaults to source_format or 'srt'
-            style: CaptionStyle controlling rendering and output behavior
+            behavior: OutputBehavior controlling rendering and output behavior
             karaoke: Karaoke configuration
-            metadata: Optional metadata dict to pass to writer. If None, uses self.metadata.
+            format_config: Format-specific configuration (ASSConfig, TTMLConfig, etc.)
 
         Returns:
             Caption content as bytes
@@ -496,10 +496,10 @@ class Caption:
         """
         return self.write(
             None,
-            output_format=output_format,
-            style=style,
+            format_config=format_config,
+            behavior=behavior,
             karaoke=karaoke,
-            metadata=metadata,
+            _output_format=output_format,
         )
 
     @classmethod
@@ -578,35 +578,35 @@ class Caption:
     def write(
         self,
         path: Union[Pathlike, io.BytesIO, None] = None,
-        output_format: Optional[str] = None,
-        style: Optional["CaptionStyle"] = None,
+        format_config=None,
+        behavior: Optional["OutputBehavior"] = None,
         karaoke: Optional["KaraokeConfig"] = None,
         standardization: Optional["StandardizationConfig"] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        _output_format: Optional[str] = None,
     ) -> Union[Pathlike, bytes]:
         """
         Write caption to file or return as bytes.
 
-        All output behavior is controlled via ``style`` (CaptionStyle) which includes
-        visual rendering (font, colors, background, speaker_color) and output policy
-        (include_speaker_in_text, word_level, translation_first).
-
         Args:
             path: Path to output caption file, BytesIO object, or None to return bytes
-            output_format: Output format (e.g., 'srt', 'vtt', 'ass')
-            style: CaptionStyle controlling visual rendering and output behavior
+            format_config: Format-specific configuration (ASSConfig, TTMLConfig, etc.)
+            behavior: OutputBehavior controlling include_speaker, word_level, translation_first
             karaoke: Karaoke configuration (effect, color_scheme)
             standardization: Broadcast standardization (min/max duration, CPS, margins)
-            metadata: Optional metadata dict to pass to writer
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
         """
-        from .config import CaptionStyle, apply_color_scheme
+        from .config import ASSConfig, OutputBehavior, apply_color_scheme
 
-        effective_style = style or CaptionStyle()
+        effective_behavior = behavior or OutputBehavior()
+
+        # Apply karaoke color scheme to format_config (ASS only)
         if karaoke and karaoke.color_scheme:
-            effective_style = apply_color_scheme(effective_style, karaoke.color_scheme)
+            if isinstance(format_config, ASSConfig):
+                format_config = apply_color_scheme(karaoke.color_scheme, format_config)
+            elif format_config is None:
+                format_config = apply_color_scheme(karaoke.color_scheme)
 
         supervisions = self.supervisions
 
@@ -629,10 +629,8 @@ class Caption:
                     end_margin=standardization.end_margin or 0.10,
                 )
 
-        # Merge external metadata with self.metadata (external takes precedence)
+        # Roundtrip metadata from self.metadata
         effective_metadata = dict(self.metadata) if self.metadata else {}
-        if metadata:
-            effective_metadata.update(metadata)
 
         # For JSON format: build full Caption-level metadata dict
         caption_level_metadata = {
@@ -644,16 +642,16 @@ class Caption:
         }
         caption_level_metadata = {k: v for k, v in caption_level_metadata.items() if v is not None}
 
-        # Determine output format
-        if output_format:
-            output_format = output_format.lower()
+        # Determine output format: explicit > path extension > source format > "srt"
+        if _output_format:
+            fmt = _output_format.lower()
         elif isinstance(path, (io.BytesIO, type(None))):
-            output_format = self.source_format or "srt"
+            fmt = self.source_format or "srt"
         else:
-            output_format = detect_format(str(path)) or Path(str(path)).suffix.lstrip(".").lower() or "srt"
+            fmt = detect_format(str(path)) or Path(str(path)).suffix.lstrip(".").lower() or "srt"
 
         # Special casing for professional formats
-        ext = output_format
+        ext = fmt
         if isinstance(path, (str, Path)):
             path_str = str(path)
             if path_str.endswith("_avid.txt"):
@@ -681,14 +679,16 @@ class Caption:
                 path,
                 karaoke=karaoke,
                 metadata=writer_metadata,
-                style=effective_style,
+                behavior=effective_behavior,
+                config=format_config,
             )
 
         content = writer_cls.to_bytes(
             supervisions,
             karaoke=karaoke,
             metadata=writer_metadata,
-            style=effective_style,
+            behavior=effective_behavior,
+            config=format_config,
         )
         if isinstance(path, io.BytesIO):
             path.write(content)

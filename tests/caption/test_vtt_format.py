@@ -8,7 +8,7 @@ VTTFormat supports both standard WebVTT and YouTube VTT (with word-level timesta
 import pytest
 
 from lattifai.caption import Caption, SentenceSplitter, Supervision
-from lattifai.caption.config import CaptionStyle, KaraokeConfig
+from lattifai.caption.config import OutputBehavior, KaraokeConfig
 from lattifai.caption.formats.vtt import VTTFormat
 from lattifai.caption.supervision import AlignmentItem
 
@@ -67,10 +67,10 @@ Test content
     def test_write_vtt_with_metadata(self):
         """Test writing VTT with metadata header."""
         supervisions = [Supervision(text="Test", start=0.0, duration=1.0)]
-        caption = Caption.from_supervisions(supervisions)
-        vtt_content = caption.to_bytes(
-            output_format="vtt", metadata={"kind": "subtitles", "language": "zh-Hans"}
-        ).decode("utf-8")
+        caption = Caption.from_supervisions(
+            supervisions, metadata={"kind": "subtitles", "language": "zh-Hans"}
+        )
+        vtt_content = caption.to_bytes(output_format="vtt").decode("utf-8")
 
         assert "WEBVTT" in vtt_content
         assert "Kind: subtitles" in vtt_content
@@ -206,7 +206,7 @@ Kind: captions
         caption = Caption.from_supervisions(supervisions)
         karaoke_config = KaraokeConfig(enabled=True)
         vtt_content = caption.to_bytes(
-            output_format="vtt", style=CaptionStyle(word_level=True), karaoke=karaoke_config
+            output_format="vtt", behavior=OutputBehavior(word_level=True), karaoke=karaoke_config
         ).decode("utf-8")
 
         assert "WEBVTT" in vtt_content

@@ -2,7 +2,7 @@
 
 import pytest
 
-from lattifai.caption.config import CaptionStyle, KaraokeConfig
+from lattifai.caption.config import ASSConfig, OutputBehavior, KaraokeConfig
 from lattifai.caption.supervision import Supervision
 
 
@@ -13,33 +13,33 @@ def _make_sups():
     ]
 
 
-class TestCaptionStyleBackgroundColor:
-    """CaptionStyle.background_color field behavior."""
+class TestASSConfigBackgroundColor:
+    """ASSConfig.background_color field behavior."""
 
     def test_default_is_empty(self):
-        style = CaptionStyle()
-        assert style.background_color == ""
+        config = ASSConfig()
+        assert config.background_color == ""
 
     def test_solid_color(self):
-        style = CaptionStyle(background_color="#000000")
-        assert style.background_color == "#000000"
+        config = ASSConfig(background_color="#000000")
+        assert config.background_color == "#000000"
 
     def test_alpha_color(self):
-        style = CaptionStyle(background_color="#00000080")
-        assert style.background_color == "#00000080"
+        config = ASSConfig(background_color="#00000080")
+        assert config.background_color == "#00000080"
 
     def test_apply_color_scheme_with_background(self):
-        """apply_color_scheme returns new style with background_color applied."""
+        """apply_color_scheme returns new ASSConfig with background_color applied."""
         from lattifai.caption.colors import KARAOKE_COLOR_SCHEMES
         from lattifai.caption.config import apply_color_scheme
 
         original = KARAOKE_COLOR_SCHEMES["azure-gold"].copy()
         KARAOKE_COLOR_SCHEMES["azure-gold"]["background_color"] = "#1387C080"
         try:
-            style = CaptionStyle()
-            new_style = apply_color_scheme(style, "azure-gold")
-            assert new_style.background_color == "#1387C080"
-            assert style.background_color == ""  # original unchanged
+            config = ASSConfig()
+            new_config = apply_color_scheme("azure-gold", config=config)
+            assert new_config.background_color == "#1387C080"
+            assert config.background_color == ""  # original unchanged
         finally:
             KARAOKE_COLOR_SCHEMES["azure-gold"] = original
 
@@ -58,15 +58,15 @@ class TestASSBackgroundColor:
         ).decode("utf-8")
 
     def test_no_background_borderstyle_1(self):
-        """Default: no background_color → borderstyle=1."""
+        """Default: no background_color -> borderstyle=1."""
         result = self._write_ass(_make_sups())
         # Default style should have BorderStyle: 1 (or not have BorderStyle: 3)
         assert "BorderStyle: 3" not in result or "BorderStyle: 1" in result
 
     def test_solid_background_borderstyle_3(self):
-        """style.background_color="#000000" → borderstyle=3 in Default style."""
-        style = CaptionStyle(background_color="#000000")
-        result = self._write_ass(_make_sups(), style=style)
+        """config.background_color="#000000" -> borderstyle=3 in Default style."""
+        config = ASSConfig(background_color="#000000")
+        result = self._write_ass(_make_sups(), config=config)
         lines = result.split("\n")
         default_style = [l for l in lines if l.startswith("Style: Default")]
         assert len(default_style) == 1
@@ -74,14 +74,14 @@ class TestASSBackgroundColor:
         assert fields[15].strip() == "3"  # borderstyle field index 15
 
     def test_alpha_background_inverted(self):
-        """#RRGGBBAA alpha is inverted for ASS (FF=opaque → 00 in ASS)."""
+        """#RRGGBBAA alpha is inverted for ASS (FF=opaque -> 00 in ASS)."""
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
         # Fully opaque in standard hex
         color = ASSFormat._hex_to_ass_color("#FF000000")  # Red, fully transparent
         assert color.a == 255  # ASS: FF = fully transparent
 
-        # Fully transparent → ASS fully opaque
+        # Fully transparent -> ASS fully opaque
         color2 = ASSFormat._hex_to_ass_color("#FF0000FF")  # Red, fully opaque
         assert color2.a == 0  # ASS: 00 = fully opaque
 
@@ -90,7 +90,7 @@ class TestASSBackgroundColor:
         assert color3.a == 127  # ASS: 255 - 128 = 127
 
     def test_hex6_no_alpha(self):
-        """#RRGGBB (no alpha) → fully opaque in ASS (a=0)."""
+        """#RRGGBB (no alpha) -> fully opaque in ASS (a=0)."""
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
         color = ASSFormat._hex_to_ass_color("#FF0000")
@@ -100,9 +100,9 @@ class TestASSBackgroundColor:
         assert color.a == 0  # Fully opaque
 
     def test_karaoke_with_background(self):
-        """Karaoke style should use borderstyle=3 when background_color is set via style param."""
-        config = KaraokeConfig(enabled=True)
-        style = CaptionStyle(background_color="#00000080")
+        """Karaoke style should use borderstyle=3 when background_color is set via config param."""
+        karaoke = KaraokeConfig(enabled=True)
+        config = ASSConfig(background_color="#00000080")
         sups = _make_sups()
         from lattifai.caption.supervision import AlignmentItem
 
@@ -112,7 +112,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, karaoke=config, word_level=True, style=style)
+        result = self._write_ass(sups, karaoke=karaoke, word_level=True, config=config)
         lines = result.split("\n")
         karaoke_style_line = [l for l in lines if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
@@ -124,8 +124,8 @@ class TestASSBackgroundColor:
 
     def test_shadow_disabled_in_box_mode(self):
         """When background_color is set, shadow should be 0."""
-        config = KaraokeConfig(enabled=True)
-        style = CaptionStyle(background_color="#00000080", shadow_depth=2.0)
+        karaoke = KaraokeConfig(enabled=True)
+        ass_config = ASSConfig(shadow_depth=2.0, background_color="#00000080")
         sups = _make_sups()
         from lattifai.caption.supervision import AlignmentItem
 
@@ -135,7 +135,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, karaoke=config, word_level=True, style=style)
+        result = self._write_ass(sups, karaoke=karaoke, word_level=True, config=ass_config)
         karaoke_style_line = [l for l in result.split("\n") if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
         fields = karaoke_style_line[0].split(",")
@@ -147,15 +147,15 @@ class TestASSBackgroundColor:
 class TestNonKaraokeBackgroundColor:
     """Background color in standard (non-karaoke) ASS mode."""
 
-    def _write_ass(self, sups, style=None):
+    def _write_ass(self, sups, config=None):
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
-        return ASSFormat.to_bytes(sups, include_speaker=True, style=style).decode("utf-8")
+        return ASSFormat.to_bytes(sups, include_speaker=True, config=config).decode("utf-8")
 
     def test_default_style_gets_borderstyle_3(self):
         """Non-karaoke ASS with background_color should set Default style borderstyle=3."""
-        style = CaptionStyle(background_color="#000000")
-        result = self._write_ass(_make_sups(), style=style)
+        config = ASSConfig(background_color="#000000")
+        result = self._write_ass(_make_sups(), config=config)
         lines = result.split("\n")
         default_style = [l for l in lines if l.startswith("Style: Default")]
         assert len(default_style) == 1

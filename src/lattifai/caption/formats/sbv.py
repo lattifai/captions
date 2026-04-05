@@ -118,11 +118,10 @@ class SBVFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        style=None,
         **kwargs,
     ) -> bytes:
         """Convert to SBV format bytes."""
-        style, include_speaker, _ = cls._unpack_style(style, **kwargs)
+        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
         lines = []
 
         for i, sup in enumerate(supervisions):

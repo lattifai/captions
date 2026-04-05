@@ -1,4 +1,4 @@
-from lattifai.caption.config import CaptionStyle
+from lattifai.caption.config import OutputBehavior
 
 """Test suite for detect_speaker_candidates robustness.
 
@@ -409,7 +409,7 @@ class TestWriteReadRoundtrip:
         ]
 
         ass_file = tmp_path / "test.ass"
-        Caption.from_supervisions(supervisions).write(ass_file, style=CaptionStyle(include_speaker_in_text=False))
+        Caption.from_supervisions(supervisions).write(ass_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         result = Caption.read(ass_file)
         assert result.supervisions[0].speaker == "Alice"

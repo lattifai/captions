@@ -86,26 +86,25 @@ Dialogue: 1,0:00:03.50,0:00:06.00,Custom,,10,10,20,Karaoke,Styled text
         assert "Dialogue: 1," in output  # Layer 1 preserved
 
     def test_ass_write_with_external_metadata(self):
-        """Test that Caption.write() accepts external metadata parameter."""
+        """Test that Caption.write() uses self.metadata for ASS output."""
         caption = Caption(
             supervisions=[
                 Supervision(text="Hello", start=0, duration=2),
-            ]
+            ],
+            metadata={
+                "ass_info": {"Title": "External Title", "PlayResX": "1280"},
+                "ass_styles": {
+                    "MyStyle": {
+                        "fontname": "Verdana",
+                        "fontsize": 32.0,
+                        "primarycolor": "&H00FFFF00",
+                        "alignment": 5,
+                    }
+                },
+            },
         )
 
-        external_metadata = {
-            "ass_info": {"Title": "External Title", "PlayResX": "1280"},
-            "ass_styles": {
-                "MyStyle": {
-                    "fontname": "Verdana",
-                    "fontsize": 32.0,
-                    "primarycolor": "&H00FFFF00",
-                    "alignment": 5,
-                }
-            },
-        }
-
-        output = caption.write(output_format="ass", metadata=external_metadata)
+        output = caption.to_bytes(output_format="ass")
 
         assert b"Title: External Title" in output
         assert b"PlayResX: 1280" in output
@@ -344,28 +343,27 @@ class TestCaptionWriteMetadataParameter:
     """Test Caption.write() metadata parameter behavior."""
 
     def test_write_merges_external_metadata(self):
-        """Test that external metadata is merged with self.metadata."""
+        """Test that self.metadata is used for VTT output."""
         caption = Caption(
             supervisions=[Supervision(text="Hello", start=0, duration=2)],
-            metadata={"kind": "captions", "language": "en"},
+            metadata={"kind": "captions", "language": "de"},
         )
 
-        # External metadata should override/supplement
-        output = caption.write(output_format="vtt", metadata={"language": "de", "new_key": "value"})
+        output = caption.to_bytes(output_format="vtt")
 
-        # External 'language' should override
+        # 'language' from self.metadata
         assert b"Language: de" in output
-        # Original 'kind' should be preserved
+        # 'kind' from self.metadata
         assert b"Kind: captions" in output
 
     def test_write_without_metadata_uses_self_metadata(self):
-        """Test that write() uses self.metadata when no external metadata."""
+        """Test that write() uses self.metadata when writing."""
         caption = Caption(
             supervisions=[Supervision(text="Hello", start=0, duration=2)],
             metadata={"kind": "subtitles", "language": "fr"},
         )
 
-        output = caption.write(output_format="vtt")
+        output = caption.to_bytes(output_format="vtt")
 
         assert b"Kind: subtitles" in output
         assert b"Language: fr" in output

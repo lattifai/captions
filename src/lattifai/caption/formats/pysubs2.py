@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 import pysubs2
 
 from ..colors import SPEAKER_PALETTE, resolve_speaker_color
-from ..config import CaptionStyle, KaraokeConfig
+from ..config import ASSConfig, KaraokeConfig
 from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
@@ -163,7 +163,6 @@ class Pysubs2Format(FormatHandler):
         supervisions: List[Supervision],
         fps: float = 25.0,
         karaoke: Optional[KaraokeConfig] = None,
-        style: Optional[CaptionStyle] = None,
         **kwargs,
     ) -> bytes:
         """Convert to bytes using pysubs2.
@@ -173,14 +172,13 @@ class Pysubs2Format(FormatHandler):
             fps: Frames per second (for MicroDVD format)
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use karaoke styling (format-specific)
-            style: CaptionStyle controlling output behavior
 
         Returns:
             Subtitle content as bytes
         """
         from .base import expand_to_word_supervisions
 
-        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
+        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
 
         # Check if karaoke is enabled
         karaoke_enabled = karaoke is not None and karaoke.enabled
@@ -193,7 +191,7 @@ class Pysubs2Format(FormatHandler):
 
         subs = pysubs2.SSAFile()
 
-        tf = style.translation_first
+        tf = behavior.translation_first
         for sup in supervisions:
             text = render_bilingual_text(sup, translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker):
@@ -416,7 +414,7 @@ class ASSFormat(Pysubs2Format):
         fps: float = 25.0,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
-        style: Optional[CaptionStyle] = None,
+        config: Optional[ASSConfig] = None,
         **kwargs,
     ) -> bytes:
         """Convert to ASS bytes with style preservation and optional karaoke tags.
@@ -428,14 +426,16 @@ class ASSFormat(Pysubs2Format):
                 generate karaoke tags
             metadata: Optional metadata dict containing ass_info and ass_styles
                 to restore original ASS formatting
-            style: CaptionStyle controlling visual rendering and output behavior
+            behavior: OutputBehavior controlling output behavior (via **kwargs)
+            config: ASSConfig controlling ASS-specific rendering context and style
 
         Returns:
             ASS content as bytes
         """
         from .base import expand_to_word_supervisions
 
-        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
+        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        config = config if isinstance(config, ASSConfig) else ASSConfig()
 
         karaoke_enabled = karaoke is not None and karaoke.enabled
 
@@ -443,24 +443,23 @@ class ASSFormat(Pysubs2Format):
         if word_level and not karaoke_enabled:
             supervisions = expand_to_word_supervisions(supervisions)
 
-        # Create ASS file and restore global styles from metadata
-        subs = cls._create_ass_file_with_metadata(metadata)
+        # Create ASS file from config + metadata
+        subs = cls._create_ass_file(metadata, config)
 
-        effective_style = style
-        speaker_color = effective_style.speaker_color
+        speaker_color = config.speaker_color
 
-        # Add karaoke style from effective_style
+        # Add karaoke style
         has_metadata_styles = metadata and "ass_styles" in metadata
         if karaoke_enabled and "Karaoke" not in subs.styles:
             if has_metadata_styles and "Default" in metadata["ass_styles"]:
                 subs.styles["Karaoke"] = subs.styles["Default"].copy()
             else:
-                subs.styles["Karaoke"] = cls._create_karaoke_style(effective_style)
+                subs.styles["Karaoke"] = cls._build_ass_style(config)
 
-        # Apply CaptionStyle to Default ASS style (when no metadata styles override)
+        # Apply style to Default (when no metadata styles override)
         has_custom_default = has_metadata_styles and "Default" in (metadata.get("ass_styles") or {})
-        if style and not has_custom_default and "Default" in subs.styles:
-            subs.styles["Default"] = cls._create_karaoke_style(effective_style)
+        if not has_custom_default and "Default" in subs.styles:
+            subs.styles["Default"] = cls._build_ass_style(config)
 
         # Speaker color cache: maps speaker name → BBGGRR color string (assigned on first appearance)
         _speaker_color_cache = {}
@@ -496,7 +495,7 @@ class ASSFormat(Pysubs2Format):
                 # Standard mode: restore custom attributes from supervision
                 from .base import render_bilingual_text
 
-                text = render_bilingual_text(sup, separator="\\N", translation_first=effective_style.translation_first)
+                text = render_bilingual_text(sup, separator="\\N", translation_first=behavior.translation_first)
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
                     spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
@@ -510,46 +509,37 @@ class ASSFormat(Pysubs2Format):
 
         return subs.to_string(format_="ass").encode("utf-8")
 
-    # Default reference resolution for ASS font scaling.
-    # Players scale all coordinates and font sizes from PlayRes to actual video size.
-    DEFAULT_PLAY_RES_X = 1920
-    DEFAULT_PLAY_RES_Y = 1080
     DEFAULT_FONTSIZE = 48.0
 
     @classmethod
-    def _create_ass_file_with_metadata(cls, metadata: Optional[Dict]) -> pysubs2.SSAFile:
-        """Create SSAFile and restore global styles from metadata.
+    def _create_ass_file(cls, metadata: Optional[Dict], config: ASSConfig) -> pysubs2.SSAFile:
+        """Create SSAFile from ASSConfig defaults, then overlay metadata (roundtrip).
 
-        When no PlayRes is provided, defaults to 1920x1080 reference resolution
-        so fonts scale proportionally to the actual video size.
+        Priority: metadata (roundtrip from existing ASS) > ASSConfig > pysubs2 defaults.
 
         Args:
-            metadata: Dict containing ass_info, ass_styles, play_res_x, play_res_y
+            metadata: Dict containing ass_info, ass_styles for roundtrip preservation
+            config: ASSConfig with rendering context (PlayRes, wrap_style, etc.)
 
         Returns:
-            pysubs2.SSAFile with restored styles
+            pysubs2.SSAFile with configured styles
         """
         subs = pysubs2.SSAFile()
 
-        # Set sensible defaults for font scaling (overridable by metadata)
-        subs.info["PlayResX"] = str(cls.DEFAULT_PLAY_RES_X)
-        subs.info["PlayResY"] = str(cls.DEFAULT_PLAY_RES_Y)
+        # 1. Apply ASSConfig rendering context
+        subs.info["PlayResX"] = str(config.play_res_x)
+        subs.info["PlayResY"] = str(config.play_res_y)
+        subs.info["ScaledBorderAndShadow"] = "yes" if config.scaled_border_and_shadow else "no"
+        subs.info["WrapStyle"] = str(config.wrap_style)
         subs.styles["Default"].fontsize = cls.DEFAULT_FONTSIZE
 
         if not metadata:
             return subs
 
-        # Restore Script Info (may override PlayRes defaults)
+        # 2. Metadata roundtrip overrides (from reading an existing ASS file)
         if "ass_info" in metadata:
             subs.info.update(metadata["ass_info"])
 
-        # Explicit PlayRes overrides take highest priority
-        if "play_res_x" in metadata:
-            subs.info["PlayResX"] = str(metadata["play_res_x"])
-        if "play_res_y" in metadata:
-            subs.info["PlayResY"] = str(metadata["play_res_y"])
-
-        # Restore Styles
         if "ass_styles" in metadata:
             for name, style_dict in metadata["ass_styles"].items():
                 subs.styles[name] = cls._dict_to_style(style_dict)
@@ -616,45 +606,44 @@ class ASSFormat(Pysubs2Format):
         )
 
     @classmethod
-    def _create_karaoke_style(cls, style: CaptionStyle) -> pysubs2.SSAStyle:
-        """Create pysubs2 SSAStyle from CaptionStyle config.
+    def _build_ass_style(cls, config: ASSConfig) -> pysubs2.SSAStyle:
+        """Build pysubs2 SSAStyle from self-contained ASSConfig.
 
         Args:
-            style: KaraokeStyle configuration
+            config: ASSConfig with all visual, positioning, and rendering fields
 
         Returns:
             pysubs2.SSAStyle object
         """
-        # Convert int alignment to pysubs2.Alignment enum
-        alignment = pysubs2.Alignment(style.alignment)
+        alignment = pysubs2.Alignment(config.alignment)
 
         # When background_color is set, switch to borderstyle=3 (opaque box)
-        has_bg = bool(style.background_color)
+        has_bg = bool(config.background_color)
         if has_bg:
-            back = cls._hex_to_ass_color(style.background_color)
+            back = cls._hex_to_ass_color(config.background_color)
             borderstyle = 3
             shadow = 0  # ASS ignores shadow in borderstyle=3
         else:
-            back = cls._hex_to_ass_color(style.back_color)
+            back = cls._hex_to_ass_color(config.back_color)
             borderstyle = 1
-            shadow = style.shadow_depth
+            shadow = config.shadow_depth
 
         return pysubs2.SSAStyle(
-            fontname=style.font_name,
-            fontsize=style.font_size,
-            primarycolor=cls._hex_to_ass_color(style.primary_color),
-            secondarycolor=cls._hex_to_ass_color(style.secondary_color),
-            outlinecolor=cls._hex_to_ass_color(style.outline_color),
+            fontname=config.font_name,
+            fontsize=config.font_size,
+            primarycolor=cls._hex_to_ass_color(config.primary_color),
+            secondarycolor=cls._hex_to_ass_color(config.secondary_color),
+            outlinecolor=cls._hex_to_ass_color(config.outline_color),
             backcolor=back,
-            bold=style.bold,
-            italic=style.italic,
-            outline=style.outline_width,
+            bold=config.bold,
+            italic=config.italic,
+            outline=config.outline_width,
             shadow=shadow,
             borderstyle=borderstyle,
             alignment=alignment,
-            marginl=style.margin_l,
-            marginr=style.margin_r,
-            marginv=style.margin_v,
+            marginl=config.margin_l,
+            marginr=config.margin_r,
+            marginv=config.margin_v,
         )
 
     @staticmethod
@@ -766,22 +755,23 @@ class SSAFormat(ASSFormat):
         fps: float = 25.0,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
-        style: Optional[CaptionStyle] = None,
+        config: Optional[ASSConfig] = None,
         **kwargs,
     ) -> bytes:
         """Convert to SSA bytes with style preservation."""
         from .base import expand_to_word_supervisions
 
-        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
+        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        config = config if isinstance(config, ASSConfig) else ASSConfig()
 
         if word_level and not (karaoke and karaoke.enabled):
             supervisions = expand_to_word_supervisions(supervisions)
 
         from .base import render_bilingual_text
 
-        subs = cls._create_ass_file_with_metadata(metadata)
+        subs = cls._create_ass_file(metadata, config)
 
-        tf = style.translation_first
+        tf = behavior.translation_first
         for sup in supervisions:
             text = render_bilingual_text(sup, separator="\\N", translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker):

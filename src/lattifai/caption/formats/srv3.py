@@ -276,7 +276,6 @@ class SRV3Format(FormatHandler):
         cls,
         supervisions: List[Supervision],
         metadata: Optional[Dict] = None,
-        style=None,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to SRV3 format bytes.
@@ -284,12 +283,11 @@ class SRV3Format(FormatHandler):
         Args:
             supervisions: List of Supervision objects
             metadata: Optional metadata dict
-            style: CaptionStyle controlling output behavior
 
         Returns:
             SRV3 XML content as UTF-8 encoded bytes
         """
-        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
+        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
         # Create root element
         root = ET.Element("timedtext")
         root.set("format", "3")

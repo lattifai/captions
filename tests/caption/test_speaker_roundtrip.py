@@ -1,4 +1,4 @@
-from lattifai.caption.config import CaptionStyle
+from lattifai.caption.config import OutputBehavior
 
 #!/usr/bin/env python3
 """
@@ -138,7 +138,7 @@ BOB: Third speaker format
         # Write without speaker
         srt_file = tmp_path / "test.srt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(srt_file, style=CaptionStyle(include_speaker_in_text=False))
+        caption.write(srt_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         # Read back
         caption_read = Caption.read(srt_file)
@@ -221,7 +221,7 @@ BOB: Third speaker format
 
         ass_file = tmp_path / "test.ass"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(ass_file, style=CaptionStyle(include_speaker_in_text=False))
+        caption.write(ass_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         content = ass_file.read_text()
         # Name field should still have speaker

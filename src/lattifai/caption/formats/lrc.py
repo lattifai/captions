@@ -181,7 +181,6 @@ class LRCFormat(FormatHandler):
         supervisions: List[Supervision],
         output_path,
         karaoke: Optional[KaraokeConfig] = None,
-        style=None,
         **kwargs,
     ) -> Path:
         """Write supervisions to LRC file.
@@ -191,7 +190,6 @@ class LRCFormat(FormatHandler):
             output_path: Path to output file
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use enhanced LRC with inline timestamps
-            style: CaptionStyle controlling output behavior
             **kwargs: Additional options
 
         Returns:
@@ -201,7 +199,6 @@ class LRCFormat(FormatHandler):
         content = cls.to_bytes(
             supervisions,
             karaoke=karaoke,
-            style=style,
             **kwargs,
         )
         output_path.write_bytes(content)
@@ -213,7 +210,6 @@ class LRCFormat(FormatHandler):
         supervisions: List[Supervision],
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
-        style=None,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to LRC format bytes.
@@ -223,12 +219,11 @@ class LRCFormat(FormatHandler):
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use enhanced LRC with inline timestamps
             metadata: Optional metadata dict containing lrc_* keys to restore
-            style: CaptionStyle controlling output behavior
 
         Returns:
             Caption content as bytes
         """
-        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
+        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
         config = karaoke or KaraokeConfig(enabled=False)
         karaoke_enabled = config.enabled
         lines = []
@@ -274,7 +269,7 @@ class LRCFormat(FormatHandler):
                 from .base import render_bilingual_text
 
                 line_time = cls._format_time(sup.start, config.lrc_precision)
-                text = render_bilingual_text(sup, translation_first=style.translation_first)
+                text = render_bilingual_text(sup, translation_first=behavior.translation_first)
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{sup.speaker}: {text}"
                 lines.append(f"[{line_time}]{text}")

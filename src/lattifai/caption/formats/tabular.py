@@ -85,9 +85,9 @@ class CSVFormat(FormatHandler):
         return output_path
 
     @classmethod
-    def to_bytes(cls, supervisions: List[Supervision], style=None, **kwargs) -> bytes:
+    def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to CSV format bytes."""
-        style, include_speaker, _ = cls._unpack_style(style, **kwargs)
+        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
         has_translations = any(sup.translation for sup in supervisions)
         output = StringIO()
         writer = csv.writer(output)
@@ -190,9 +190,9 @@ class TSVFormat(FormatHandler):
         return output_path
 
     @classmethod
-    def to_bytes(cls, supervisions: List[Supervision], style=None, **kwargs) -> bytes:
+    def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to TSV format bytes."""
-        style, include_speaker, _ = cls._unpack_style(style, **kwargs)
+        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
         has_translations = any(sup.translation for sup in supervisions)
         lines = []
         if include_speaker:
@@ -311,9 +311,9 @@ class AUDFormat(FormatHandler):
         return output_path
 
     @classmethod
-    def to_bytes(cls, supervisions: List[Supervision], style=None, **kwargs) -> bytes:
+    def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to AUD format bytes."""
-        style, include_speaker, _ = cls._unpack_style(style, **kwargs)
+        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
         lines = []
         for sup in supervisions:
             text = sup.text.strip().replace("\t", " ")
@@ -387,9 +387,9 @@ class TXTFormat(FormatHandler):
         return output_path
 
     @classmethod
-    def to_bytes(cls, supervisions: List[Supervision], style=None, **kwargs) -> bytes:
+    def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to TXT format bytes."""
-        style, include_speaker, _ = cls._unpack_style(style, **kwargs)
+        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
         lines = []
         for sup in supervisions:
             text = sup.text or ""

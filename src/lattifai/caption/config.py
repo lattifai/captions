@@ -15,7 +15,7 @@ class CaptionFonts:
     """Common caption font constants.
 
     These are reference constants for popular fonts. You can use any
-    system font name as the font_name parameter in CaptionStyle.
+    system font name as the font_name parameter in ASSConfig.
     """
 
     # Western fonts
@@ -41,81 +41,12 @@ class CaptionFonts:
 
 
 @dataclass
-class CaptionStyle:
-    """Caption style configuration for ASS/TTML formats."""
+class OutputBehavior:
+    """Output behavior configuration for caption writing.
 
-    # -- Colors (#RRGGBB format) --
-
-    primary_color: str = "#FFFFFF"
-    """Main text color (#RRGGBB)."""
-
-    secondary_color: str = "#00FFFF"
-    """Secondary/highlight color (#RRGGBB). Used as karaoke sweep target color."""
-
-    outline_color: str = "#000000"
-    """Text outline color (#RRGGBB)."""
-
-    back_color: str = "#000000"
-    """Shadow/back color (#RRGGBB). In ASS borderstyle=1 this is the drop shadow color."""
-
-    # -- Font --
-
-    font_name: str = CaptionFonts.ARIAL
-    """Font family name. Use CaptionFonts constants or any system font."""
-
-    font_size: int = 48
-    """Font size in points (scaled to PlayRes 1920x1080 for ASS)."""
-
-    bold: bool = False
-    """Enable bold text."""
-
-    italic: bool = False
-    """Enable italic text."""
-
-    # -- Border and shadow --
-
-    outline_width: float = 0
-    """Outline thickness (px). Recommended 2.0-2.5 for karaoke."""
-
-    shadow_depth: float = 1.0
-    """Shadow distance (px). Set to 0 for karaoke — shadows interfere with color sweep."""
-
-    # -- Background box --
-
-    background_color: str = ""
-    """Subtitle background box color.
-    - "":           no background box (default — text floats on video)
-    - "#RRGGBB":    solid opaque background box
-    - "#RRGGBBAA":  semi-transparent background box (e.g., "#00000080" = 50% black)
-    Supported formats: ASS (borderstyle=3), TTML, FCPXML, VTT (CSS).
-    Silently ignored by formats without background support (SRT, LRC, etc.).
+    Controls how caption content is structured in the output, independent of
+    visual styling or format-specific rendering.
     """
-
-    # -- Position --
-
-    alignment: int = 2
-    """ASS alignment (1-9, numpad style). 2=bottom-center (default)."""
-
-    margin_l: int = 20
-    """Left margin in pixels."""
-
-    margin_r: int = 20
-    """Right margin in pixels."""
-
-    margin_v: int = 20
-    """Vertical margin in pixels."""
-
-    # -- Speaker --
-
-    speaker_color: str = ""
-    """Speaker name color mode for ASS output.
-    - "":           no special color (default)
-    - "#RRGGBB":    single color for all speakers
-    - "#RRGGBB,#00BFFF,...": comma-separated, auto-assigned per speaker
-    - "auto":       built-in 10-color palette, auto-assigned per speaker
-    """
-
-    # -- Output behavior --
 
     include_speaker_in_text: bool = True
     """Include speaker labels in caption text (e.g., '[Alice] Hello' vs 'Hello')."""
@@ -127,12 +58,96 @@ class CaptionStyle:
     """Place translation text above original text in bilingual output."""
 
 
+
+@dataclass
+class ASSConfig:
+    """Self-contained configuration for ASS/SSA export.
+
+    Includes rendering context (PlayRes, wrap), visual styling (font, colors,
+    outline, shadow), and positioning (alignment, margins).
+    """
+
+    # -- Visual style --
+
+    font_name: str = CaptionFonts.ARIAL
+    """Font family name."""
+
+    font_size: int = 48
+    """Font size in points (relative to PlayRes)."""
+
+    primary_color: str = "#FFFFFF"
+    """Main text color (#RRGGBB)."""
+
+    secondary_color: str = "#00FFFF"
+    """Karaoke sweep target color (#RRGGBB)."""
+
+    outline_color: str = "#000000"
+    """Text outline color (#RRGGBB)."""
+
+    back_color: str = "#000000"
+    """Shadow/back color (#RRGGBB). In borderstyle=1 this is the drop shadow color."""
+
+    bold: bool = False
+    """Enable bold text."""
+
+    italic: bool = False
+    """Enable italic text."""
+
+    background_color: str = ""
+    """Subtitle background box color (#RRGGBB or #RRGGBBAA).
+    When set, switches to borderstyle=3 (opaque box)."""
+
+    outline_width: float = 0
+    """Outline thickness (px). Recommended 2.0-2.5 for karaoke."""
+
+    shadow_depth: float = 1.0
+    """Shadow distance (px). Set to 0 for karaoke."""
+
+    # -- Positioning --
+
+    alignment: int = 2
+    """ASS alignment (1-9, numpad style). 2=bottom-center."""
+
+    margin_l: int = 20
+    """Left margin in pixels."""
+
+    margin_r: int = 20
+    """Right margin in pixels."""
+
+    margin_v: int = 20
+    """Vertical margin in pixels."""
+
+    # -- Rendering context --
+
+    play_res_x: int = 1920
+    """Reference resolution width for coordinate scaling."""
+
+    play_res_y: int = 1080
+    """Reference resolution height for coordinate scaling."""
+
+    scaled_border_and_shadow: bool = True
+    """Scale border/shadow with PlayRes (ScaledBorderAndShadow: yes)."""
+
+    wrap_style: int = 0
+    """Line wrapping mode. 0=smart, 1=EOL, 2=none, 3=smart+lower wide."""
+
+    # -- Speaker --
+
+    speaker_color: str = ""
+    """Speaker name color mode for ASS override tags.
+    - "":           no special color (default)
+    - "#RRGGBB":    single color for all speakers
+    - "#RRGGBB,#00BFFF,...": comma-separated, auto-assigned per speaker
+    - "auto":       built-in 10-color palette, auto-assigned per speaker
+    """
+
+
 @dataclass
 class KaraokeConfig:
     """Karaoke export configuration.
 
     Karaoke-specific settings only. Subtitle styling (font, colors, background)
-    lives in CaptionStyle, not here.
+    lives in ASSConfig, not here.
 
     Attributes:
         enabled: Whether karaoke mode is enabled
@@ -161,39 +176,35 @@ class KaraokeConfig:
     ttml_timing_mode: Literal["Word", "Line"] = "Word"
 
 
-def apply_color_scheme(style: CaptionStyle, scheme_name: str) -> CaptionStyle:
-    """Return a new CaptionStyle with karaoke color scheme applied.
+def apply_color_scheme(scheme_name: str, config: Optional[ASSConfig] = None) -> ASSConfig:
+    """Apply karaoke color scheme to ASSConfig.
 
-    Font, alignment, margins, and other non-color fields are preserved
-    from the original style. The input style is never mutated.
+    All color fields (primary, secondary, outline, back, background) are in ASSConfig.
+    The input config is never mutated — a new instance is returned.
 
     Args:
-        style: Source CaptionStyle (not modified)
         scheme_name: Color scheme name (e.g., "azure-gold")
+        config: Source ASSConfig (not modified). Defaults to ASSConfig().
 
     Returns:
-        New CaptionStyle with colors overridden, or the original style
+        New ASSConfig with colors overridden, or the original config
         unchanged if the scheme is not found.
     """
     from dataclasses import replace
 
+    config = config or ASSConfig()
+
     resolved = resolve_karaoke_color_scheme(scheme_name)
     if not resolved:
-        return style
+        return config
 
-    overrides = {
-        "primary_color": resolved["primary_color"],
-        "secondary_color": resolved["secondary_color"],
-        "outline_color": resolved["outline_color"],
-        "back_color": resolved["back_color"],
-        "shadow_depth": resolved.get("shadow_depth", 0.0),
-    }
-    if "outline_width" in resolved:
-        overrides["outline_width"] = resolved["outline_width"]
-    if "background_color" in resolved:
-        overrides["background_color"] = resolved["background_color"]
+    overrides = {}
+    for key in ("primary_color", "secondary_color", "outline_color", "back_color",
+                "shadow_depth", "outline_width", "background_color"):
+        if key in resolved:
+            overrides[key] = resolved[key]
 
-    return replace(style, **overrides)
+    return replace(config, **overrides) if overrides else config
 
 
 @dataclass

@@ -1,4 +1,4 @@
-from lattifai.caption.config import CaptionStyle
+from lattifai.caption.config import OutputBehavior
 
 #!/usr/bin/env python3
 """
@@ -178,7 +178,7 @@ Speaker2\t4000\t6000\tSecond caption
         # Write to CSV file
         output_file = tmp_path / "output.csv"
         caption = Caption.from_supervisions(supervisions)
-        result_path = caption.write(output_file, style=CaptionStyle(include_speaker_in_text=False))
+        result_path = caption.write(output_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         assert output_file.exists()
 
@@ -544,7 +544,7 @@ class TestCSVSpeakerFormat:
 
         csv_file = tmp_path / "output.csv"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(csv_file, style=CaptionStyle(include_speaker_in_text=False))
+        caption.write(csv_file, behavior=OutputBehavior(include_speaker_in_text=False))
 
         content = csv_file.read_text()
 

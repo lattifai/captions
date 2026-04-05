@@ -387,12 +387,11 @@ class TestCaptionIntegration:
     """Integration tests for Caption class with professional formats."""
 
     def test_write_avid_ds_via_caption(self, sample_supervisions, tmp_path):
-        """Test writing Avid DS format via Caption class using explicit format."""
+        """Test writing Avid DS format via Caption class using file extension."""
         caption = Caption(supervisions=sample_supervisions)
-        output_path = tmp_path / "output.avid_ds"
+        output_path = tmp_path / "output_avid.txt"
 
-        # Use explicit output_format parameter
-        caption.write(output_path, output_format="avid_ds")
+        caption.write(output_path)
 
         # Check bytes were written correctly
         content = output_path.read_bytes()

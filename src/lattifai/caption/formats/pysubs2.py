@@ -193,8 +193,9 @@ class Pysubs2Format(FormatHandler):
 
         subs = pysubs2.SSAFile()
 
+        tf = style.translation_first
         for sup in supervisions:
-            text = render_bilingual_text(sup)
+            text = render_bilingual_text(sup, translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
 
@@ -494,7 +495,7 @@ class ASSFormat(Pysubs2Format):
                 # Standard mode: restore custom attributes from supervision
                 from .base import render_bilingual_text
 
-                text = render_bilingual_text(sup, separator="\\N")
+                text = render_bilingual_text(sup, separator="\\N", translation_first=effective_style.translation_first)
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
                     spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
@@ -776,8 +777,9 @@ class SSAFormat(ASSFormat):
 
         subs = cls._create_ass_file_with_metadata(metadata)
 
+        tf = style.translation_first
         for sup in supervisions:
-            text = render_bilingual_text(sup, separator="\\N")
+            text = render_bilingual_text(sup, separator="\\N", translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             event = cls._create_event_from_supervision(sup, text)

@@ -274,7 +274,7 @@ class LRCFormat(FormatHandler):
                 from .base import render_bilingual_text
 
                 line_time = cls._format_time(sup.start, config.lrc_precision)
-                text = render_bilingual_text(sup)
+                text = render_bilingual_text(sup, translation_first=style.translation_first)
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{sup.speaker}: {text}"
                 lines.append(f"[{line_time}]{text}")

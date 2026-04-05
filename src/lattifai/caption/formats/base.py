@@ -210,19 +210,23 @@ ReaderType = type[FormatReader]
 WriterType = type[FormatWriter]
 
 
-def render_bilingual_text(sup: "Supervision", separator: str = "\n") -> str:
-    """Render supervision text with translation appended.
+def render_bilingual_text(sup: "Supervision", separator: str = "\n", translation_first: bool = False) -> str:
+    """Render supervision text with translation.
 
     Args:
         sup: Supervision object
         separator: Separator between original text and translation
+        translation_first: If True, place translation above original text
 
     Returns:
         Combined text string
     """
     text = sup.text or ""
     if sup.translation:
-        text = f"{text}{separator}{sup.translation}"
+        if translation_first:
+            text = f"{sup.translation}{separator}{text}"
+        else:
+            text = f"{text}{separator}{sup.translation}"
     return text
 
 

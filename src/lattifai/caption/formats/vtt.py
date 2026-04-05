@@ -372,16 +372,18 @@ class VTTFormat(FormatHandler):
 
         karaoke_enabled = karaoke is not None and karaoke.enabled
 
+        tf = style.translation_first
+
         # If karaoke enabled, output YouTube VTT style
         if word_level and karaoke_enabled:
-            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata)
+            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf)
 
         # If word_level only (no karaoke), expand to word-per-segment
         if word_level:
             supervisions = expand_to_word_supervisions(supervisions)
 
         # Build VTT with metadata header
-        return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata)
+        return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata, tf)
 
     @staticmethod
     def _ass_color_to_css(ass_color: str) -> str:
@@ -438,6 +440,7 @@ class VTTFormat(FormatHandler):
         supervisions: List[Supervision],
         include_speaker: bool = True,
         metadata: Optional[Dict] = None,
+        translation_first: bool = False,
     ) -> bytes:
         """Generate VTT with metadata header and optional STYLE block."""
         lines = ["WEBVTT"]
@@ -459,7 +462,7 @@ class VTTFormat(FormatHandler):
 
         subs = pysubs2.SSAFile()
         for sup in supervisions:
-            text = render_bilingual_text(sup)
+            text = render_bilingual_text(sup, translation_first=translation_first)
             if cls._should_include_speaker(sup, include_speaker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             subs.append(
@@ -488,6 +491,7 @@ class VTTFormat(FormatHandler):
         supervisions: List[Supervision],
         include_speaker: bool = True,
         metadata: Optional[Dict] = None,
+        translation_first: bool = False,
     ) -> bytes:
         """Generate YouTube VTT format with word-level timestamps.
 
@@ -535,7 +539,7 @@ class VTTFormat(FormatHandler):
             else:
                 from .base import render_bilingual_text
 
-                text = render_bilingual_text(sup)
+                text = render_bilingual_text(sup, translation_first=translation_first)
                 lines.append(f"{format_timestamp(sup.start)} --> {format_timestamp(sup.end)}")
                 if include_speaker and sup.speaker:
                     text = f"{sup.speaker}: {text}"

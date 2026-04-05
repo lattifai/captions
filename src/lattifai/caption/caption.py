@@ -629,19 +629,6 @@ class Caption:
                     end_margin=standardization.end_margin or 0.10,
                 )
 
-        # Swap text and translation for translation-first bilingual output
-        if effective_style.translation_first:
-            import dataclasses
-
-            swapped = []
-            for sup in supervisions:
-                if sup.translation:
-                    new_sup = dataclasses.replace(sup, text=sup.translation, translation=sup.text)
-                    swapped.append(new_sup)
-                else:
-                    swapped.append(sup)
-            supervisions = swapped
-
         # Merge external metadata with self.metadata (external takes precedence)
         effective_metadata = dict(self.metadata) if self.metadata else {}
         if metadata:

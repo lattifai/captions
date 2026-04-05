@@ -598,6 +598,9 @@ class ASSFormat(Pysubs2Format):
         """
         custom = getattr(sup, "custom", None) or {}
 
+        # Convert \n to \N for ASS format (pysubs2 uses \N for inline line breaks)
+        text = text.replace("\n", "\\N")
+
         return pysubs2.SSAEvent(
             start=int(sup.start * 1000),
             end=int(sup.end * 1000),

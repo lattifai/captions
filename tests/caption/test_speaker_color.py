@@ -62,15 +62,17 @@ class TestResolveSpeakerColor:
 
     def test_auto_assigns_palette_colors(self):
         """'auto' should assign colors from the built-in palette in order."""
+        from lattifai.caption.colors import hex_rgb_to_bgr
+
         cache = {}
         color_a = ASSFormat._resolve_speaker_color("Alice", "auto", cache)
         color_b = ASSFormat._resolve_speaker_color("Bob", "auto", cache)
         assert color_a != ""
         assert color_b != ""
         assert color_a != color_b
-        # First speaker gets palette[0], second gets palette[1]
-        assert color_a == ASSFormat._SPEAKER_PALETTE[0]
-        assert color_b == ASSFormat._SPEAKER_PALETTE[1]
+        # First speaker gets palette[0] converted to BBGGRR, second gets palette[1]
+        assert color_a == hex_rgb_to_bgr(ASSFormat._SPEAKER_PALETTE[0])
+        assert color_b == hex_rgb_to_bgr(ASSFormat._SPEAKER_PALETTE[1])
 
     def test_auto_caches_same_speaker(self):
         """Same speaker should always get the same cached color."""

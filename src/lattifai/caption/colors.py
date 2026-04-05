@@ -22,84 +22,84 @@ KARAOKE_COLOR_SCHEMES: Dict[str, Dict[str, str]] = {
         "secondary_color": "#FFC209",  # 金柠暖阳
         "outline_color": "#1387C0",  # 晴空海蓝
         "back_color": "#0A3D5C",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "sakura-purple": {
         "primary_color": "#F7C3D9",  # 柔樱粉
         "secondary_color": "#7953B1",  # 紫鸢深紫
         "outline_color": "#063C85",  # 深海藏蓝
         "back_color": "#1A1A2E",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "mint-ocean": {
         "primary_color": "#A1FEEF",  # 薄荷冰青
         "secondary_color": "#658AE4",  # 柔空蓝
         "outline_color": "#28314E",  # 深海夜蓝
         "back_color": "#0A0A1A",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "gardenia-green": {
         "primary_color": "#FFFFFF",
         "secondary_color": "#9DC92A",  # 苹果绿
         "outline_color": "#77964A",  # 碧山
         "back_color": "#1C2B1A",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "sunset-warm": {
         "primary_color": "#FAEDD1",  # 奶油米白
         "secondary_color": "#F4520D",  # 暖橙光
         "outline_color": "#1387C0",  # 晴空海蓝
         "back_color": "#0A1628",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "prussian-elegant": {
         "primary_color": "#FFFFFF",
         "secondary_color": "#FBC03D",  # 栀子黄
         "outline_color": "#003153",  # 普鲁士蓝
         "back_color": "#001A2C",
-        "outline_width": 2.5,
+        "outline_width": 0.0,
     },
     "burgundy-classic": {
         "primary_color": "#F7F2DF",  # 宣纸白
         "secondary_color": "#CC5D84",  # 琅玕紫
         "outline_color": "#800020",  # 勃艮第红
         "back_color": "#2A000D",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "langgan-spring": {
         "primary_color": "#C1D796",  # 春辰 (unsung text)
         "secondary_color": "#CC5D84",  # 琅玕紫 (highlight sweep)
         "outline_color": "#8A3A5A",  # 琅玕紫暗化
         "back_color": "#2A1020",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "mars-teal": {
         "primary_color": "#FFFFFF",
         "secondary_color": "#008C8C",  # 马尔斯绿
         "outline_color": "#003153",  # 普鲁士蓝
         "back_color": "#001A1A",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "spring-field": {
         "primary_color": "#FBFFF2",  # 荔枝白
         "secondary_color": "#46B065",  # Spring Fields 中绿
         "outline_color": "#008E6B",  # Spring Fields 深绿
         "back_color": "#0A2A1A",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "navy-pink": {
         "primary_color": "#FFFFFF",
         "secondary_color": "#F7C3D9",  # 柔樱粉
         "outline_color": "#063C85",  # 深海藏蓝
         "back_color": "#021A3A",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
     "apricot-dark": {
         "primary_color": "#FEA72E",  # 杏黄
         "secondary_color": "#F7F2DF",  # 宣纸白
         "outline_color": "#3A3C50",  # 玄青
         "back_color": "#1A1A28",
-        "outline_width": 2.0,
+        "outline_width": 0.0,
     },
 }
 
@@ -113,18 +113,19 @@ def resolve_karaoke_color_scheme(name: str) -> Optional[Dict]:
 # Speaker Color Palette
 # =============================================================================
 
-# 10-color palette for auto speaker coloring (BBGGRR format for ASS)
+# 10-color palette for auto speaker coloring (#RRGGBB format)
+# Converted to ASS BBGGRR at output time via hex_rgb_to_bgr().
 SPEAKER_PALETTE: List[str] = [
-    "C08713",  # 晴空海蓝 Azure         (#1387C0)
-    "09C2FF",  # 金柠暖阳 Warm Yellow   (#FFC209)
-    "D9C3F7",  # 柔樱粉 Soft Pink       (#F7C3D9)
-    "2AC99D",  # 苹果绿 Apple Green     (#9DC92A)
-    "EFFEA1",  # 薄荷冰青 Mint Ice      (#A1FEEF)
-    "0D52F4",  # 暖橙光 Warm Orange     (#F4520D)
-    "E48A65",  # 柔空蓝 Sky Blue        (#658AE4)
-    "3DC0FB",  # 栀子黄 Gardenia Yellow (#FBC03D)
-    "845DCC",  # 琅玕紫 Langgan Purple  (#CC5D84)
-    "8C8C00",  # 马尔斯绿 Mars Green    (#008C8C)
+    "#1387C0",  # 晴空海蓝 Azure
+    "#FFC209",  # 金柠暖阳 Warm Yellow
+    "#F7C3D9",  # 柔樱粉 Soft Pink
+    "#9DC92A",  # 苹果绿 Apple Green
+    "#A1FEEF",  # 薄荷冰青 Mint Ice
+    "#F4520D",  # 暖橙光 Warm Orange
+    "#658AE4",  # 柔空蓝 Sky Blue
+    "#FBC03D",  # 栀子黄 Gardenia Yellow
+    "#CC5D84",  # 琅玕紫 Langgan Purple
+    "#008C8C",  # 马尔斯绿 Mars Green
 ]
 
 
@@ -199,22 +200,22 @@ def resolve_speaker_color(speaker: str, speaker_color_spec: str, cache: dict) ->
         return cache[speaker]
 
     # Parse palette: "auto" uses built-in, comma-separated uses user-provided
+    # All palettes store #RRGGBB; convert to BBGGRR at assignment time.
     if speaker_color_spec == "auto":
-        palette = SPEAKER_PALETTE
+        palette_rgb = SPEAKER_PALETTE
     else:
-        palette = []
+        palette_rgb = []
         for c in speaker_color_spec.split(","):
             c = c.strip()
             if not c.startswith("#"):
                 c = f"#{c}"
-            try:
-                palette.append(hex_rgb_to_bgr(c))
-            except ValueError:
-                continue
-        if not palette:
+            if len(c) == 7:
+                palette_rgb.append(c)
+        if not palette_rgb:
             return ""
 
     # Assign next color from palette (cycle if more speakers than colors)
-    color = palette[len(cache) % len(palette)]
-    cache[speaker] = color
-    return color
+    rgb = palette_rgb[len(cache) % len(palette_rgb)]
+    bgr = hex_rgb_to_bgr(rgb)
+    cache[speaker] = bgr
+    return bgr

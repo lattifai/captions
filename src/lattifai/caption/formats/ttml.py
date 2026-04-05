@@ -7,6 +7,7 @@ TTML (Timed Text Markup Language) is a W3C standard used by:
 - Apple Music (iTunes timing)
 """
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -181,9 +182,6 @@ class TTMLFormatBase(FormatHandler):
         # Parse XML
         try:
             # Strip namespaces for easier parsing
-            # This is a bit hacky but robust against different namespace prefixes
-            import re
-
             content = re.sub(r' xmlns="[^"]+"', "", content, count=1)
             content = re.sub(r' xmlns:t?ts="[^"]+"', "", content)
             content = re.sub(r' xmlns:t?tp="[^"]+"', "", content)
@@ -237,8 +235,6 @@ class TTMLFormatBase(FormatHandler):
             for child in p:
                 if child.tag.endswith("span"):
                     span_text = child.text.strip() if child.text else ""
-                    if not span_text:
-                        pass
 
                     # Check for timing on span (word-level or phrase-level)
                     span_begin = child.get("begin")

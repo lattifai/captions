@@ -17,7 +17,7 @@ from typing import List, Optional, Union
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter
+from ..base import FormatReader, FormatWriter, render_bilingual_text, strip_standard_kwargs
 
 
 class FrameRate(Enum):
@@ -193,8 +193,6 @@ class AvidDSWriter:
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
             # Prepare text
-            from ..base import render_bilingual_text
-
             text = render_bilingual_text(sup)
 
             # Check if speaker should be included
@@ -243,8 +241,6 @@ class AvidDSWriter:
             start_tc = cls.seconds_to_timecode(sup.start, config.fps, config.drop_frame)
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
-            from ..base import render_bilingual_text
-
             text = render_bilingual_text(sup)
 
             # Check if speaker should be included
@@ -291,12 +287,7 @@ class AvidDSFormat(FormatWriter):
         Returns:
             Path to written file
         """
-        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata, speaker_color not supported by Avid DS)
-        kwargs.pop("word_level", None)
-        kwargs.pop("karaoke", None)
-        kwargs.pop("metadata", None)
-        kwargs.pop("speaker_color", None)
-        kwargs.pop("style", None)
+        strip_standard_kwargs(kwargs)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.write(supervisions, output_path, config)
 
@@ -317,12 +308,7 @@ class AvidDSFormat(FormatWriter):
         Returns:
             Avid DS content as bytes
         """
-        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata, speaker_color not supported by Avid DS)
-        kwargs.pop("word_level", None)
-        kwargs.pop("karaoke", None)
-        kwargs.pop("metadata", None)
-        kwargs.pop("speaker_color", None)
-        kwargs.pop("style", None)
+        strip_standard_kwargs(kwargs)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.to_bytes(supervisions, config)
 

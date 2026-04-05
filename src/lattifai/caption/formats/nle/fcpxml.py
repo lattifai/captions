@@ -18,7 +18,7 @@ from xml.dom import minidom
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter
+from ..base import FormatReader, FormatWriter, render_bilingual_text, strip_standard_kwargs
 
 
 @dataclass
@@ -247,8 +247,6 @@ class FCPXMLWriter:
             )
 
             # Add text content
-            from ..base import render_bilingual_text
-
             text_elem = ET.SubElement(caption, "text")
             text_elem.text = render_bilingual_text(sup)
 
@@ -416,12 +414,7 @@ class FCPXMLFormat(FormatWriter):
         Returns:
             Path to written file
         """
-        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata, speaker_color not supported by FCPXML)
-        kwargs.pop("word_level", None)
-        kwargs.pop("karaoke", None)
-        kwargs.pop("metadata", None)
-        kwargs.pop("speaker_color", None)
-        kwargs.pop("style", None)
+        strip_standard_kwargs(kwargs)
         config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.write(supervisions, output_path, config)
 
@@ -442,12 +435,7 @@ class FCPXMLFormat(FormatWriter):
         Returns:
             FCPXML content as bytes
         """
-        # Filter out unsupported kwargs (word_level, karaoke, karaoke_config, metadata, speaker_color not supported by FCPXML)
-        kwargs.pop("word_level", None)
-        kwargs.pop("karaoke", None)
-        kwargs.pop("metadata", None)
-        kwargs.pop("speaker_color", None)
-        kwargs.pop("style", None)
+        strip_standard_kwargs(kwargs)
         config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.to_bytes(supervisions, config)
 

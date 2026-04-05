@@ -207,6 +207,16 @@ def render_bilingual_text(sup: "Supervision", separator: str = "\n") -> str:
     return text
 
 
+def strip_standard_kwargs(kwargs: dict) -> None:
+    """Remove standard Caption.write() kwargs that NLE/professional formats don't support.
+
+    This avoids repetitive kwargs.pop() blocks in every NLE format wrapper.
+    Mutates the dict in-place.
+    """
+    for key in ("word_level", "karaoke", "metadata", "speaker_color", "style"):
+        kwargs.pop(key, None)
+
+
 def expand_to_word_supervisions(supervisions: List["Supervision"]) -> List["Supervision"]:
     """Expand supervisions with word alignment to one supervision per word.
 

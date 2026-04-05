@@ -108,9 +108,6 @@ class Pysubs2Format(FormatHandler):
     @classmethod
     def extract_metadata(cls, source, **kwargs) -> Dict[str, str]:
         """Extract metadata from VTT or SRT."""
-        import re
-        from pathlib import Path
-
         metadata = {}
         if cls.is_content(source):
             content = source[:4096]
@@ -478,7 +475,7 @@ class ASSFormat(Pysubs2Format):
 
             # Karaoke mode with word alignment
             if word_level and karaoke_enabled and word_items:
-                karaoke_text = cls._build_karaoke_text(word_items, karaoke.effect)
+                karaoke_text = cls._build_karaoke_text(word_items, karaoke.effect, original_text=sup.text)
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
                     spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
@@ -690,12 +687,18 @@ class ASSFormat(Pysubs2Format):
         return pysubs2.Color(r=r, g=g, b=b, a=ass_alpha)
 
     @staticmethod
-    def _build_karaoke_text(words: list, effect: str = "sweep") -> str:
-        """Build karaoke tag text.
+    def _build_karaoke_text(words: list, effect: str = "sweep", original_text: str = "") -> str:
+        """Build karaoke tag text with gap-aware timing.
+
+        Each word's karaoke duration covers from its start to the next word's start,
+        so silence gaps between words are absorbed into the preceding word's highlight.
+        Separators between words are derived from the original text to preserve
+        correct spacing for all languages (CJK, Latin, mixed).
 
         Args:
-            words: List of AlignmentItem objects
+            words: List of AlignmentItem objects (must have start, duration, symbol)
             effect: Karaoke effect type ("sweep", "instant", "outline")
+            original_text: Original supervision text — used to derive word separators
 
         Returns:
             Text with karaoke tags, e.g. "{\\kf45}Hello {\\kf55}world"
@@ -703,13 +706,34 @@ class ASSFormat(Pysubs2Format):
         tag_map = {"sweep": "kf", "instant": "k", "outline": "ko"}
         tag = tag_map.get(effect, "kf")
 
-        parts = []
-        for word in words:
-            # Duration in centiseconds (multiply by 100)
-            centiseconds = int(word.duration * 100)
-            parts.append(f"{{\\{tag}{centiseconds}}}{word.symbol}")
+        # Build separator map from original text by finding each word's position
+        separators = [""] * len(words)
+        if original_text:
+            search_from = 0
+            for i, word in enumerate(words):
+                pos = original_text.find(word.symbol, search_from)
+                if pos >= 0 and i > 0:
+                    # Separator = characters between previous word end and this word start
+                    separators[i] = original_text[search_from:pos]
+                if pos >= 0:
+                    search_from = pos + len(word.symbol)
+        else:
+            # Fallback: space-separated (Latin default)
+            for i in range(1, len(words)):
+                separators[i] = " "
 
-        return " ".join(parts)
+        parts = []
+        for i, word in enumerate(words):
+            # Duration: span from this word to next word (absorbs silence gaps)
+            if i < len(words) - 1:
+                duration = words[i + 1].start - word.start
+            else:
+                duration = word.duration
+            centiseconds = max(1, int(duration * 100))
+
+            parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{word.symbol}")
+
+        return "".join(parts)
 
     # Backward-compatible alias — canonical source is colors.SPEAKER_PALETTE
     _SPEAKER_PALETTE = SPEAKER_PALETTE

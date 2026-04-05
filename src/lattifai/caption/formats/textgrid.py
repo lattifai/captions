@@ -110,7 +110,6 @@ class TextGridFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Path:
@@ -119,7 +118,6 @@ class TextGridFormat(FormatHandler):
         Args:
             supervisions: List of supervisions to write
             output_path: Output file path
-            include_speaker: Whether to include speaker in text
             metadata: Optional metadata (for API consistency)
 
         Note:
@@ -196,7 +194,6 @@ class TextGridFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> bytes:
@@ -204,7 +201,6 @@ class TextGridFormat(FormatHandler):
 
         Args:
             supervisions: List of supervisions to convert
-            include_speaker: Whether to include speaker in text
             metadata: Optional metadata (currently unused, for API consistency)
         """
         # TextGrid requires file I/O due to tgt library implementation
@@ -212,7 +208,7 @@ class TextGridFormat(FormatHandler):
             tmp_path = Path(tmp.name)
 
         try:
-            cls.write(supervisions, tmp_path, include_speaker, metadata=metadata, **kwargs)
+            cls.write(supervisions, tmp_path, metadata=metadata, **kwargs)
             return tmp_path.read_bytes()
         finally:
             tmp_path.unlink(missing_ok=True)

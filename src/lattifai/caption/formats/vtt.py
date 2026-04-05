@@ -335,12 +335,11 @@ class VTTFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         **kwargs,
     ) -> Path:
         """Write VTT to file."""
         output_path = Path(output_path)
-        content = cls.to_bytes(supervisions, include_speaker=include_speaker, **kwargs)
+        content = cls.to_bytes(supervisions, **kwargs)
         output_path.write_bytes(content)
         return output_path
 
@@ -348,28 +347,28 @@ class VTTFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         fps: float = 25.0,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
+        style=None,
         **kwargs,
     ) -> bytes:
         """Convert to VTT bytes with optional karaoke and metadata preservation.
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker in output
             fps: Frames per second (not used for VTT)
-            word_level: If True and alignment exists, output word-per-segment or karaoke
             karaoke: Karaoke configuration. When enabled, output YouTube VTT
                 style with word-level timestamps: <00:00:10.559><c> word</c>
             metadata: Optional metadata dict containing kind and language
+            style: CaptionStyle controlling output behavior
 
         Returns:
             VTT content as bytes
         """
         from .base import expand_to_word_supervisions
+
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
 
         karaoke_enabled = karaoke is not None and karaoke.enabled
 

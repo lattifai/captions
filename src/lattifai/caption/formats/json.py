@@ -263,8 +263,6 @@ class JSONFormat(FormatHandler):
         cls,
         supervisions: list[Supervision],
         output_path,
-        include_speaker: bool = True,
-        word_level: bool = False,
         **kwargs,
     ) -> Path:
         """Write JSON document format.
@@ -272,30 +270,24 @@ class JSONFormat(FormatHandler):
         Args:
             supervisions: List of Supervision objects
             output_path: Output file path
-            include_speaker: Whether to include speaker field
-            word_level: If True, include 'words' field with word-level timestamps
-            **kwargs: Pass metadata=dict for Caption-level fields
+            **kwargs: Pass metadata=dict for Caption-level fields, style for output behavior
 
         Returns:
             Path to written file
         """
         output_path = Path(output_path)
-        content = cls.to_bytes(supervisions, include_speaker=include_speaker, word_level=word_level, **kwargs)
+        content = cls.to_bytes(supervisions, **kwargs)
         output_path.write_bytes(content)
         return output_path
 
     @classmethod
-    def to_bytes(
-        cls, supervisions: list[Supervision], include_speaker: bool = True, word_level: bool = False, **kwargs
-    ) -> bytes:
+    def to_bytes(cls, supervisions: list[Supervision], **kwargs) -> bytes:
         """Convert to JSON document format bytes.
 
         Always outputs v2 document structure with Caption-level metadata.
 
         Args:
             supervisions: List of Supervision objects
-            include_speaker: Whether to include speaker field
-            word_level: If True, include 'words' field with word-level timestamps
             **kwargs: Pass metadata=dict for Caption-level fields
                 (language, target_lang, kind, source_format, metadata, etc.)
 

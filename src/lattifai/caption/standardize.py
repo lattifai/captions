@@ -600,8 +600,8 @@ def standardize_captions(
 
 def apply_margins_to_captions(
     segments: List[Supervision],
-    start_margin: float = 0.08,
-    end_margin: float = 0.20,
+    start_margin: float = 0.10,
+    end_margin: float = 0.10,
     min_gap: float = 0.08,
     collision_mode: str = "trim",
 ) -> List[Supervision]:

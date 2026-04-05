@@ -351,7 +351,6 @@ class AuditionCSVFormat(FormatWriter):
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
-        include_speaker: bool = True,
         **kwargs,
     ):
         """Write supervisions to Audition CSV format.
@@ -359,12 +358,12 @@ class AuditionCSVFormat(FormatWriter):
         Args:
             supervisions: List of supervision segments
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Path to written file
         """
+        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
         strip_standard_kwargs(kwargs)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.write(supervisions, output_path, config)
@@ -373,19 +372,18 @@ class AuditionCSVFormat(FormatWriter):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to Audition CSV bytes.
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Audition CSV content as bytes
         """
+        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
         strip_standard_kwargs(kwargs)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.to_bytes(supervisions, config)
@@ -495,7 +493,6 @@ class EdiMarkerCSVFormat(FormatWriter):
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
-        include_speaker: bool = True,
         fps: float = 24.0,
         **kwargs,
     ):
@@ -504,13 +501,13 @@ class EdiMarkerCSVFormat(FormatWriter):
         Args:
             supervisions: List of supervision segments
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels
             fps: Frame rate for timecode conversion
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Path to written file
         """
+        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
         strip_standard_kwargs(kwargs)
         config = EdiMarkerConfig(include_speaker=include_speaker, **kwargs)
         return EdiMarkerWriter.write(supervisions, output_path, config, fps=fps)
@@ -519,7 +516,6 @@ class EdiMarkerCSVFormat(FormatWriter):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         fps: float = 24.0,
         **kwargs,
     ) -> bytes:
@@ -527,13 +523,13 @@ class EdiMarkerCSVFormat(FormatWriter):
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker labels
             fps: Frame rate for timecode conversion
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             EdiMarker CSV content as bytes
         """
+        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
         strip_standard_kwargs(kwargs)
         config = EdiMarkerConfig(include_speaker=include_speaker, **kwargs)
         return EdiMarkerWriter.to_bytes(supervisions, config, fps=fps)

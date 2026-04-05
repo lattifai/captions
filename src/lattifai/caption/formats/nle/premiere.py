@@ -368,7 +368,6 @@ class PremiereXMLFormat(FormatWriter):
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
-        include_speaker: bool = True,
         **kwargs,
     ):
         """Write supervisions to Premiere Pro XML format.
@@ -376,8 +375,7 @@ class PremiereXMLFormat(FormatWriter):
         Args:
             supervisions: List of supervision segments
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Path to written file
@@ -390,15 +388,13 @@ class PremiereXMLFormat(FormatWriter):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to Premiere Pro XML bytes.
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Premiere Pro XML content as bytes

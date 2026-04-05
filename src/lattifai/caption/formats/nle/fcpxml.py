@@ -400,7 +400,6 @@ class FCPXMLFormat(FormatWriter):
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
-        include_speaker: bool = True,
         **kwargs,
     ):
         """Write supervisions to FCPXML format.
@@ -408,8 +407,7 @@ class FCPXMLFormat(FormatWriter):
         Args:
             supervisions: List of supervision segments
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Path to written file
@@ -422,15 +420,13 @@ class FCPXMLFormat(FormatWriter):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to FCPXML bytes.
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             FCPXML content as bytes

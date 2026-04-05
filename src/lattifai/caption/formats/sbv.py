@@ -106,12 +106,11 @@ class SBVFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         **kwargs,
     ) -> Path:
         """Write SBV format."""
         output_path = Path(output_path)
-        content = cls.to_bytes(supervisions, include_speaker=include_speaker)
+        content = cls.to_bytes(supervisions, **kwargs)
         output_path.write_bytes(content)
         return output_path
 
@@ -119,10 +118,11 @@ class SBVFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
+        style=None,
         **kwargs,
     ) -> bytes:
         """Convert to SBV format bytes."""
+        style, include_speaker, _ = cls._unpack_style(style, **kwargs)
         lines = []
 
         for i, sup in enumerate(supervisions):

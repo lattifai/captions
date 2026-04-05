@@ -112,7 +112,6 @@ class FormatWriter(ABC):
         cls,
         supervisions: List["Supervision"],
         output_path: Pathlike,
-        include_speaker: bool = True,
         **kwargs,
     ) -> Path:
         """Write supervisions to a file.
@@ -120,8 +119,7 @@ class FormatWriter(ABC):
         Args:
             supervisions: List of Supervision objects to write
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels in text
-            **kwargs: Format-specific options
+            **kwargs: Format-specific options (style, karaoke, metadata, etc.)
 
         Returns:
             Path to the written file
@@ -133,20 +131,41 @@ class FormatWriter(ABC):
     def to_bytes(
         cls,
         supervisions: List["Supervision"],
-        include_speaker: bool = True,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to bytes in this format.
 
         Args:
             supervisions: List of Supervision objects
-            include_speaker: Whether to include speaker labels
-            **kwargs: Format-specific options
+            **kwargs: Format-specific options (style, karaoke, metadata, etc.)
 
         Returns:
             Caption content as bytes
         """
         pass
+
+    @classmethod
+    def _unpack_style(cls, style=None, **kwargs):
+        """Extract write options from CaptionStyle.
+
+        Convenience method for writers to resolve include_speaker and word_level
+        from a CaptionStyle instance. Also accepts legacy kwargs for backward
+        compatibility (include_speaker, word_level).
+
+        Args:
+            style: CaptionStyle instance or None (uses defaults)
+            **kwargs: Legacy overrides — include_speaker and word_level are
+                consumed if present, remaining kwargs are left untouched.
+
+        Returns:
+            Tuple of (style, include_speaker, word_level)
+        """
+        from ..config import CaptionStyle
+
+        style = style or CaptionStyle()
+        include_speaker = kwargs.pop("include_speaker", style.include_speaker_in_text)
+        word_level = kwargs.pop("word_level", style.word_level)
+        return style, include_speaker, word_level
 
     @classmethod
     def _should_include_speaker(cls, sup: Any, include_speaker: bool) -> bool:

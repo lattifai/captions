@@ -42,45 +42,46 @@ class CaptionFonts:
 
 @dataclass
 class CaptionStyle:
-    """Caption style configuration for ASS/TTML formats.
+    """Caption style configuration for ASS/TTML formats."""
 
-    Attributes:
-        primary_color: Main text color (#RRGGBB)
-        secondary_color: Secondary/highlight color (#RRGGBB)
-        outline_color: Text outline color (#RRGGBB)
-        back_color: Shadow/back color (#RRGGBB). In ASS borderstyle=1 this is the
-            drop shadow color. Legacy field kept for backward compatibility.
-        font_name: Font family name (use CaptionFonts constants or any system font)
-        font_size: Font size in points
-        bold: Enable bold text
-        italic: Enable italic text
-        outline_width: Outline thickness
-        shadow_depth: Shadow distance
-        background_color: Background box color. Empty = no box (default).
-            Supports #RRGGBB (solid) and #RRGGBBAA (semi-transparent).
-        alignment: ASS alignment (1-9, numpad style), 2=bottom-center
-        margin_l: Left margin in pixels
-        margin_r: Right margin in pixels
-        margin_v: Vertical margin in pixels
-    """
+    # -- Colors (#RRGGBB format) --
 
-    # Colors (#RRGGBB format)
     primary_color: str = "#FFFFFF"
+    """Main text color (#RRGGBB)."""
+
     secondary_color: str = "#00FFFF"
+    """Secondary/highlight color (#RRGGBB). Used as karaoke sweep target color."""
+
     outline_color: str = "#000000"
+    """Text outline color (#RRGGBB)."""
+
     back_color: str = "#000000"
+    """Shadow/back color (#RRGGBB). In ASS borderstyle=1 this is the drop shadow color."""
 
-    # Font
+    # -- Font --
+
     font_name: str = CaptionFonts.ARIAL
+    """Font family name. Use CaptionFonts constants or any system font."""
+
     font_size: int = 20
+    """Font size in points."""
+
     bold: bool = False
+    """Enable bold text."""
+
     italic: bool = False
+    """Enable italic text."""
 
-    # Border and shadow
+    # -- Border and shadow --
+
     outline_width: float = 0
-    shadow_depth: float = 1.0
+    """Outline thickness (px). Recommended 2.0-2.5 for karaoke."""
 
-    # Background box
+    shadow_depth: float = 1.0
+    """Shadow distance (px). Set to 0 for karaoke — shadows interfere with color sweep."""
+
+    # -- Background box --
+
     background_color: str = ""
     """Subtitle background box color.
     - "":           no background box (default — text floats on video)
@@ -90,13 +91,22 @@ class CaptionStyle:
     Silently ignored by formats without background support (SRT, LRC, etc.).
     """
 
-    # Position
-    alignment: int = 2
-    margin_l: int = 20
-    margin_r: int = 20
-    margin_v: int = 20
+    # -- Position --
 
-    # Speaker
+    alignment: int = 2
+    """ASS alignment (1-9, numpad style). 2=bottom-center (default)."""
+
+    margin_l: int = 20
+    """Left margin in pixels."""
+
+    margin_r: int = 20
+    """Right margin in pixels."""
+
+    margin_v: int = 20
+    """Vertical margin in pixels."""
+
+    # -- Speaker --
+
     speaker_color: str = ""
     """Speaker name color mode for ASS output.
     - "":           no special color (default)
@@ -105,7 +115,8 @@ class CaptionStyle:
     - "auto":       built-in 10-color palette, auto-assigned per speaker
     """
 
-    # Output behavior
+    # -- Output behavior --
+
     include_speaker_in_text: bool = True
     """Include speaker labels in caption text (e.g., '[Alice] Hello' vs 'Hello')."""
 
@@ -168,8 +179,9 @@ def apply_color_scheme(style: CaptionStyle, scheme_name: str) -> None:
     style.back_color = resolved["back_color"]
     if "outline_width" in resolved:
         style.outline_width = resolved["outline_width"]
-    if "shadow_depth" in resolved:
-        style.shadow_depth = resolved["shadow_depth"]
+    # Karaoke: shadow_depth defaults to 0 — shadows interfere with color sweep.
+    # Individual schemes can override via explicit "shadow_depth" key.
+    style.shadow_depth = resolved.get("shadow_depth", 0.0)
     if "background_color" in resolved:
         style.background_color = resolved["background_color"]
 

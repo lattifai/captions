@@ -254,8 +254,6 @@ class SRV3Format(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
-        word_level: bool = False,
         **kwargs,
     ) -> Path:
         """Write SRV3 format.
@@ -263,14 +261,13 @@ class SRV3Format(FormatHandler):
         Args:
             supervisions: List of Supervision objects
             output_path: Output file path
-            include_speaker: Whether to include speaker (not used in SRV3)
-            word_level: If True, include word-level timing in <s> elements
+            **kwargs: style, metadata, etc.
 
         Returns:
             Path to written file
         """
         output_path = Path(output_path)
-        content = cls.to_bytes(supervisions, include_speaker=include_speaker, word_level=word_level, **kwargs)
+        content = cls.to_bytes(supervisions, **kwargs)
         output_path.write_bytes(content)
         return output_path
 
@@ -278,22 +275,21 @@ class SRV3Format(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
-        word_level: bool = False,
         metadata: Optional[Dict] = None,
+        style=None,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to SRV3 format bytes.
 
         Args:
             supervisions: List of Supervision objects
-            include_speaker: Whether to include speaker (prepended to text if True)
-            word_level: If True, include word-level timing in <s> elements
             metadata: Optional metadata dict
+            style: CaptionStyle controlling output behavior
 
         Returns:
             SRV3 XML content as UTF-8 encoded bytes
         """
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
         # Create root element
         root = ET.Element("timedtext")
         root.set("format", "3")

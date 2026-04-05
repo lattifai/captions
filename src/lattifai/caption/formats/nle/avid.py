@@ -273,7 +273,6 @@ class AvidDSFormat(FormatWriter):
         cls,
         supervisions: List[Supervision],
         output_path: Pathlike,
-        include_speaker: bool = True,
         **kwargs,
     ):
         """Write supervisions to Avid DS format file.
@@ -281,12 +280,12 @@ class AvidDSFormat(FormatWriter):
         Args:
             supervisions: List of supervision segments
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options (fps, drop_frame, etc.)
+            **kwargs: style, additional config options (fps, drop_frame, etc.)
 
         Returns:
             Path to written file
         """
+        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
         strip_standard_kwargs(kwargs)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.write(supervisions, output_path, config)
@@ -295,19 +294,18 @@ class AvidDSFormat(FormatWriter):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to Avid DS format bytes.
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker labels
-            **kwargs: Additional config options
+            **kwargs: style, additional config options
 
         Returns:
             Avid DS content as bytes
         """
+        _, include_speaker, _ = cls._unpack_style(kwargs.pop("style", None), **kwargs)
         strip_standard_kwargs(kwargs)
         config = AvidDSConfig(include_speaker=include_speaker, **kwargs)
         return AvidDSWriter.to_bytes(supervisions, config)

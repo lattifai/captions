@@ -180,9 +180,8 @@ class LRCFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
+        style=None,
         **kwargs,
     ) -> Path:
         """Write supervisions to LRC file.
@@ -190,10 +189,9 @@ class LRCFormat(FormatHandler):
         Args:
             supervisions: List of Supervision objects to write
             output_path: Path to output file
-            include_speaker: Whether to include speaker labels in text
-            word_level: Enable word-level output
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use enhanced LRC with inline timestamps
+            style: CaptionStyle controlling output behavior
             **kwargs: Additional options
 
         Returns:
@@ -202,9 +200,8 @@ class LRCFormat(FormatHandler):
         output_path = Path(output_path)
         content = cls.to_bytes(
             supervisions,
-            include_speaker=include_speaker,
-            word_level=word_level,
             karaoke=karaoke,
+            style=style,
             **kwargs,
         )
         output_path.write_bytes(content)
@@ -214,25 +211,24 @@ class LRCFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
+        style=None,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to LRC format bytes.
 
         Args:
             supervisions: List of Supervision objects
-            include_speaker: Whether to include speaker labels
-            word_level: Enable word-level output
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use enhanced LRC with inline timestamps
             metadata: Optional metadata dict containing lrc_* keys to restore
+            style: CaptionStyle controlling output behavior
 
         Returns:
             Caption content as bytes
         """
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
         config = karaoke or KaraokeConfig(enabled=False)
         karaoke_enabled = config.enabled
         lines = []

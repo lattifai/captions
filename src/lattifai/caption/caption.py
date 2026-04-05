@@ -323,8 +323,8 @@ class Caption:
 
     def with_margins(
         self,
-        start_margin: float = 0.08,
-        end_margin: float = 0.20,
+        start_margin: float = 0.10,
+        end_margin: float = 0.10,
         min_gap: float = 0.08,
         collision_mode: str = "trim",
     ) -> "Caption":
@@ -335,8 +335,8 @@ class Caption:
         with the specified margins applied around the actual speech boundaries.
 
         Args:
-            start_margin: Seconds to extend before the first word (default: 0.08)
-            end_margin: Seconds to extend after the last word (default: 0.20)
+            start_margin: Seconds to extend before the first word (default: 0.10)
+            end_margin: Seconds to extend after the last word (default: 0.10)
             min_gap: Minimum gap between segments for collision handling (default: 0.08)
             collision_mode: How to handle segment overlap - 'trim' or 'gap' (default: 'trim')
 
@@ -608,11 +608,6 @@ class Caption:
         if karaoke and karaoke.color_scheme:
             apply_color_scheme(effective_style, karaoke.color_scheme)
 
-        # Extract output behavior from style
-        include_speaker = effective_style.include_speaker_in_text
-        word_level = effective_style.word_level
-        translation_first = effective_style.translation_first
-
         supervisions = self.supervisions
 
         # Apply broadcast standardization if configured
@@ -635,7 +630,7 @@ class Caption:
                 )
 
         # Swap text and translation for translation-first bilingual output
-        if translation_first:
+        if effective_style.translation_first:
             import dataclasses
 
             swapped = []
@@ -697,8 +692,6 @@ class Caption:
             return writer_cls.write(
                 supervisions,
                 path,
-                include_speaker=include_speaker,
-                word_level=word_level,
                 karaoke=karaoke,
                 metadata=writer_metadata,
                 style=effective_style,
@@ -706,8 +699,6 @@ class Caption:
 
         content = writer_cls.to_bytes(
             supervisions,
-            include_speaker=include_speaker,
-            word_level=word_level,
             karaoke=karaoke,
             metadata=writer_metadata,
             style=effective_style,

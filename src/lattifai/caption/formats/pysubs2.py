@@ -148,13 +148,12 @@ class Pysubs2Format(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         fps: float = 25.0,
         **kwargs,
     ) -> Path:
         """Write caption using pysubs2."""
         output_path = Path(output_path)
-        content = cls.to_bytes(supervisions, include_speaker=include_speaker, fps=fps, **kwargs)
+        content = cls.to_bytes(supervisions, fps=fps, **kwargs)
         output_path.write_bytes(content)
         return output_path
 
@@ -162,26 +161,26 @@ class Pysubs2Format(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         fps: float = 25.0,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
+        style: Optional[CaptionStyle] = None,
         **kwargs,
     ) -> bytes:
         """Convert to bytes using pysubs2.
 
         Args:
             supervisions: List of Supervision objects
-            include_speaker: Whether to include speaker in output
             fps: Frames per second (for MicroDVD format)
-            word_level: If True and alignment exists, output word-per-segment
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use karaoke styling (format-specific)
+            style: CaptionStyle controlling output behavior
 
         Returns:
             Subtitle content as bytes
         """
         from .base import expand_to_word_supervisions
+
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
 
         # Check if karaoke is enabled
         karaoke_enabled = karaoke is not None and karaoke.enabled
@@ -227,7 +226,6 @@ class SRTFormat(Pysubs2Format):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         use_bom: bool = False,
         metadata: Optional[Dict] = None,
         **kwargs,
@@ -236,11 +234,10 @@ class SRTFormat(Pysubs2Format):
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker in output
             use_bom: Whether to add BOM for Windows compatibility
             metadata: Optional metadata dict. If encoding is 'utf-8-sig', adds BOM.
         """
-        content = super().to_bytes(supervisions, include_speaker=include_speaker, **kwargs)
+        content = super().to_bytes(supervisions, **kwargs)
 
         # Add BOM if requested or if original had BOM
         add_bom = use_bom
@@ -415,9 +412,7 @@ class ASSFormat(Pysubs2Format):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         fps: float = 25.0,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         style: Optional[CaptionStyle] = None,
@@ -427,19 +422,19 @@ class ASSFormat(Pysubs2Format):
 
         Args:
             supervisions: List of supervision segments
-            include_speaker: Whether to include speaker in output
             fps: Frames per second (not used for ASS)
-            word_level: If True and alignment exists, output word-per-segment or karaoke
             karaoke: Karaoke configuration. When provided with enabled=True,
                 generate karaoke tags
             metadata: Optional metadata dict containing ass_info and ass_styles
                 to restore original ASS formatting
-            style: CaptionStyle controlling visual rendering
+            style: CaptionStyle controlling visual rendering and output behavior
 
         Returns:
             ASS content as bytes
         """
         from .base import expand_to_word_supervisions
+
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
 
         karaoke_enabled = karaoke is not None and karaoke.enabled
 
@@ -450,7 +445,7 @@ class ASSFormat(Pysubs2Format):
         # Create ASS file and restore global styles from metadata
         subs = cls._create_ass_file_with_metadata(metadata)
 
-        effective_style = style or CaptionStyle()
+        effective_style = style
         speaker_color = effective_style.speaker_color
 
         # Add karaoke style from effective_style
@@ -763,15 +758,16 @@ class SSAFormat(ASSFormat):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         fps: float = 25.0,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
+        style: Optional[CaptionStyle] = None,
         **kwargs,
     ) -> bytes:
         """Convert to SSA bytes with style preservation."""
         from .base import expand_to_word_supervisions
+
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
 
         if word_level and not (karaoke and karaoke.enabled):
             supervisions = expand_to_word_supervisions(supervisions)

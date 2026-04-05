@@ -328,6 +328,7 @@ class TTMLFormatBase(FormatHandler):
         include_speaker: bool = True,
         word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
+        style=None,
     ) -> ET.Element:
         """Build TTML document structure.
 
@@ -338,6 +339,7 @@ class TTMLFormatBase(FormatHandler):
             word_level: Whether to output word-level timing
             karaoke: Karaoke configuration. When provided with enabled=True,
                 use span-based karaoke; otherwise use p-per-word
+            style: CaptionStyle (unused here, reserved for future)
         """
         from .base import expand_to_word_supervisions
 
@@ -484,10 +486,9 @@ class TTMLFormat(TTMLFormatBase):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         config: Optional[TTMLConfig] = None,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
+        style=None,
         **kwargs,
     ) -> Path:
         """Write TTML format.
@@ -495,14 +496,14 @@ class TTMLFormat(TTMLFormatBase):
         Args:
             supervisions: List of supervisions to write
             output_path: Output file path
-            include_speaker: Whether to include speaker names
             config: TTML configuration
-            word_level: Whether to output word-level timing
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                use span-based karaoke; otherwise use p-per-word
+            karaoke: Karaoke configuration
+            style: CaptionStyle controlling output behavior
         """
         if config is None:
             config = TTMLConfig()
+
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
 
         output_path = Path(output_path)
         if output_path.suffix.lower() not in [".ttml", ".xml"]:
@@ -524,26 +525,25 @@ class TTMLFormat(TTMLFormatBase):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         config: Optional[TTMLConfig] = None,
-        word_level: bool = False,
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
+        style=None,
         **kwargs,
     ) -> bytes:
         """Convert to TTML format bytes.
 
         Args:
             supervisions: List of supervisions to convert
-            include_speaker: Whether to include speaker names
             config: TTML configuration
-            word_level: Whether to output word-level timing
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                use span-based karaoke; otherwise use p-per-word
+            karaoke: Karaoke configuration
             metadata: Optional metadata dict containing ttml_* keys to restore
+            style: CaptionStyle controlling output behavior
         """
         if config is None:
             config = TTMLConfig()
+
+        style, include_speaker, word_level = cls._unpack_style(style, **kwargs)
 
         # Apply metadata to config if available
         if metadata:
@@ -599,25 +599,23 @@ class IMSC1Format(TTMLFormatBase):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         language: str = "en",
         **kwargs,
     ) -> Path:
         """Write IMSC1 format."""
         config = TTMLConfig(profile="imsc1", language=language)
-        return TTMLFormat.write(supervisions, output_path, include_speaker, config, **kwargs)
+        return TTMLFormat.write(supervisions, output_path, config=config, **kwargs)
 
     @classmethod
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         language: str = "en",
         **kwargs,
     ) -> bytes:
         """Convert to IMSC1 format bytes."""
         config = TTMLConfig(profile="imsc1", language=language)
-        return TTMLFormat.to_bytes(supervisions, include_speaker, config, **kwargs)
+        return TTMLFormat.to_bytes(supervisions, config=config, **kwargs)
 
 
 @register_format("ebu_tt_d")
@@ -632,25 +630,23 @@ class EBUTD_Format(TTMLFormatBase):
         cls,
         supervisions: List[Supervision],
         output_path,
-        include_speaker: bool = True,
         language: str = "en",
         **kwargs,
     ) -> Path:
         """Write EBU-TT-D format."""
         config = TTMLConfig(profile="ebu-tt-d", language=language)
-        return TTMLFormat.write(supervisions, output_path, include_speaker, config, **kwargs)
+        return TTMLFormat.write(supervisions, output_path, config=config, **kwargs)
 
     @classmethod
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        include_speaker: bool = True,
         language: str = "en",
         **kwargs,
     ) -> bytes:
         """Convert to EBU-TT-D format bytes."""
         config = TTMLConfig(profile="ebu-tt-d", language=language)
-        return TTMLFormat.to_bytes(supervisions, include_speaker, config, **kwargs)
+        return TTMLFormat.to_bytes(supervisions, config=config, **kwargs)
 
 
 # Export config classes

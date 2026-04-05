@@ -40,9 +40,13 @@ class CaptionFonts:
     MALGUN_GOTHIC = "Malgun Gothic"
 
 
-@dataclass
+@dataclass(frozen=True)
 class CaptionStyle:
-    """Caption style configuration for ASS/TTML formats."""
+    """Caption style configuration for ASS/TTML formats.
+
+    Frozen dataclass — instances are immutable after creation.
+    Use dataclasses.replace() to create modified copies.
+    """
 
     # -- Colors (#RRGGBB format) --
 
@@ -161,29 +165,39 @@ class KaraokeConfig:
     ttml_timing_mode: Literal["Word", "Line"] = "Word"
 
 
-def apply_color_scheme(style: CaptionStyle, scheme_name: str) -> None:
-    """Apply a karaoke color scheme to a CaptionStyle, overriding colors only.
+def apply_color_scheme(style: CaptionStyle, scheme_name: str) -> CaptionStyle:
+    """Return a new CaptionStyle with karaoke color scheme applied.
 
-    Font, alignment, margins, and other non-color fields are preserved.
+    Font, alignment, margins, and other non-color fields are preserved
+    from the original style. The input style is never mutated.
 
     Args:
-        style: CaptionStyle to modify in-place
+        style: Source CaptionStyle (not modified)
         scheme_name: Color scheme name (e.g., "azure-gold")
+
+    Returns:
+        New CaptionStyle with colors overridden, or the original style
+        unchanged if the scheme is not found.
     """
+    from dataclasses import replace
+
     resolved = resolve_karaoke_color_scheme(scheme_name)
     if not resolved:
-        return
-    style.primary_color = resolved["primary_color"]
-    style.secondary_color = resolved["secondary_color"]
-    style.outline_color = resolved["outline_color"]
-    style.back_color = resolved["back_color"]
+        return style
+
+    overrides = {
+        "primary_color": resolved["primary_color"],
+        "secondary_color": resolved["secondary_color"],
+        "outline_color": resolved["outline_color"],
+        "back_color": resolved["back_color"],
+        "shadow_depth": resolved.get("shadow_depth", 0.0),
+    }
     if "outline_width" in resolved:
-        style.outline_width = resolved["outline_width"]
-    # Karaoke: shadow_depth defaults to 0 — shadows interfere with color sweep.
-    # Individual schemes can override via explicit "shadow_depth" key.
-    style.shadow_depth = resolved.get("shadow_depth", 0.0)
+        overrides["outline_width"] = resolved["outline_width"]
     if "background_color" in resolved:
-        style.background_color = resolved["background_color"]
+        overrides["background_color"] = resolved["background_color"]
+
+    return replace(style, **overrides)
 
 
 @dataclass

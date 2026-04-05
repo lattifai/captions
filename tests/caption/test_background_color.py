@@ -29,7 +29,7 @@ class TestCaptionStyleBackgroundColor:
         assert style.background_color == "#00000080"
 
     def test_apply_color_scheme_with_background(self):
-        """apply_color_scheme with background_color should set it on style."""
+        """apply_color_scheme returns new style with background_color applied."""
         from lattifai.caption.colors import KARAOKE_COLOR_SCHEMES
         from lattifai.caption.config import apply_color_scheme
 
@@ -37,8 +37,9 @@ class TestCaptionStyleBackgroundColor:
         KARAOKE_COLOR_SCHEMES["azure-gold"]["background_color"] = "#1387C080"
         try:
             style = CaptionStyle()
-            apply_color_scheme(style, "azure-gold")
-            assert style.background_color == "#1387C080"
+            new_style = apply_color_scheme(style, "azure-gold")
+            assert new_style.background_color == "#1387C080"
+            assert style.background_color == ""  # original unchanged
         finally:
             KARAOKE_COLOR_SCHEMES["azure-gold"] = original
 

@@ -15,7 +15,6 @@ from typing import Dict, List, Optional
 # Karaoke Color Schemes
 # =============================================================================
 
-# Curated from 不二创艺, 徐挺好, 色彩中国, 莱利纺织
 # Each scheme: primary (unsung text), secondary (highlight sweep), outline, back (shadow)
 KARAOKE_COLOR_SCHEMES: Dict[str, Dict[str, str]] = {
     "azure-gold": {
@@ -115,7 +114,6 @@ def resolve_karaoke_color_scheme(name: str) -> Optional[Dict]:
 # =============================================================================
 
 # 10-color palette for auto speaker coloring (BBGGRR format for ASS)
-# Curated from: 不二创艺, 徐挺好, 色彩中国, 莱利纺织
 SPEAKER_PALETTE: List[str] = [
     "C08713",  # 晴空海蓝 Azure         (#1387C0)
     "09C2FF",  # 金柠暖阳 Warm Yellow   (#FFC209)

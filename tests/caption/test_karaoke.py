@@ -121,8 +121,9 @@ class TestColorSchemes:
         from lattifai.caption.config import apply_color_scheme
 
         style = CaptionStyle(primary_color="#FF0000")
-        apply_color_scheme(style, "sakura-purple")
-        assert style.primary_color == "#F7C3D9"
+        new_style = apply_color_scheme(style, "sakura-purple")
+        assert new_style.primary_color == "#F7C3D9"
+        assert style.primary_color == "#FF0000"  # original unchanged
 
     def test_all_12_schemes_resolve(self):
         from lattifai.caption.config import KARAOKE_COLOR_SCHEMES, resolve_karaoke_color_scheme
@@ -137,8 +138,9 @@ class TestColorSchemes:
         from lattifai.caption.config import apply_color_scheme
 
         style = CaptionStyle()
-        apply_color_scheme(style, "nonexistent")
-        assert style.primary_color == "#FFFFFF"
+        result = apply_color_scheme(style, "nonexistent")
+        assert result is style  # same object returned when scheme not found
+        assert result.primary_color == "#FFFFFF"
 
     def test_case_insensitive(self):
         from lattifai.caption.config import resolve_karaoke_color_scheme

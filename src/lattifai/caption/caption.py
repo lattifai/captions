@@ -606,7 +606,7 @@ class Caption:
 
         effective_style = style or CaptionStyle()
         if karaoke and karaoke.color_scheme:
-            apply_color_scheme(effective_style, karaoke.color_scheme)
+            effective_style = apply_color_scheme(effective_style, karaoke.color_scheme)
 
         supervisions = self.supervisions
 

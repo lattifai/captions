@@ -71,8 +71,9 @@ class CaptionStandardizer:
     """
 
     # Chinese/Japanese punctuation (for line break priority)
-    # Reference: alignment/punctuation.py
-    CJK_PUNCTUATION = r"[，。、？！：；·…—～" "''（）【】〔〕〖〗《》〈〉「」『』〘〙〚〛]"
+    # Note: '' (U+2018/2019 curly quotes) excluded — they appear in English
+    # contractions (they're, can't, it's) and must NOT trigger word splitting.
+    CJK_PUNCTUATION = r"[，。、？！：；·…—～""（）【】〔〕〖〗《》〈〉「」『』〘〙〚〛]"
 
     # English/Western punctuation
     EN_PUNCTUATION = r"[,.!?;:\-–—«»‹›]"
@@ -194,9 +195,12 @@ class CaptionStandardizer:
     def _split_long_segments(self, segments: List[Supervision]) -> List[Supervision]:
         """Split segments whose text exceeds max_lines × max_chars_per_line.
 
-        Long segments are split into multiple subtitle entries, each fitting
-        within the character budget. Duration is distributed proportionally.
-        Word alignment data is split accordingly when available.
+        Uses word alignment data when available for:
+        - Precise timing from word timestamps (not character-ratio guessing)
+        - Preferring split points at larger inter-word gaps (natural pauses)
+        - Proper margin handling (start_margin / end_margin per sub-segment)
+
+        Falls back to proportional timing when no alignment data is present.
         """
         max_text_len = self.config.max_lines * self.config.max_chars_per_line
         result: List[Supervision] = []
@@ -207,44 +211,157 @@ class CaptionStandardizer:
                 result.append(seg)
                 continue
 
-            # Split text into chunks that fit within budget
-            chunks = self._split_text_into_chunks(text, max_text_len)
-            if len(chunks) <= 1:
-                result.append(seg)
+            words = self._get_word_alignment(seg)
+            if words and len(words) >= 2:
+                sub_segs = self._split_with_alignment(seg, words, max_text_len)
+            else:
+                sub_segs = self._split_without_alignment(seg, text, max_text_len)
+
+            result.extend(sub_segs)
+
+        return result
+
+    def _split_with_alignment(
+        self, seg: Supervision, words: List, max_text_len: int
+    ) -> List[Supervision]:
+        """Split a segment using word alignment data for precise timing.
+
+        Strategy:
+        1. Accumulate words until character budget is reached
+        2. At budget boundary, prefer splitting at larger inter-word gaps
+        3. Each sub-segment gets timing from its first/last word + margins
+        """
+        sm = self.config.start_margin or 0.0
+        em = self.config.end_margin or 0.0
+
+        # Build word groups that fit within max_text_len
+        groups: List[List] = []  # Each group is a list of word alignment items
+        current_group: List = []
+        current_chars = 0
+
+        for i, word in enumerate(words):
+            word_len = len(word.symbol)
+            separator = 1 if current_chars > 0 else 0
+            new_len = current_chars + separator + word_len
+
+            if new_len > max_text_len and current_group:
+                # Budget exceeded: check if splitting here or at a nearby gap is better
+                best_split = self._find_best_gap_split(
+                    current_group, words, i, max_text_len
+                )
+                if best_split is not None and best_split < len(current_group):
+                    # Move some words from current_group to next group
+                    overflow = current_group[best_split:]
+                    current_group = current_group[:best_split]
+                    groups.append(current_group)
+                    current_group = overflow + [word]
+                    current_chars = sum(len(w.symbol) for w in current_group) + len(current_group) - 1
+                else:
+                    groups.append(current_group)
+                    current_group = [word]
+                    current_chars = word_len
+            else:
+                current_group.append(word)
+                current_chars = new_len
+
+        if current_group:
+            groups.append(current_group)
+
+        # Create sub-segments from word groups
+        result: List[Supervision] = []
+        for group in groups:
+            if not group:
                 continue
 
-            # Distribute duration proportionally by text length
-            total_chars = sum(len(c) for c in chunks)
-            words = self._get_word_alignment(seg)
-            current_start = seg.start
+            text = " ".join(w.symbol for w in group)
+            first_start = group[0].start
+            last_end = group[-1].start + group[-1].duration
 
-            for i, chunk in enumerate(chunks):
-                ratio = len(chunk) / total_chars if total_chars > 0 else 1.0 / len(chunks)
-                chunk_duration = max(self.config.min_duration, seg.duration * ratio)
+            # Apply margins
+            seg_start = max(0, first_start - sm)
+            seg_end = last_end + em
 
-                # Split word alignment if available
-                chunk_alignment = None
-                if words:
-                    chunk_alignment = self._split_alignment_for_chunk(
-                        words, current_start, current_start + chunk_duration
-                    )
+            # Ensure min_gap with previous segment
+            if result:
+                prev_end = result[-1].start + result[-1].duration
+                if seg_start < prev_end + self.config.min_gap:
+                    seg_start = prev_end + self.config.min_gap
 
-                new_seg = self._copy_segment(
-                    seg,
-                    text=chunk,
-                    start=current_start,
-                    duration=chunk_duration,
-                    alignment={"word": chunk_alignment} if chunk_alignment else getattr(seg, "alignment", None),
-                )
-                result.append(new_seg)
-                current_start += chunk_duration + self.config.min_gap
+            duration = max(self.config.min_duration, seg_end - seg_start)
+
+            result.append(self._copy_segment(
+                seg,
+                text=text,
+                start=seg_start,
+                duration=duration,
+                alignment={"word": list(group)},
+            ))
+
+        return result if result else [seg]
+
+    def _find_best_gap_split(
+        self, current_group: List, all_words: List, next_idx: int, max_text_len: int
+    ) -> Optional[int]:
+        """Find the best split point in current_group based on inter-word gaps.
+
+        Looks for the largest gap between words near the end of current_group
+        (within the last 40% of the group) to find a natural pause point.
+
+        Returns:
+            Index within current_group to split at, or None to split at the end.
+        """
+        if len(current_group) < 3:
+            return None
+
+        # Search the last 40% of the group for the largest gap
+        search_from = max(1, int(len(current_group) * 0.6))
+        best_idx = None
+        best_gap = -1.0
+
+        for i in range(search_from, len(current_group)):
+            prev_end = current_group[i - 1].start + current_group[i - 1].duration
+            gap = current_group[i].start - prev_end
+            if gap > best_gap:
+                best_gap = gap
+                best_idx = i
+
+        # Only use gap-based split if the gap is meaningful (>100ms)
+        if best_gap > 0.1 and best_idx is not None:
+            return best_idx
+
+        return None
+
+    def _split_without_alignment(
+        self, seg: Supervision, text: str, max_text_len: int
+    ) -> List[Supervision]:
+        """Split a segment without alignment data (proportional timing fallback)."""
+        chunks = self._split_text_into_chunks(text, max_text_len)
+        if len(chunks) <= 1:
+            return [seg]
+
+        total_chars = sum(len(c) for c in chunks)
+        current_start = seg.start
+        result: List[Supervision] = []
+
+        for chunk in chunks:
+            ratio = len(chunk) / total_chars if total_chars > 0 else 1.0 / len(chunks)
+            chunk_duration = max(self.config.min_duration, seg.duration * ratio)
+
+            result.append(self._copy_segment(
+                seg,
+                text=chunk,
+                start=current_start,
+                duration=chunk_duration,
+            ))
+            current_start += chunk_duration + self.config.min_gap
 
         return result
 
     def _split_text_into_chunks(self, text: str, max_chunk_len: int) -> List[str]:
-        """Split text into chunks, each fitting within max_chunk_len characters.
+        """Split text into chunks at word boundaries.
 
-        Splits at natural boundaries (punctuation > whitespace > hard cut).
+        Each chunk fits within max_chunk_len characters (with ~10% tolerance
+        to avoid mid-word splits).
         """
         text = self._normalize_text(text)
         if len(text) <= max_chunk_len:
@@ -263,12 +380,6 @@ class CaptionStandardizer:
             remaining = remaining[split_pos:].lstrip()
 
         return [c for c in chunks if c]
-
-    def _split_alignment_for_chunk(
-        self, words: List, chunk_start: float, chunk_end: float
-    ) -> List:
-        """Extract word alignment items that fall within a time range."""
-        return [w for w in words if w.start >= chunk_start - 0.01 and w.start < chunk_end]
 
     def _format_texts(self, segments: List[Supervision]) -> List[Supervision]:
         """Apply text formatting to all subtitles."""
@@ -321,10 +432,18 @@ class CaptionStandardizer:
 
     def _find_split_point(self, text: str, max_len: int) -> int:
         """
-        Find best split point.
+        Find best split point at a word boundary.
 
-        Strategy: Find punctuation or whitespace near max_len
-        Search range: 40% - 110% of max_len
+        Only splits at positions that are word boundaries:
+        - After whitespace (split between words)
+        - After punctuation followed by whitespace (end of clause/sentence)
+
+        Never splits mid-word (e.g., "they're" stays intact).
+
+        Strategy: Search near max_len (40%-110% range), prefer:
+        1. After CJK punctuation + whitespace (sentence boundary)
+        2. After English punctuation + whitespace (clause boundary)
+        3. At whitespace (word boundary)
 
         Args:
             text: Text to split
@@ -339,16 +458,30 @@ class CaptionStandardizer:
         best_pos = max_len
         best_priority = 999  # Lower is better
 
-        # Search backwards, prefer split points closer to max_len
         for i in range(min(search_end, len(text)) - 1, search_start - 1, -1):
             char = text[i]
-            priority = self._get_split_priority(char)
+
+            if char.isspace():
+                # Whitespace: always a valid word boundary
+                priority = 3
+                # Check if preceded by punctuation (upgrade priority)
+                if i > 0:
+                    prev_priority = self._get_split_priority(text[i - 1])
+                    if prev_priority < 3:
+                        priority = prev_priority
+            elif i + 1 < len(text) and text[i + 1].isspace():
+                # Punctuation followed by whitespace: valid word boundary
+                priority = self._get_split_priority(char)
+                if priority >= 999:
+                    continue  # Not actual punctuation
+            else:
+                # Mid-word character: never split here
+                continue
 
             if priority < best_priority:
                 best_priority = priority
-                best_pos = i + 1  # Split after punctuation/whitespace
+                best_pos = i + 1
 
-                # Exit early if highest priority (CJK punctuation) found
                 if priority == 1:
                     break
 

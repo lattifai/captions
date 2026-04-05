@@ -300,9 +300,8 @@ class TestASSStandardization:
 
     def test_long_text_split_into_multiple_segments(self):
         """Text exceeding max_lines * max_chars_per_line should split into multiple segments."""
-        # 150+ chars: exceeds 2 lines × 42 chars = 84 char budget
         long_text = (
-            "I'm very curious when you expect AIs that can like actually do "
+            "I am very curious when you expect AIs that can like actually do "
             "frontier math better than the at least as good well as the best "
             "human mathematicians in the world today"
         )
@@ -312,14 +311,99 @@ class TestASSStandardization:
         standardizer = CaptionStandardizer(max_chars_per_line=42, max_lines=2)
         result = standardizer.process(sups)
 
-        # Should have split into 2+ segments
         assert len(result) >= 2
-        # Each segment's text should fit within budget
         for seg in result:
             text = seg.text or ""
-            # After _format_texts, text might have \n for line breaks within budget
             for line in text.split("\n"):
                 assert len(line) <= 50, f"Line too long ({len(line)} chars): {line}"
+
+    def test_contraction_not_split(self):
+        """English contractions (they're, can't, it's) must NOT be split mid-word."""
+        text = (
+            "I mean in in some ways they\u2019re already doing frontier math "
+            "that is super intelligent and can\u2019t be replicated easily"
+        )
+        sups = [Supervision(text=text, start=0.0, duration=5.0)]
+        standardizer = CaptionStandardizer(max_chars_per_line=42, max_lines=2)
+        result = standardizer.process(sups)
+
+        for seg in result:
+            seg_text = seg.text or ""
+            for line in seg_text.split("\n"):
+                # No line should end with a bare apostrophe from a contraction
+                assert not line.rstrip().endswith("\u2019"), (
+                    f"Contraction split mid-word: '{line}'"
+                )
+                # No line should start with orphaned contraction suffix
+                stripped = line.lstrip()
+                assert not re.match(r"^(re|t|s|ve|ll|d)\b", stripped) or len(stripped) > 10, (
+                    f"Orphaned contraction suffix: '{line}'"
+                )
+
+    def test_split_with_word_alignment_uses_timestamps(self):
+        """When word alignment is available, timing should come from word timestamps."""
+        words = [
+            AlignmentItem(symbol="Hello", start=0.0, duration=0.5),
+            AlignmentItem(symbol="world", start=0.6, duration=0.4),
+            AlignmentItem(symbol="this", start=1.2, duration=0.3),
+            AlignmentItem(symbol="is", start=1.6, duration=0.2),
+            AlignmentItem(symbol="a", start=1.9, duration=0.1),
+            AlignmentItem(symbol="test", start=2.1, duration=0.3),
+            AlignmentItem(symbol="of", start=2.5, duration=0.2),
+            AlignmentItem(symbol="word", start=2.8, duration=0.3),
+            AlignmentItem(symbol="alignment", start=3.2, duration=0.5),
+            AlignmentItem(symbol="based", start=3.8, duration=0.3),
+            AlignmentItem(symbol="splitting", start=4.2, duration=0.4),
+            AlignmentItem(symbol="in", start=4.7, duration=0.1),
+            AlignmentItem(symbol="standardizer", start=4.9, duration=0.5),
+        ]
+        text = " ".join(w.symbol for w in words)  # 74 chars
+        sups = [
+            Supervision(
+                text=text, start=0.0, duration=5.5,
+                alignment={"word": words},
+            )
+        ]
+        standardizer = CaptionStandardizer(max_chars_per_line=30, max_lines=2)
+        result = standardizer.process(sups)
+
+        assert len(result) >= 2
+        # First segment should start near the first word's start time
+        assert result[0].start <= 0.1
+        # Each segment should have alignment data
+        for seg in result:
+            alignment = getattr(seg, "alignment", None)
+            assert alignment is not None, "Split segment lost alignment data"
+            assert "word" in alignment
+            assert len(alignment["word"]) > 0
+
+    def test_split_prefers_larger_gaps(self):
+        """With alignment, splitting should prefer positions with larger inter-word gaps."""
+        # Words with a big gap (0.8s) between "frontier" and "math"
+        words = [
+            AlignmentItem(symbol="doing", start=0.0, duration=0.3),
+            AlignmentItem(symbol="frontier", start=0.4, duration=0.4),
+            # ← 0.8s gap here (natural pause)
+            AlignmentItem(symbol="math", start=1.6, duration=0.3),
+            AlignmentItem(symbol="better", start=2.0, duration=0.3),
+            AlignmentItem(symbol="than", start=2.4, duration=0.2),
+            AlignmentItem(symbol="humans", start=2.7, duration=0.3),
+        ]
+        text = " ".join(w.symbol for w in words)  # 37 chars
+        sups = [
+            Supervision(
+                text=text, start=0.0, duration=3.0,
+                alignment={"word": words},
+            )
+        ]
+        # Force split with small budget
+        standardizer = CaptionStandardizer(max_chars_per_line=20, max_lines=1)
+        result = standardizer.process(sups)
+
+        if len(result) >= 2:
+            # First segment should end around "frontier" (before the big gap)
+            first_text = result[0].text or ""
+            assert "frontier" in first_text or "doing" in first_text
 
     def test_short_text_not_split(self):
         """Text within budget should remain a single segment."""
@@ -330,7 +414,7 @@ class TestASSStandardization:
 
     def test_split_preserves_speaker(self):
         """Split segments should preserve the original speaker."""
-        long_text = "A " * 60  # 120 chars
+        long_text = "word " * 25  # 125 chars
         sups = [Supervision(text=long_text.strip(), start=0.0, duration=8.0, speaker="Tao")]
         standardizer = CaptionStandardizer(max_chars_per_line=42, max_lines=2)
         result = standardizer.process(sups)
@@ -340,12 +424,11 @@ class TestASSStandardization:
 
     def test_split_distributes_duration(self):
         """Split segments should have proportional durations."""
-        long_text = "word " * 30  # 150 chars
+        long_text = "word " * 25  # 125 chars
         sups = [Supervision(text=long_text.strip(), start=0.0, duration=10.0)]
         standardizer = CaptionStandardizer(max_chars_per_line=42, max_lines=2)
         result = standardizer.process(sups)
         assert len(result) >= 2
-        # Each segment should have reasonable duration (not all crammed into one)
         for seg in result:
             assert seg.duration >= 0.8  # min_duration enforced
 

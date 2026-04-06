@@ -8,7 +8,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
-    from .config import KaraokeConfig
+    from .config import ASSConfig, LRCConfig, RenderConfig, StandardizationConfig
+    from .formats.nle.audition import AuditionCSVConfig, EdiMarkerConfig
+    from .formats.nle.avid import AvidDSConfig
+    from .formats.nle.fcpxml import FCPXMLConfig
+    from .formats.nle.premiere import PremiereXMLConfig
+    from .formats.ttml import TTMLConfig
+
+    FormatConfig = Union[
+        ASSConfig, LRCConfig, TTMLConfig,
+        FCPXMLConfig, PremiereXMLConfig,
+        AvidDSConfig, AuditionCSVConfig, EdiMarkerConfig,
+    ]
 
 from .config import InputCaptionFormat, OutputCaptionFormat  # noqa: F401
 from .formats import detect_format, get_reader, get_writer
@@ -376,7 +387,7 @@ class Caption:
         self,
         format: str = "srt",
         render: Optional["RenderConfig"] = None,
-        format_config=None,
+        format_config: Optional["FormatConfig"] = None,
     ) -> str:
         """
         Return caption content in specified format.
@@ -474,7 +485,7 @@ class Caption:
         self,
         output_format: Optional[str] = None,
         render: Optional["RenderConfig"] = None,
-        format_config=None,
+        format_config: Optional["FormatConfig"] = None,
     ) -> bytes:
         """
         Convert caption to bytes.
@@ -575,7 +586,7 @@ class Caption:
     def write(
         self,
         path: Union[Pathlike, io.BytesIO, None] = None,
-        format_config=None,
+        format_config: Optional["FormatConfig"] = None,
         render: Optional["RenderConfig"] = None,
         standardization: Optional["StandardizationConfig"] = None,
         _output_format: Optional[str] = None,

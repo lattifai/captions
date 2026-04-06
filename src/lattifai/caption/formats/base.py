@@ -247,7 +247,7 @@ def strip_standard_kwargs(kwargs: dict) -> None:
     This avoids repetitive kwargs.pop() blocks in every NLE format wrapper.
     Mutates the dict in-place.
     """
-    for key in ("word_level", "metadata", "speaker_color", "render", "behavior", "config"):
+    for key in ("word_level", "metadata", "speaker_color", "render", "behavior", "karaoke", "config"):
         kwargs.pop(key, None)
 
 

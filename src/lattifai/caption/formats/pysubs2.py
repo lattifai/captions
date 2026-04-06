@@ -133,8 +133,10 @@ class Pysubs2Format(FormatHandler):
         for event in subs.events:
             text = event.text
             # pysubs2 uses \N internally for line breaks (even in SRT/VTT).
-            # Convert to space for non-ASS formats (ASS reader overrides this).
-            text = text.replace("\\N", " ")
+            # Convert to \n to preserve multiline structure; normalize_text
+            # will collapse to space if enabled. When normalize_text=False,
+            # callers get true newlines for round-tripping or custom reflow.
+            text = text.replace("\\N", "\n")
             if normalize_text:
                 text = normalize_text_fn(text)
 

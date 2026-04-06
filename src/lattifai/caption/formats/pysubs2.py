@@ -12,7 +12,7 @@ import pysubs2
 
 from ..colors import SPEAKER_PALETTE, hex_rgb_to_bgr, resolve_speaker_color
 from ..config import ASSConfig
-from ..parsers.text_parser import detect_speaker_candidates
+from ..parsers.text_parser import classify_line_type, detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
 from ..supervision import Supervision
@@ -508,6 +508,12 @@ class ASSFormat(Pysubs2Format):
             # Detect drawing commands (\p1 in override tags or "m X Y" start)
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
+            else:
+                # Detect staff credits and branding (early short lines)
+                evt_start = event.start / 1000.0 if event.start is not None else 0
+                lt = classify_line_type(plaintext, start=evt_start)
+                if lt:
+                    custom["line_type"] = lt
 
             supervisions.append(
                 Supervision(
@@ -604,6 +610,11 @@ class ASSFormat(Pysubs2Format):
 
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
+            else:
+                evt_start = event.start / 1000.0 if event.start is not None else 0
+                lt = classify_line_type(plaintext, start=evt_start)
+                if lt:
+                    custom["line_type"] = lt
 
             supervisions.append(
                 Supervision(

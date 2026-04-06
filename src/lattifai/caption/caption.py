@@ -193,51 +193,31 @@ class Caption:
             mode: "line_by_line" splits each supervision's text by newline
                   (first line -> text, second line -> translation);
                   "alternating" merges consecutive supervisions with same timing
-                  (first -> text, second -> translation)
+                  (first -> text, second -> translation);
+                  "auto" detects the pattern automatically:
+                    1. ASS style names suggest language split -> alternating by style
+                    2. Same-timing pairs with CJK vs Latin -> alternating
+                    3. Text contains \\n with CJK/Latin split -> line_by_line
+                    4. Otherwise -> no merge (monolingual)
             primary_language: Language code for the primary text
             secondary_language: Language code for the translation
 
         Returns:
             New Caption with translation fields populated
         """
+        if mode == "auto":
+            mode = self._detect_bilingual_mode()
+
         if mode == "line_by_line":
-            new_sups = []
-            for sup in self.supervisions:
-                text = sup.text or ""
-                lines = text.split("\n")
-                if len(lines) >= 2:
-                    new_sup = fastcopy(
-                        sup,
-                        text=lines[0].strip(),
-                        translation=lines[1].strip(),
-                        language=primary_language or sup.language,
-                        target_lang=secondary_language,
-                    )
-                else:
-                    new_sup = fastcopy(sup, language=primary_language or sup.language)
-                new_sups.append(new_sup)
+            new_sups = self._merge_line_by_line(primary_language, secondary_language)
         elif mode == "alternating":
-            new_sups = []
-            i = 0
-            while i < len(self.supervisions):
-                sup = self.supervisions[i]
-                if i + 1 < len(self.supervisions):
-                    next_sup = self.supervisions[i + 1]
-                    # Same timing -> merge
-                    if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
-                        new_sup = fastcopy(
-                            sup,
-                            translation=next_sup.text,
-                            language=primary_language or sup.language,
-                            target_lang=secondary_language,
-                        )
-                        new_sups.append(new_sup)
-                        i += 2
-                        continue
-                new_sups.append(fastcopy(sup, language=primary_language or sup.language))
-                i += 1
+            new_sups = self._merge_alternating(primary_language, secondary_language)
+        elif mode == "none":
+            # Monolingual: no merge needed
+            new_sups = [fastcopy(sup, language=primary_language or sup.language)
+                        for sup in self.supervisions]
         else:
-            raise ValueError(f"Unknown mode: {mode}. Use 'line_by_line' or 'alternating'.")
+            raise ValueError(f"Unknown mode: {mode}. Use 'auto', 'line_by_line', 'alternating', or 'none'.")
 
         return Caption(
             supervisions=new_sups,
@@ -248,6 +228,123 @@ class Caption:
             source_path=self.source_path,
             metadata=self.metadata.copy(),
         )
+
+    def _detect_bilingual_mode(self) -> str:
+        """Auto-detect bilingual arrangement pattern.
+
+        Priority:
+        1. ASS style names contain language indicators -> alternating
+        2. Same-timing pairs with different CJK ratios -> alternating
+        3. Text contains newlines with CJK/Latin split -> line_by_line
+        4. Otherwise -> none (monolingual)
+        """
+        from .parsers.text_parser import cjk_ratio
+
+        sups = self.supervisions
+        if not sups:
+            return "none"
+
+        # 1. Check ASS style-based split (e.g., "Default" vs "English")
+        styles = set()
+        for sup in sups:
+            custom = getattr(sup, "custom", None) or {}
+            style = custom.get("ass_style")
+            if style:
+                styles.add(style)
+        if len(styles) >= 2:
+            # Check if different styles correlate with different languages
+            style_cjk = {}
+            for sup in sups:
+                custom = getattr(sup, "custom", None) or {}
+                style = custom.get("ass_style", "")
+                if style and sup.text:
+                    style_cjk.setdefault(style, []).append(cjk_ratio(sup.text))
+            if len(style_cjk) >= 2:
+                avg_ratios = {s: sum(r) / len(r) for s, r in style_cjk.items() if r}
+                ratios = list(avg_ratios.values())
+                if max(ratios) - min(ratios) > 0.4:
+                    return "alternating"
+
+        # 2. Check same-timing pairs (alternating pattern)
+        pair_count = 0
+        cjk_diff_count = 0
+        i = 0
+        while i + 1 < len(sups):
+            s1, s2 = sups[i], sups[i + 1]
+            if abs(s1.start - s2.start) < 0.01 and abs(s1.duration - s2.duration) < 0.01:
+                pair_count += 1
+                r1 = cjk_ratio(s1.text or "")
+                r2 = cjk_ratio(s2.text or "")
+                if abs(r1 - r2) > 0.4:
+                    cjk_diff_count += 1
+                i += 2
+            else:
+                i += 1
+        if pair_count >= 2 and cjk_diff_count / pair_count > 0.5:
+            return "alternating"
+
+        # 3. Check line_by_line (text contains \n with CJK/Latin split)
+        newline_bilingual = 0
+        newline_total = 0
+        for sup in sups:
+            text = sup.text or ""
+            if "\n" in text:
+                newline_total += 1
+                lines = text.split("\n", 1)
+                r1 = cjk_ratio(lines[0])
+                r2 = cjk_ratio(lines[1])
+                if abs(r1 - r2) > 0.3:
+                    newline_bilingual += 1
+        if newline_total >= 2 and newline_bilingual / newline_total > 0.5:
+            return "line_by_line"
+
+        return "none"
+
+    def _merge_line_by_line(
+        self, primary_language: Optional[str], secondary_language: Optional[str]
+    ) -> List[Supervision]:
+        """Split each supervision's text by newline into text + translation."""
+        new_sups = []
+        for sup in self.supervisions:
+            text = sup.text or ""
+            lines = text.split("\n")
+            if len(lines) >= 2:
+                new_sup = fastcopy(
+                    sup,
+                    text=lines[0].strip(),
+                    translation=lines[1].strip(),
+                    language=primary_language or sup.language,
+                    target_lang=secondary_language,
+                )
+            else:
+                new_sup = fastcopy(sup, language=primary_language or sup.language)
+            new_sups.append(new_sup)
+        return new_sups
+
+    def _merge_alternating(
+        self, primary_language: Optional[str], secondary_language: Optional[str]
+    ) -> List[Supervision]:
+        """Merge consecutive same-timing supervisions into text + translation."""
+        new_sups = []
+        i = 0
+        while i < len(self.supervisions):
+            sup = self.supervisions[i]
+            if i + 1 < len(self.supervisions):
+                next_sup = self.supervisions[i + 1]
+                # Same timing -> merge
+                if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
+                    new_sup = fastcopy(
+                        sup,
+                        translation=next_sup.text,
+                        language=primary_language or sup.language,
+                        target_lang=secondary_language,
+                    )
+                    new_sups.append(new_sup)
+                    i += 2
+                    continue
+            new_sups.append(fastcopy(sup, language=primary_language or sup.language))
+            i += 1
+        return new_sups
 
     def shift_time(self, seconds: float) -> "Caption":
         """
@@ -636,6 +733,19 @@ class Caption:
         # from_string branch can't see it because the string is already decoded.
         if detected_encoding and "encoding" not in caption.metadata:
             caption.metadata["encoding"] = detected_encoding
+
+        # P2-3: detect language from filename when not already set by the reader.
+        # Patterns like ".简体中文&英文.ass" / ".CN&EN.srt" / ".双语.ass" are
+        # free metadata available at zero parse cost.
+        if not caption.language and source_path:
+            from .parsers.text_parser import detect_language_from_filename
+
+            lang, tgt = detect_language_from_filename(source_path)
+            if lang:
+                caption.language = lang
+            if tgt and not caption.target_lang:
+                caption.target_lang = tgt
+
         return caption
 
     def write(

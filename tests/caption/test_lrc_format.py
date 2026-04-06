@@ -72,10 +72,12 @@ class TestLRCFormatWrite:
         assert "<" not in content
 
     def test_lrc_with_metadata(self):
-        """LRC should include metadata when karaoke_config.enabled=True."""
+        """LRC should include metadata via LRCConfig."""
+        from lattifai.caption.config import LRCConfig
+
         sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
-        config = KaraokeConfig(enabled=True, lrc_metadata={"ar": "Artist", "ti": "Title", "al": "Album"})
-        result = LRCFormat.to_bytes(sups, word_level=False, karaoke=config)
+        lrc_config = LRCConfig(metadata={"ar": "Artist", "ti": "Title", "al": "Album"})
+        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
         content = result.decode("utf-8")
 
         assert "[ar:Artist]" in content
@@ -83,10 +85,12 @@ class TestLRCFormatWrite:
         assert "[al:Album]" in content
 
     def test_lrc_centisecond_precision(self):
-        """LRC should support centisecond precision."""
+        """LRC should support centisecond precision via LRCConfig."""
+        from lattifai.caption.config import LRCConfig
+
         sups = [Supervision(text="Hello", start=15.234, duration=1.0)]
-        config = KaraokeConfig(enabled=False, lrc_precision="centisecond")
-        result = LRCFormat.to_bytes(sups, word_level=False, karaoke=config)
+        lrc_config = LRCConfig(precision="centisecond")
+        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
         content = result.decode("utf-8")
 
         # Centisecond: [00:15.23] not [00:15.234]
@@ -199,3 +203,56 @@ class TestLRCFormatRoundTrip:
         assert len(restored[0].alignment["word"]) == 2
         assert restored[0].alignment["word"][0].symbol == "Hello"
         assert abs(restored[0].alignment["word"][0].start - 15.2) < 0.01
+
+
+class TestLRCConfig:
+    """Test LRCConfig as format_config for LRC output."""
+
+    def test_lrc_config_precision(self):
+        """LRCConfig.precision should control timestamp format."""
+        from lattifai.caption.config import LRCConfig
+
+        sups = [Supervision(text="Hello", start=15.234, duration=1.0)]
+        lrc_config = LRCConfig(precision="centisecond")
+        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
+        content = result.decode("utf-8")
+
+        assert "[00:15.23]" in content
+
+    def test_lrc_config_metadata(self):
+        """LRCConfig.metadata should be written to LRC header."""
+        from lattifai.caption.config import LRCConfig
+
+        sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
+        lrc_config = LRCConfig(metadata={"ar": "Artist", "ti": "Title"})
+        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
+        content = result.decode("utf-8")
+
+        assert "[ar:Artist]" in content
+        assert "[ti:Title]" in content
+
+    def test_lrc_config_with_karaoke(self):
+        """LRCConfig + KaraokeConfig should work together."""
+        from lattifai.caption.config import LRCConfig
+
+        sups = [
+            Supervision(
+                text="Hello world",
+                start=1.0,
+                duration=2.0,
+                alignment={
+                    "word": [
+                        AlignmentItem(symbol="Hello", start=1.0, duration=0.5),
+                        AlignmentItem(symbol="world", start=1.5, duration=1.5),
+                    ]
+                },
+            )
+        ]
+        lrc_config = LRCConfig(precision="centisecond", metadata={"ar": "Test"})
+        karaoke = KaraokeConfig(enabled=True, effect="sweep")
+        result = LRCFormat.to_bytes(sups, word_level=True, karaoke=karaoke, config=lrc_config)
+        content = result.decode("utf-8")
+
+        assert "[ar:Test]" in content
+        # Centisecond precision
+        assert "[00:01.00]" in content

@@ -49,7 +49,7 @@ class OutputBehavior:
     """
 
     include_speaker_in_text: bool = True
-    """Include speaker labels in caption text (e.g., '[Alice] Hello' vs 'Hello')."""
+    """Include speaker labels in caption text (e.g., 'Alice: Hello' vs 'Hello')."""
 
     word_level: bool = False
     """Word-level output: word-per-segment in normal mode, word timestamps in karaoke/JSON."""
@@ -146,7 +146,8 @@ class KaraokeConfig:
     """Karaoke export configuration.
 
     Karaoke-specific settings only. Subtitle styling (font, colors, background)
-    lives in ASSConfig, not here.
+    lives in ASSConfig, not here. Format-specific settings live in their own
+    config classes (LRCConfig, TTMLConfig, etc.).
     """
 
     enabled: bool = False
@@ -164,18 +165,19 @@ class KaraokeConfig:
     See KARAOKE_COLOR_SCHEMES in colors.py for available schemes.
     Use "" (empty) for manual style configuration."""
 
-    # LRC specific
 
-    lrc_precision: Literal["centisecond", "millisecond"] = "millisecond"
-    """LRC time precision ("centisecond" or "millisecond")."""
+@dataclass
+class LRCConfig:
+    """Configuration for LRC lyric format export.
 
-    lrc_metadata: Dict[str, str] = field(default_factory=dict)
-    """LRC metadata dict (ar, ti, al, etc.)."""
+    Pass as format_config to Caption.write() for LRC output.
+    """
 
-    # TTML specific
+    precision: Literal["centisecond", "millisecond"] = "millisecond"
+    """Timestamp precision: "centisecond" ([mm:ss.xx]) or "millisecond" ([mm:ss.xxx])."""
 
-    ttml_timing_mode: Literal["Word", "Line"] = "Word"
-    """TTML timing attribute ("Word" or "Line")."""
+    metadata: Dict[str, str] = field(default_factory=dict)
+    """LRC metadata header fields (ar, ti, al, by, offset, etc.)."""
 
 
 def apply_color_scheme(scheme_name: str, config: Optional[ASSConfig] = None) -> ASSConfig:

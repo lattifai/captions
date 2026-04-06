@@ -103,3 +103,47 @@ class TestTTMLReader:
         assert sups[0].start == 10.0
         assert sups[0].duration == 10.0
         assert sups[0].speaker == "Speaker 1"
+
+
+class TestTTMLConfigTimingMode:
+    """Test TTMLConfig.timing_mode replaces KaraokeConfig.ttml_timing_mode."""
+
+    def test_timing_mode_in_ttml_config(self):
+        """TTMLConfig should have timing_mode field."""
+        from lattifai.caption.formats.ttml import TTMLConfig
+
+        config = TTMLConfig(timing_mode="Line")
+        assert config.timing_mode == "Line"
+
+    def test_timing_mode_default(self):
+        """TTMLConfig.timing_mode should default to 'Word'."""
+        from lattifai.caption.formats.ttml import TTMLConfig
+
+        config = TTMLConfig()
+        assert config.timing_mode == "Word"
+
+    def test_timing_mode_used_in_ttml_output(self):
+        """TTMLConfig.timing_mode should appear in karaoke TTML output."""
+        from lattifai.caption.config import KaraokeConfig
+        from lattifai.caption.formats.ttml import TTMLConfig
+
+        sups = [
+            Supervision(
+                text="Hello world",
+                start=1.0,
+                duration=2.0,
+                alignment={
+                    "word": [
+                        AlignmentItem(symbol="Hello", start=1.0, duration=0.5),
+                        AlignmentItem(symbol="world", start=1.5, duration=1.5),
+                    ]
+                },
+            )
+        ]
+        config = TTMLConfig(timing_mode="Line")
+        karaoke = KaraokeConfig(enabled=True)
+        result = TTMLFormat.to_bytes(
+            sups, word_level=True, karaoke=karaoke, config=config
+        ).decode("utf-8")
+
+        assert 'timing="Line"' in result

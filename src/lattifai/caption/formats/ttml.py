@@ -11,7 +11,7 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 from xml.dom import minidom
 
 from ..config import KaraokeConfig
@@ -58,6 +58,8 @@ class TTMLConfig:
     speaker_regions: Dict[str, TTMLRegion] = field(default_factory=dict)
     speaker_styles: Dict[str, TTMLStyle] = field(default_factory=dict)
     language: str = "en"
+    timing_mode: Literal["Word", "Line"] = "Word"
+    """iTunes timing attribute for karaoke word highlighting."""
 
 
 class TTMLFormatBase(FormatHandler):
@@ -372,8 +374,7 @@ class TTMLFormatBase(FormatHandler):
 
         # Add iTunes timing attribute for karaoke mode
         if word_level and karaoke_enabled:
-            timing_mode = karaoke.ttml_timing_mode
-            root.set(f"{{{ITUNES_NS}}}timing", timing_mode)
+            root.set(f"{{{ITUNES_NS}}}timing", config.timing_mode)
 
         # Head section
         head = ET.SubElement(root, f"{{{TTML_NS}}}head")

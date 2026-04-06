@@ -106,16 +106,24 @@ class TestKaraokeConfigDefaults:
         config = KaraokeConfig()
         assert config.enabled is False
         assert config.effect == "sweep"
-        assert config.lrc_precision == "millisecond"
-        assert config.ttml_timing_mode == "Word"
+        assert config.color_scheme == ""
 
     def test_effects(self):
         for effect in ("sweep", "instant", "outline"):
             assert KaraokeConfig(effect=effect).effect == effect
 
-    def test_lrc_metadata(self):
-        config = KaraokeConfig(lrc_metadata={"ar": "Artist", "ti": "Title"})
-        assert config.lrc_metadata["ar"] == "Artist"
+    def test_lrc_config_defaults(self):
+        from lattifai.caption.config import LRCConfig
+
+        config = LRCConfig()
+        assert config.precision == "millisecond"
+        assert config.metadata == {}
+
+    def test_lrc_config_metadata(self):
+        from lattifai.caption.config import LRCConfig
+
+        config = LRCConfig(metadata={"ar": "Artist", "ti": "Title"})
+        assert config.metadata["ar"] == "Artist"
 
 
 class TestColorSchemes:
@@ -311,13 +319,20 @@ class TestCrossFormatWordLevel:
             assert len(result) > 0
 
     def test_custom_config(self, sup_hello_beautiful_world):
-        ass_config = ASSConfig(primary_color="#FF00FF", font_name=CaptionFonts.NOTO_SANS_SC)
-        config = KaraokeConfig(enabled=True, effect="instant", lrc_metadata={"ar": "Test Artist"})
+        from lattifai.caption.config import LRCConfig
 
-        lrc_result = get_writer("lrc").to_bytes([sup_hello_beautiful_world], word_level=True, karaoke=config)
+        ass_config = ASSConfig(primary_color="#FF00FF", font_name=CaptionFonts.NOTO_SANS_SC)
+        karaoke = KaraokeConfig(enabled=True, effect="instant")
+        lrc_config = LRCConfig(metadata={"ar": "Test Artist"})
+
+        lrc_result = get_writer("lrc").to_bytes(
+            [sup_hello_beautiful_world], word_level=True, karaoke=karaoke, config=lrc_config
+        )
         assert b"[ar:Test Artist]" in lrc_result
 
-        ass_result = get_writer("ass").to_bytes([sup_hello_beautiful_world], word_level=True, karaoke=config, config=ass_config)
+        ass_result = get_writer("ass").to_bytes(
+            [sup_hello_beautiful_world], word_level=True, karaoke=karaoke, config=ass_config
+        )
         assert b"{\\k" in ass_result
 
     def test_graceful_fallback(self):

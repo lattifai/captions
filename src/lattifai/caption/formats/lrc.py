@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from ..config import KaraokeConfig
+from ..config import KaraokeConfig, LRCConfig
 from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
@@ -210,22 +210,25 @@ class LRCFormat(FormatHandler):
         supervisions: List[Supervision],
         karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
+        config: Optional[LRCConfig] = None,
         **kwargs,
     ) -> bytes:
         """Convert supervisions to LRC format bytes.
 
         Args:
             supervisions: List of Supervision objects
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                use enhanced LRC with inline timestamps
+            karaoke: Karaoke configuration (enabled, effect)
             metadata: Optional metadata dict containing lrc_* keys to restore
+            config: LRC format configuration (precision, metadata)
 
         Returns:
             Caption content as bytes
         """
         behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
-        config = karaoke or KaraokeConfig(enabled=False)
-        karaoke_enabled = config.enabled
+        lrc_config = config if isinstance(config, LRCConfig) else LRCConfig()
+        karaoke_config = karaoke or KaraokeConfig(enabled=False)
+        karaoke_enabled = karaoke_config.enabled
+        precision = lrc_config.precision
         lines = []
 
         # Restore metadata from Caption.metadata (lrc_* keys)
@@ -236,13 +239,12 @@ class LRCFormat(FormatHandler):
                 if value:
                     lines.append(f"[{key}:{value}]")
 
-        # Also add karaoke config metadata if enabled
-        if karaoke_enabled:
-            for key, value in config.lrc_metadata.items():
-                # Avoid duplicates
-                existing_line = f"[{key}:"
-                if not any(line.startswith(existing_line) for line in lines):
-                    lines.append(f"[{key}:{value}]")
+        # Also add LRCConfig metadata
+        for key, value in lrc_config.metadata.items():
+            # Avoid duplicates
+            existing_line = f"[{key}:"
+            if not any(line.startswith(existing_line) for line in lines):
+                lines.append(f"[{key}:{value}]")
 
         if lines:
             lines.append("")
@@ -252,23 +254,22 @@ class LRCFormat(FormatHandler):
                 word_items = sup.alignment["word"]
                 if karaoke_enabled:
                     # Enhanced LRC mode: each word has inline timestamp
-                    # Use first word's timestamp for line timing (more accurate)
-                    line_time = cls._format_time(word_items[0].start, config.lrc_precision)
+                    line_time = cls._format_time(word_items[0].start, precision)
                     word_parts = []
                     for word in word_items:
-                        word_time = cls._format_time(word.start, config.lrc_precision)
+                        word_time = cls._format_time(word.start, precision)
                         word_parts.append(f"<{word_time}>{word.symbol}")
                     lines.append(f"[{line_time}]{' '.join(word_parts)}")
                 else:
                     # Word-per-line mode: each word as separate line
                     for word in sup.alignment["word"]:
-                        word_time = cls._format_time(word.start, config.lrc_precision)
+                        word_time = cls._format_time(word.start, precision)
                         lines.append(f"[{word_time}]{word.symbol}")
             else:
                 # Standard LRC mode: only line timestamp
                 from .base import render_bilingual_text
 
-                line_time = cls._format_time(sup.start, config.lrc_precision)
+                line_time = cls._format_time(sup.start, precision)
                 text = render_bilingual_text(sup, translation_first=behavior.translation_first)
                 if cls._should_include_speaker(sup, include_speaker):
                     text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"

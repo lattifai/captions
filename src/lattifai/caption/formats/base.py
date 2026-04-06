@@ -146,16 +146,11 @@ class FormatWriter(ABC):
 
     @classmethod
     def _unpack_render(cls, render=None, **kwargs):
-        """Extract output render flags.
-
-        Resolves include_speaker, word_level, and translation_first from
-        an RenderConfig instance. Also accepts legacy kwargs and the old
-        'style' kwarg for backward compatibility.
+        """Extract output render flags from a RenderConfig instance.
 
         Args:
             render: RenderConfig instance or None (uses defaults)
-            **kwargs: Legacy overrides — include_speaker, word_level, style
-                are consumed if present.
+            **kwargs: Remaining kwargs; 'render' is consumed if present.
 
         Returns:
             Tuple of (render, include_speaker, word_level)
@@ -164,14 +159,11 @@ class FormatWriter(ABC):
 
         # Accept render from kwargs (when passed via Caption.write())
         if render is None:
-            render = kwargs.pop("render", kwargs.pop("behavior", None))
+            render = kwargs.pop("render", None)
         else:
             kwargs.pop("render", None)
-            kwargs.pop("behavior", None)
         render = render or RenderConfig()
-        include_speaker = kwargs.pop("include_speaker", render.include_speaker_in_text)
-        word_level = kwargs.pop("word_level", render.word_level)
-        return render, include_speaker, word_level
+        return render, render.include_speaker_in_text, render.word_level
 
     @classmethod
     def _should_include_speaker(cls, sup: Any, include_speaker: bool) -> bool:
@@ -247,14 +239,14 @@ def strip_standard_kwargs(kwargs: dict) -> None:
     This avoids repetitive kwargs.pop() blocks in every NLE format wrapper.
     Mutates the dict in-place.
     """
-    for key in ("word_level", "metadata", "speaker_color", "render", "behavior", "karaoke", "config"):
+    for key in ("metadata", "render", "config"):
         kwargs.pop(key, None)
 
 
 def expand_to_word_supervisions(supervisions: List["Supervision"]) -> List["Supervision"]:
     """Expand supervisions with word alignment to one supervision per word.
 
-    Used for word-per-segment output when word_level=True but karaoke=False.
+    Used for word-per-segment output when word_level=True.
 
     Args:
         supervisions: List of Supervision objects with optional alignment data

@@ -587,7 +587,7 @@ class TestASSKaraoke:
         r"""Karaoke mode should produce \kf timing tags."""
         config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, config=config
+            word_aligned_sups, render=RenderConfig(word_level=True), config=config
         ).decode("utf-8")
         assert "{\\kf" in content
 
@@ -595,7 +595,7 @@ class TestASSKaraoke:
         """Karaoke mode should define a Karaoke style."""
         config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, config=config
+            word_aligned_sups, render=RenderConfig(word_level=True), config=config
         ).decode("utf-8")
         assert "Style: Karaoke" in content
 
@@ -603,7 +603,7 @@ class TestASSKaraoke:
         r"""Karaoke + speaker_color='auto' should produce \c color tags."""
         config = ASSConfig(karaoke_effect="sweep", speaker_color="auto")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, config=config
+            word_aligned_sups, render=RenderConfig(word_level=True), config=config
         ).decode("utf-8")
         assert "{\\c&H" in content
 
@@ -611,7 +611,7 @@ class TestASSKaraoke:
         """Supervisions without alignment should render in standard mode."""
         config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            simple_sups, word_level=True, config=config
+            simple_sups, render=RenderConfig(word_level=True), config=config
         ).decode("utf-8")
         # Should still have Dialogue entries (standard mode fallback)
         assert "Dialogue:" in content

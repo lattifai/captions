@@ -2,6 +2,7 @@
 
 import pytest
 
+from lattifai.caption.config import RenderConfig
 from lattifai.caption.formats.ttml import TTMLFormat
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
@@ -141,7 +142,7 @@ class TestTTMLConfigTimingMode:
         ]
         config = TTMLConfig(timing_mode="Line")
         result = TTMLFormat.to_bytes(
-            sups, word_level=True, config=config
+            sups, render=RenderConfig(word_level=True), config=config
         ).decode("utf-8")
 
         assert 'timing="Line"' in result

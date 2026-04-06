@@ -295,7 +295,7 @@ class TestSRV3Writer:
             ),
         ]
 
-        content = SRV3Format.to_bytes(supervisions, word_level=True)
+        content = SRV3Format.to_bytes(supervisions, render=RenderConfig(word_level=True))
         content_str = content.decode("utf-8")
 
         # Check word timing offsets
@@ -332,10 +332,10 @@ class TestSRV3Writer:
             Supervision(start=1.0, duration=2.0, text="Hello", speaker="Alice"),
         ]
 
-        content = SRV3Format.to_bytes(supervisions, include_speaker=True)
+        content = SRV3Format.to_bytes(supervisions)
         content_str = content.decode("utf-8")
 
-        # Speaker should be included in text
+        # Speaker should be included in text (default: include_speaker=True)
         assert "[Alice]" in content_str
         assert "Hello" in content_str
 
@@ -345,7 +345,7 @@ class TestSRV3Writer:
             Supervision(start=1.0, duration=2.0, text="Hello", speaker="Alice"),
         ]
 
-        content = SRV3Format.to_bytes(supervisions, include_speaker=False)
+        content = SRV3Format.to_bytes(supervisions, render=RenderConfig(include_speaker_in_text=False))
         content_str = content.decode("utf-8")
 
         # Speaker should not be included
@@ -364,7 +364,7 @@ class TestSRV3RoundTrip:
         ]
 
         # Write to bytes
-        content = SRV3Format.to_bytes(original_supervisions, word_level=False)
+        content = SRV3Format.to_bytes(original_supervisions)
 
         # Read back
         read_supervisions = SRV3Format.read(content.decode("utf-8"))
@@ -397,7 +397,7 @@ class TestSRV3RoundTrip:
         ]
 
         # Write with word-level
-        content = SRV3Format.to_bytes(original_supervisions, word_level=True)
+        content = SRV3Format.to_bytes(original_supervisions, render=RenderConfig(word_level=True))
 
         # Read back
         read_supervisions = SRV3Format.read(content.decode("utf-8"))
@@ -423,7 +423,7 @@ class TestSRV3RoundTrip:
         original = SRV3Format.read(SRV3_FILE)
 
         # Write to bytes with word-level
-        content = SRV3Format.to_bytes(original, word_level=True)
+        content = SRV3Format.to_bytes(original, render=RenderConfig(word_level=True))
 
         # Read back
         roundtrip = SRV3Format.read(content.decode("utf-8"))

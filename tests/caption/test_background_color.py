@@ -47,12 +47,14 @@ class TestASSConfigBackgroundColor:
 class TestASSBackgroundColor:
     """ASS writer background_color handling."""
 
-    def _write_ass(self, sups, **kwargs):
+    def _write_ass(self, sups, render=None, **kwargs):
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
+        if render is None:
+            render = RenderConfig(include_speaker_in_text=False)
         return ASSFormat.to_bytes(
             sups,
-            include_speaker=False,
+            render=render,
             **kwargs,
         ).decode("utf-8")
 
@@ -110,7 +112,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, word_level=True, config=config)
+        result = self._write_ass(sups, render=RenderConfig(include_speaker_in_text=False, word_level=True), config=config)
         lines = result.split("\n")
         karaoke_style_line = [l for l in lines if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
@@ -132,7 +134,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, word_level=True, config=ass_config)
+        result = self._write_ass(sups, render=RenderConfig(include_speaker_in_text=False, word_level=True), config=ass_config)
         karaoke_style_line = [l for l in result.split("\n") if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
         fields = karaoke_style_line[0].split(",")
@@ -147,7 +149,7 @@ class TestNonKaraokeBackgroundColor:
     def _write_ass(self, sups, config=None):
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
-        return ASSFormat.to_bytes(sups, include_speaker=True, config=config).decode("utf-8")
+        return ASSFormat.to_bytes(sups, config=config).decode("utf-8")
 
     def test_default_style_gets_borderstyle_3(self):
         """Non-karaoke ASS with background_color should set Default style borderstyle=3."""

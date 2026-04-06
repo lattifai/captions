@@ -30,6 +30,7 @@ from lattifai.caption import (
     TTMLConfig,
     TTMLWriter,
 )
+from lattifai.caption.config import RenderConfig
 from lattifai.caption.utils import (
     CollisionMode,
     TimecodeOffset,
@@ -266,7 +267,7 @@ class TestTTMLWriter:
         ]
 
         config = TTMLConfig(profile="imsc1")
-        content = TTMLWriter.to_bytes(supervisions, include_speaker=False, config=config)
+        content = TTMLWriter.to_bytes(supervisions, render=RenderConfig(include_speaker_in_text=False), config=config)
 
         # Should not include speaker name in output
         assert b"Alice " not in content

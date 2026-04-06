@@ -175,14 +175,14 @@ class TestColorSchemes:
 class TestASSKaraokeEffects:
     def test_sweep(self, sup_hello_world):
         config = ASSConfig(karaoke_effect="sweep")
-        content = ASSFormat.to_bytes([sup_hello_world], word_level=True, config=config).decode()
+        content = ASSFormat.to_bytes([sup_hello_world], render=RenderConfig(word_level=True), config=config).decode()
         assert "{\\kf45}Hello" in content
         assert "{\\kf285}world" in content
 
     def test_instant(self, sup_hello_world):
         config = ASSConfig(karaoke_effect="instant")
         content = ASSFormat.to_bytes(
-            [sup_hello_world], word_level=True, config=config
+            [sup_hello_world], render=RenderConfig(word_level=True), config=config
         ).decode()
         assert "{\\k45}Hello" in content
 
@@ -190,7 +190,7 @@ class TestASSKaraokeEffects:
         sup = _sup("Hello", 0.0, 1.0, [AlignmentItem(symbol="Hello", start=0.0, duration=0.5)])
         config = ASSConfig(karaoke_effect="outline")
         content = ASSFormat.to_bytes(
-            [sup], word_level=True, config=config
+            [sup], render=RenderConfig(word_level=True), config=config
         ).decode()
         assert "{\\ko50}Hello" in content
 
@@ -198,7 +198,7 @@ class TestASSKaraokeEffects:
 class TestASSKaraokeStyle:
     def test_karaoke_style_defined(self, sup_hello_world):
         config = ASSConfig(karaoke_effect="sweep")
-        content = ASSFormat.to_bytes([sup_hello_world], word_level=True, config=config).decode()
+        content = ASSFormat.to_bytes([sup_hello_world], render=RenderConfig(word_level=True), config=config).decode()
         assert "Style: Karaoke" in content
 
     def test_metadata_karaoke_takes_precedence(self):
@@ -215,7 +215,7 @@ class TestASSKaraokeStyle:
             }
         }
         config = ASSConfig(karaoke_effect="sweep")
-        content = ASSFormat.to_bytes([sup], word_level=True, config=config, metadata=metadata).decode()
+        content = ASSFormat.to_bytes([sup], render=RenderConfig(word_level=True), config=config, metadata=metadata).decode()
         parts = [l for l in content.splitlines() if l.startswith("Style: Karaoke,")][0].split(",")
         assert parts[1] == "Comic Sans MS"
         assert float(parts[2]) == 36.0
@@ -225,7 +225,7 @@ class TestASSKaraokeStyle:
         metadata = {"ass_styles": {"Default": {"fontname": "Georgia", "fontsize": 42,
                                                "primarycolor": "&H00FF00FF", "outlinecolor": "&H0000FF00", "alignment": 5}}}
         config = ASSConfig(karaoke_effect="sweep")
-        content = ASSFormat.to_bytes([sup], word_level=True, config=config, metadata=metadata).decode()
+        content = ASSFormat.to_bytes([sup], render=RenderConfig(word_level=True), config=config, metadata=metadata).decode()
         parts = [l for l in content.splitlines() if l.startswith("Style: Karaoke,")][0].split(",")
         assert parts[1] == "Georgia"
         assert float(parts[2]) == 42.0
@@ -233,19 +233,19 @@ class TestASSKaraokeStyle:
     def test_custom_style_param(self):
         sup = _sup("Hello", 0.0, 1.0, [AlignmentItem(symbol="Hello", start=0.0, duration=0.5)])
         config = ASSConfig(font_name="Courier", font_size=64, karaoke_effect="sweep")
-        content = ASSFormat.to_bytes([sup], word_level=True, config=config).decode()
+        content = ASSFormat.to_bytes([sup], render=RenderConfig(word_level=True), config=config).decode()
         parts = [l for l in content.splitlines() if l.startswith("Style: Karaoke,")][0].split(",")
         assert parts[1] == "Courier"
 
     def test_fallback_without_alignment(self):
         sup = Supervision(text="No alignment", start=10.0, duration=2.0)
         config = ASSConfig(karaoke_effect="sweep")
-        content = ASSFormat.to_bytes([sup], word_level=True, config=config).decode()
+        content = ASSFormat.to_bytes([sup], render=RenderConfig(word_level=True), config=config).decode()
         assert "No alignment" in content
         assert "{\\k" not in content
 
     def test_word_level_false(self, sup_hello_world):
-        content = ASSFormat.to_bytes([sup_hello_world], word_level=False).decode()
+        content = ASSFormat.to_bytes([sup_hello_world]).decode()
         assert "{\\k" not in content
 
     def test_multiline_newline_converted_to_ass_linebreak(self):
@@ -265,7 +265,7 @@ class TestASSKaraokeStyle:
         )
         config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            [sup], word_level=True, config=config
+            [sup], render=RenderConfig(word_level=True), config=config
         ).decode()
         # Must NOT contain literal newline inside a Dialogue line
         for line in content.splitlines():
@@ -282,35 +282,35 @@ class TestASSKaraokeStyle:
 
 class TestTTMLWordTiming:
     def test_word_timing_attribute(self, sup_hello_world):
-        content = TTMLFormat.to_bytes([sup_hello_world], word_level=True).decode()
+        content = TTMLFormat.to_bytes([sup_hello_world], render=RenderConfig(word_level=True)).decode()
         assert 'itunes:timing="Word"' in content or "timing" in content.lower()
 
     def test_word_spans(self, sup_hello_world):
-        content = TTMLFormat.to_bytes([sup_hello_world], word_level=True).decode()
+        content = TTMLFormat.to_bytes([sup_hello_world], render=RenderConfig(word_level=True)).decode()
         assert "<span" in content
         assert 'begin="00:00:15.200"' in content
         assert "Hello" in content
 
     def test_paragraph_timing(self, sup_hello_world):
-        content = TTMLFormat.to_bytes([sup_hello_world], word_level=True).decode()
+        content = TTMLFormat.to_bytes([sup_hello_world], render=RenderConfig(word_level=True)).decode()
         assert "<p " in content
         assert 'begin="00:00:15.200"' in content
 
     def test_fallback_without_alignment(self):
         sup = Supervision(text="No alignment", start=10.0, duration=2.0)
-        content = TTMLFormat.to_bytes([sup], word_level=True).decode()
+        content = TTMLFormat.to_bytes([sup], render=RenderConfig(word_level=True)).decode()
         assert "No alignment" in content
         assert content.count("<span") <= 1
 
     def test_word_spans_with_word_level(self, sup_hello_world):
         """word_level=True with alignment produces spans inside a single <p>."""
-        content = TTMLFormat.to_bytes([sup_hello_world], word_level=True).decode()
+        content = TTMLFormat.to_bytes([sup_hello_world], render=RenderConfig(word_level=True)).decode()
         assert content.count("<p ") == 1
         assert content.count("<span") == 2
         assert 'itunes:timing="Word"' in content
 
     def test_word_level_false(self, sup_hello_world):
-        content = TTMLFormat.to_bytes([sup_hello_world], word_level=False).decode()
+        content = TTMLFormat.to_bytes([sup_hello_world]).decode()
         assert 'itunes:timing="Word"' not in content
 
 
@@ -326,11 +326,11 @@ class TestCrossFormatWordLevel:
             assert writer is not None
             if fmt == "ass":
                 result = writer.to_bytes(
-                    [sup_hello_beautiful_world], word_level=True,
+                    [sup_hello_beautiful_world], render=RenderConfig(word_level=True),
                     config=ASSConfig(karaoke_effect="sweep"),
                 )
             else:
-                result = writer.to_bytes([sup_hello_beautiful_world], word_level=True)
+                result = writer.to_bytes([sup_hello_beautiful_world], render=RenderConfig(word_level=True))
             assert len(result) > 0
 
     def test_custom_config(self, sup_hello_beautiful_world):
@@ -340,12 +340,12 @@ class TestCrossFormatWordLevel:
         lrc_config = LRCConfig(metadata={"ar": "Test Artist"})
 
         lrc_result = get_writer("lrc").to_bytes(
-            [sup_hello_beautiful_world], word_level=True, config=lrc_config
+            [sup_hello_beautiful_world], render=RenderConfig(word_level=True), config=lrc_config
         )
         assert b"[ar:Test Artist]" in lrc_result
 
         ass_result = get_writer("ass").to_bytes(
-            [sup_hello_beautiful_world], word_level=True, config=ass_config
+            [sup_hello_beautiful_world], render=RenderConfig(word_level=True), config=ass_config
         )
         assert b"{\\k" in ass_result
 
@@ -354,10 +354,10 @@ class TestCrossFormatWordLevel:
         for fmt in ["lrc", "ass", "ttml"]:
             if fmt == "ass":
                 result = get_writer(fmt).to_bytes(
-                    [sup], word_level=True, config=ASSConfig(karaoke_effect="sweep"),
+                    [sup], render=RenderConfig(word_level=True), config=ASSConfig(karaoke_effect="sweep"),
                 )
             else:
-                result = get_writer(fmt).to_bytes([sup], word_level=True)
+                result = get_writer(fmt).to_bytes([sup], render=RenderConfig(word_level=True))
             assert b"No alignment" in result
 
 
@@ -368,7 +368,7 @@ class TestCrossFormatWordLevel:
 
 class TestKaraokeTimestampBoundary:
     def test_vtt_uses_word_timestamps(self, sup_with_gaps):
-        content = get_writer("vtt").to_bytes([sup_with_gaps], word_level=True).decode()
+        content = get_writer("vtt").to_bytes([sup_with_gaps], render=RenderConfig(word_level=True)).decode()
         ts_match = re.search(r"(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})", content)
         assert ts_match
 
@@ -381,7 +381,7 @@ class TestKaraokeTimestampBoundary:
         assert abs(_ts(ts_match.group(2)) - 14.2) < 0.01
 
     def test_vtt_word_timestamps_within_cue(self, sup_with_gaps):
-        content = get_writer("vtt").to_bytes([sup_with_gaps], word_level=True).decode()
+        content = get_writer("vtt").to_bytes([sup_with_gaps], render=RenderConfig(word_level=True)).decode()
 
         def _ts(s):
             h, m, rest = s.split(":")
@@ -398,7 +398,7 @@ class TestKaraokeTimestampBoundary:
 
     def test_ass_uses_word_timestamps(self, sup_with_gaps):
         config = ASSConfig(karaoke_effect="sweep")
-        content = get_writer("ass").to_bytes([sup_with_gaps], word_level=True, config=config).decode()
+        content = get_writer("ass").to_bytes([sup_with_gaps], render=RenderConfig(word_level=True), config=config).decode()
         match = re.search(r"Dialogue:\s*\d+,(\d+:\d+:\d+\.\d+),(\d+:\d+:\d+\.\d+)", content)
         assert match
 
@@ -413,7 +413,7 @@ class TestKaraokeTimestampBoundary:
     def test_ass_gap_aware_durations(self, sup_with_gaps):
         config = ASSConfig(karaoke_effect="sweep")
         content = get_writer("ass").to_bytes(
-            [sup_with_gaps], word_level=True, config=config
+            [sup_with_gaps], render=RenderConfig(word_level=True), config=config
         ).decode()
         kf_values = [int(m) for m in re.findall(r"\\kf(\d+)", content)]
         assert len(kf_values) == 3
@@ -424,7 +424,7 @@ class TestKaraokeTimestampBoundary:
         assert abs(sum(kf_values) - 370) <= 5
 
     def test_lrc_timestamps_monotonic(self, sup_with_gaps):
-        content = get_writer("lrc").to_bytes([sup_with_gaps], word_level=True).decode()
+        content = get_writer("lrc").to_bytes([sup_with_gaps], render=RenderConfig(word_level=True)).decode()
         matches = re.findall(r"<(\d+):(\d+)\.(\d+)>", content)
         assert len(matches) >= 3
 
@@ -436,7 +436,7 @@ class TestKaraokeTimestampBoundary:
             prev = ts
 
     def test_ttml_spans_within_paragraph(self, sup_with_gaps):
-        content = get_writer("ttml").to_bytes([sup_with_gaps], word_level=True).decode()
+        content = get_writer("ttml").to_bytes([sup_with_gaps], render=RenderConfig(word_level=True)).decode()
         p_match = re.search(r'<p[^>]*begin="([^"]+)"[^>]*end="([^"]+)"', content)
         if p_match:
 

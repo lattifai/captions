@@ -2,6 +2,7 @@
 
 import pytest
 
+from lattifai.caption.config import RenderConfig
 from lattifai.caption.formats.lrc import LRCFormat
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
@@ -15,7 +16,7 @@ class TestLRCFormatWrite:
             Supervision(text="Hello world", start=15.2, duration=3.3),
             Supervision(text="This is karaoke", start=18.5, duration=2.0),
         ]
-        result = LRCFormat.to_bytes(sups, word_level=False)
+        result = LRCFormat.to_bytes(sups)
         content = result.decode("utf-8")
 
         assert "[00:15.200]Hello world" in content
@@ -38,7 +39,7 @@ class TestLRCFormatWrite:
                 },
             )
         ]
-        result = LRCFormat.to_bytes(sups, word_level=True)
+        result = LRCFormat.to_bytes(sups, render=RenderConfig(word_level=True))
         content = result.decode("utf-8")
 
         assert "[00:15.200]" in content
@@ -60,7 +61,7 @@ class TestLRCFormatWrite:
                 },
             )
         ]
-        result = LRCFormat.to_bytes(sups, word_level=True)
+        result = LRCFormat.to_bytes(sups, render=RenderConfig(word_level=True))
         content = result.decode("utf-8")
 
         # Enhanced LRC has inline timestamps
@@ -73,7 +74,7 @@ class TestLRCFormatWrite:
 
         sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
         lrc_config = LRCConfig(metadata={"ar": "Artist", "ti": "Title", "al": "Album"})
-        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
+        result = LRCFormat.to_bytes(sups, config=lrc_config)
         content = result.decode("utf-8")
 
         assert "[ar:Artist]" in content
@@ -86,7 +87,7 @@ class TestLRCFormatWrite:
 
         sups = [Supervision(text="Hello", start=15.234, duration=1.0)]
         lrc_config = LRCConfig(precision="centisecond")
-        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
+        result = LRCFormat.to_bytes(sups, config=lrc_config)
         content = result.decode("utf-8")
 
         # Centisecond: [00:15.23] not [00:15.234]
@@ -95,7 +96,7 @@ class TestLRCFormatWrite:
     def test_lrc_fallback_without_alignment(self):
         """Word-level should fallback to line-level without alignment data."""
         sups = [Supervision(text="No alignment", start=10.0, duration=2.0)]
-        result = LRCFormat.to_bytes(sups, word_level=True)
+        result = LRCFormat.to_bytes(sups, render=RenderConfig(word_level=True))
         content = result.decode("utf-8")
 
         assert "[00:10.000]No alignment" in content
@@ -164,7 +165,7 @@ class TestLRCFormatRoundTrip:
             Supervision(text="Hello world", start=15.2, duration=3.3),
             Supervision(text="This is karaoke", start=18.5, duration=2.0),
         ]
-        content = LRCFormat.to_bytes(original, word_level=False).decode("utf-8")
+        content = LRCFormat.to_bytes(original).decode("utf-8")
         restored = LRCFormat.read(content)
 
         assert len(restored) == 2
@@ -188,7 +189,7 @@ class TestLRCFormatRoundTrip:
                 },
             )
         ]
-        content = LRCFormat.to_bytes(original, word_level=True).decode("utf-8")
+        content = LRCFormat.to_bytes(original, render=RenderConfig(word_level=True)).decode("utf-8")
         restored = LRCFormat.read(content)
 
         assert len(restored) == 1
@@ -208,7 +209,7 @@ class TestLRCConfig:
 
         sups = [Supervision(text="Hello", start=15.234, duration=1.0)]
         lrc_config = LRCConfig(precision="centisecond")
-        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
+        result = LRCFormat.to_bytes(sups, config=lrc_config)
         content = result.decode("utf-8")
 
         assert "[00:15.23]" in content
@@ -219,7 +220,7 @@ class TestLRCConfig:
 
         sups = [Supervision(text="Hello", start=0.0, duration=1.0)]
         lrc_config = LRCConfig(metadata={"ar": "Artist", "ti": "Title"})
-        result = LRCFormat.to_bytes(sups, word_level=False, config=lrc_config)
+        result = LRCFormat.to_bytes(sups, config=lrc_config)
         content = result.decode("utf-8")
 
         assert "[ar:Artist]" in content
@@ -243,7 +244,7 @@ class TestLRCConfig:
             )
         ]
         lrc_config = LRCConfig(precision="centisecond", metadata={"ar": "Test"})
-        result = LRCFormat.to_bytes(sups, word_level=True, config=lrc_config)
+        result = LRCFormat.to_bytes(sups, render=RenderConfig(word_level=True), config=lrc_config)
         content = result.decode("utf-8")
 
         assert "[ar:Test]" in content

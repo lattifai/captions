@@ -16,8 +16,8 @@ SPEAKER_TEXT_CASES = [
     # ('  >> SPEAKER:  Hello  ', '>> SPEAKER:', 'Hello'),
     (">> Speaker Name: Some text here.", ">> Speaker Name:", "Some text here."),
     (">> 中文说话人：你好", ">> 中文说话人：", "你好"),
-    # Test with \N replacement
-    (">> SPEAKER: Hello\\NWorld", ">> SPEAKER:", "Hello World"),
+    # \N preserved as literal (ASS-specific, handled by ASS reader not normalizer)
+    (">> SPEAKER: Hello\\NWorld", ">> SPEAKER:", "Hello\\NWorld"),
     # Test cases for SPEAKER_LATTIFAI ([SPEAKER_XX])
     ("[SPEAKER_01]: Text here", "[SPEAKER_01]:", "Text here"),
     ("[SPEAKER_123]: More text", "[SPEAKER_123]:", "More text"),
@@ -68,7 +68,7 @@ HTML_ENTITIES_CASES = [
     ("She said &quot;Hello&quot;", 'She said "Hello"'),
     ("It&#39;s a test", "It's a test"),
     ("Non-breaking&nbsp;space", "Non-breaking space"),
-    ("Line with \\N new line", "Line with new line"),
+    ("Line with \\N new line", "Line with \\N new line"),
     ("Multiple   spaces", "Multiple spaces"),
     ("Curly apostrophe don’t", "Curly apostrophe don't"),
     ("Curly apostrophe 5’s", "Curly apostrophe 5's"),
@@ -123,3 +123,35 @@ def test_parse_timestamp_text(input_line, expected_start, expected_end, expected
     assert start == expected_start, f"Failed start for input: '{input_line}'"
     assert end == expected_end, f"Failed end for input: '{input_line}'"
     assert text == expected_text, f"Failed text for input: '{input_line}'"
+
+
+# =============================================================================
+# P1-1: ASS \N newline preservation (bilingual subtitle roundtrip)
+# =============================================================================
+
+
+class TestASSNewlinePreservation:
+    """\\N must NOT be replaced with space by normalize_text.
+
+    \\N is ASS-specific line break syntax. The generic normalizer must leave it
+    alone. The ASS reader handles \\N → \\n conversion via pysubs2's plaintext.
+    This is critical for bilingual subtitles where \\N separates Chinese and
+    English text on the same dialogue line (e.g., '中文\\NEnglish').
+    """
+
+    def test_normalize_does_not_replace_backslash_n(self):
+        """\\N must pass through normalize_text unchanged (not collapsed to space)."""
+        result = normalize_text("他决不会放弃塔伯特\\NHe would never give up on Talbot")
+        assert "\\N" in result, f"\\N was destroyed by normalize_text: {result!r}"
+        assert " He would never" not in result, "\\N was replaced with space"
+
+    def test_normalize_preserves_multiple_backslash_n(self):
+        """Multiple \\N should all be preserved."""
+        result = normalize_text("Line1\\NLine2\\NLine3")
+        assert result.count("\\N") == 2, f"Expected 2 \\N, got: {result!r}"
+
+    def test_bilingual_structure_not_merged(self):
+        """Bilingual text must not collapse into a single line."""
+        result = normalize_text("你好世界\\NHello World")
+        assert result != "你好世界 Hello World", "\\N was replaced with space — bilingual structure destroyed"
+        assert result == "你好世界\\NHello World"

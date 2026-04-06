@@ -606,6 +606,7 @@ class Caption:
             FileNotFoundError: If file path does not exist.
         """
         source_path: Optional[str] = None
+        detected_encoding: Optional[str] = None
 
         # --- Load content into memory string ---
         if isinstance(path, (io.BytesIO, io.StringIO)):
@@ -617,8 +618,11 @@ class Caption:
             source_path = str(file_path)
             if not format or format == "auto":
                 format = detect_format(source_path) or file_path.suffix.lstrip(".").lower()
-            with open(file_path, "r", encoding=encoding, errors="replace") as f:
-                content = f.read()
+            # Use encoding detection for robust handling of UTF-16/GBK/GB18030 files.
+            # Pure-utf-8 files round-trip through the BOM branch unchanged.
+            from .formats.pysubs2 import detect_file_encoding
+
+            content, detected_encoding = detect_file_encoding(file_path)
 
         # --- Resolve format: explicit > file extension > content sniffing ---
         if not format or format == "auto":
@@ -627,6 +631,11 @@ class Caption:
         # --- Parse ---
         caption = cls.from_string(content, format=format, normalize_text=normalize_text)
         caption.source_path = source_path
+        # Preserve the real on-disk encoding for downstream consumers (e.g.
+        # roundtripping back to the original file encoding). parse()'s
+        # from_string branch can't see it because the string is already decoded.
+        if detected_encoding and "encoding" not in caption.metadata:
+            caption.metadata["encoding"] = detected_encoding
         return caption
 
     def write(

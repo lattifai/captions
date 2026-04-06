@@ -49,7 +49,9 @@ def normalize_text(text: str) -> str:
         "&quot;": '"',
         "&#39;": "'",
         "&nbsp;": " ",
-        "\\N": " ",
+        # \N intentionally NOT replaced here — it is ASS-specific line break
+        # syntax and must be preserved for bilingual subtitle roundtrip.
+        # The ASS reader converts \N via pysubs2 event.plaintext (see P0-2).
         "…": " ",  # replace ellipsis with space to avoid merging words
     }
     for entity, char in html_entities.items():

@@ -3,9 +3,10 @@
 Handles: SRT, VTT, ASS, SSA, SUB (MicroDVD), SAMI/SMI
 """
 
+import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pysubs2
 
@@ -17,6 +18,57 @@ from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
 from ..supervision import Supervision
 from . import register_format
 from .base import FormatHandler
+
+logger = logging.getLogger(__name__)
+
+
+def detect_file_encoding(path: Path) -> Tuple[str, str]:
+    """Detect file encoding via BOM sniffing then chardet fallback.
+
+    Fallback chain: BOM -> chardet -> utf-8 -> gbk -> latin-1.
+
+    Args:
+        path: Path to the file.
+
+    Returns:
+        Tuple of (decoded_content_string, detected_encoding_name).
+    """
+    raw = path.read_bytes()
+
+    # BOM detection (most reliable)
+    if raw[:3] == b"\xef\xbb\xbf":
+        return raw[3:].decode("utf-8"), "utf-8-sig"
+    if raw[:2] == b"\xff\xfe":
+        return raw.decode("utf-16-le"), "utf-16-le"
+    if raw[:2] == b"\xfe\xff":
+        return raw.decode("utf-16-be"), "utf-16-be"
+
+    # chardet detection (only trust high-confidence results)
+    try:
+        import chardet
+
+        detected = chardet.detect(raw)
+        if detected and detected.get("encoding") and detected.get("confidence", 0) > 0.5:
+            enc = detected["encoding"].lower()
+            # Normalize chardet names
+            if enc in ("gb2312", "gbk", "gb18030"):
+                enc = "gb18030"  # gb18030 is superset of gbk/gb2312
+            try:
+                return raw.decode(enc), enc
+            except (UnicodeDecodeError, LookupError):
+                pass
+    except ImportError:
+        pass
+
+    # Manual fallback chain
+    for enc in ("utf-8", "gbk", "latin-1"):
+        try:
+            return raw.decode(enc), enc
+        except UnicodeDecodeError:
+            continue
+
+    # Last resort
+    return raw.decode("utf-8", errors="replace"), "utf-8"
 
 
 class Pysubs2Format(FormatHandler):
@@ -62,8 +114,8 @@ class Pysubs2Format(FormatHandler):
             content = cls._preprocess_content(source)
         else:
             path = Path(source)
-            with open(path, "r", encoding="utf-8") as f:
-                content = cls._preprocess_content(f.read())
+            content, _ = detect_file_encoding(path)
+            content = cls._preprocess_content(content)
 
         try:
             subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
@@ -122,8 +174,8 @@ class Pysubs2Format(FormatHandler):
             if not path.exists():
                 return {}
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    content = f.read(4096)
+                content, _ = detect_file_encoding(path)
+                content = content[:4096]
             except Exception:
                 return {}
 
@@ -396,18 +448,15 @@ class ASSFormat(Pysubs2Format):
         - ass_margin_l/r/v: Margin overrides
         - ass_effect: Effect string
         """
+        if cls.is_content(source):
+            content = source
+        else:
+            content, _ = detect_file_encoding(Path(source))
+
         try:
-            if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source, format_=cls.pysubs2_format)
-            else:
-                subs = pysubs2.load(
-                    str(source), encoding="utf-8", format_=cls.pysubs2_format
-                )
+            subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
         except Exception:
-            if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source)
-            else:
-                subs = pysubs2.load(str(source), encoding="utf-8")
+            subs = pysubs2.SSAFile.from_string(content)
 
         # Auto-detect title-case speaker candidates from text content
         all_texts = [e.text for e in subs.events]
@@ -417,11 +466,17 @@ class ASSFormat(Pysubs2Format):
 
         supervisions = []
         for event in subs.events:
-            text = event.text
+            # Use plaintext for sup.text (strips override tags, converts \N to \n)
+            plaintext = event.plaintext
             if normalize_text:
-                text = normalize_text_fn(text)
+                # Light normalization: collapse non-newline whitespace only.
+                # Generic normalize_text() collapses \n to space, destroying
+                # bilingual line breaks. ASS plaintext is already clean.
+                plaintext = re.sub(r"[^\S\n]+", " ", plaintext)
+                plaintext = re.sub(r" *\n *", "\n", plaintext)
+                plaintext = plaintext.strip()
 
-            speaker, text = parse_speaker_text(text)
+            speaker, plaintext = parse_speaker_text(plaintext)
 
             # When parse_speaker_text can't extract speaker from text but
             # the Name field has one, strip the matching prefix from text
@@ -429,11 +484,11 @@ class ASSFormat(Pysubs2Format):
             if not speaker and event.name:
                 for sep in (": ", "： "):
                     prefix = event.name + sep
-                    if text.startswith(prefix):
-                        text = text[len(prefix) :]
+                    if plaintext.startswith(prefix):
+                        plaintext = plaintext[len(prefix) :]
                         break
 
-            # Preserve ASS-specific event attributes
+            # Preserve ASS-specific event attributes + raw text for roundtrip
             custom = {
                 "ass_style": event.style,
                 "ass_layer": event.layer,
@@ -441,11 +496,17 @@ class ASSFormat(Pysubs2Format):
                 "ass_margin_r": event.marginr,
                 "ass_margin_v": event.marginv,
                 "ass_effect": event.effect,
+                "ass_raw_text": event.text,
+                "ass_is_comment": event.is_comment,
             }
+
+            # Detect drawing commands (\p1 in override tags or "m X Y" start)
+            if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
+                custom["line_type"] = "drawing"
 
             supervisions.append(
                 Supervision(
-                    text=text,
+                    text=plaintext,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
                     duration=(event.end - event.start) / 1000.0
@@ -471,21 +532,35 @@ class ASSFormat(Pysubs2Format):
 
         Previously read() and extract_metadata() each parsed the file with
         pysubs2 independently. This method parses once and returns both.
+
+        Format metadata returned in ParseResult.format_metadata:
+        - ass_info: Script Info section as dict
+        - ass_styles: Style definitions as dict of dicts
+        - ass_info_raw: Raw [Script Info] lines for roundtrip preservation
+        - encoding: Detected file encoding (present when loaded from file)
         """
         from .base import ParseResult
 
+        detected_encoding = None
         try:
             if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source, format_=cls.pysubs2_format)
+                content = source
             else:
-                subs = pysubs2.load(
-                    str(source), encoding="utf-8", format_=cls.pysubs2_format
-                )
+                content, detected_encoding = detect_file_encoding(Path(source))
+            subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
         except Exception:
             if cls.is_content(source):
+                content = source
                 subs = pysubs2.SSAFile.from_string(source)
             else:
+                # Last-resort fallback when strict format parse fails; re-read
+                # bytes with utf-8 so content is still available for raw
+                # [Script Info] extraction below.
                 subs = pysubs2.load(str(source), encoding="utf-8")
+                try:
+                    content = Path(source).read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    content = ""
 
         # --- Extract supervisions from events ---
         all_texts = [e.text for e in subs.events]
@@ -495,16 +570,20 @@ class ASSFormat(Pysubs2Format):
 
         supervisions = []
         for event in subs.events:
-            text = event.text
+            # Use plaintext to keep parity with read(): strips override tags
+            # and converts \N to \n so bilingual line breaks survive.
+            plaintext = event.plaintext
             if normalize_text:
-                text = normalize_text_fn(text)
+                plaintext = re.sub(r"[^\S\n]+", " ", plaintext)
+                plaintext = re.sub(r" *\n *", "\n", plaintext)
+                plaintext = plaintext.strip()
 
-            speaker, text = parse_speaker_text(text)
+            speaker, plaintext = parse_speaker_text(plaintext)
             if not speaker and event.name:
                 for sep in (": ", "： "):
                     prefix = event.name + sep
-                    if text.startswith(prefix):
-                        text = text[len(prefix) :]
+                    if plaintext.startswith(prefix):
+                        plaintext = plaintext[len(prefix) :]
                         break
 
             custom = {
@@ -514,11 +593,16 @@ class ASSFormat(Pysubs2Format):
                 "ass_margin_r": event.marginr,
                 "ass_margin_v": event.marginv,
                 "ass_effect": event.effect,
+                "ass_raw_text": event.text,
+                "ass_is_comment": event.is_comment,
             }
+
+            if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
+                custom["line_type"] = "drawing"
 
             supervisions.append(
                 Supervision(
-                    text=text,
+                    text=plaintext,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
                     duration=(event.end - event.start) / 1000.0
@@ -530,6 +614,9 @@ class ASSFormat(Pysubs2Format):
 
         if candidates:
             set_speaker_candidates(set())
+
+        # Extract raw [Script Info] section for roundtrip preservation
+        ass_info_raw = cls._extract_raw_script_info(content)
 
         # --- Extract styles/info metadata from the SAME subs object ---
         styles_dict = {}
@@ -561,13 +648,42 @@ class ASSFormat(Pysubs2Format):
                 "encoding": style.encoding,
             }
 
+        format_metadata = {
+            "ass_info": dict(subs.info),
+            "ass_styles": styles_dict,
+        }
+        if ass_info_raw:
+            format_metadata["ass_info_raw"] = ass_info_raw
+        if detected_encoding:
+            format_metadata["encoding"] = detected_encoding
+
         return ParseResult(
             supervisions=supervisions,
-            format_metadata={
-                "ass_info": dict(subs.info),
-                "ass_styles": styles_dict,
-            },
+            format_metadata=format_metadata,
         )
+
+    @staticmethod
+    def _extract_raw_script_info(content: str) -> str:
+        """Extract raw [Script Info] section from ASS content.
+
+        Returns everything from [Script Info] up to (not including) the next
+        section header like [V4+ Styles] or [V4 Styles] or [Events].
+        """
+        lines = content.split("\n")
+        info_lines = []
+        in_section = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.lower() == "[script info]":
+                in_section = True
+                info_lines.append(line)
+                continue
+            if in_section:
+                # Stop at next section header
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    break
+                info_lines.append(line)
+        return "\n".join(info_lines) if info_lines else ""
 
     @staticmethod
     def _color_to_str(color: pysubs2.Color) -> str:
@@ -797,9 +913,38 @@ class ASSFormat(Pysubs2Format):
                 event = cls._create_event_from_supervision(sup, text)
                 subs.append(event)
 
-        return subs.to_string(format_="ass").encode("utf-8")
+        output = subs.to_string(format_="ass")
+
+        # Restore original [Script Info] section for roundtrip fidelity
+        if metadata and metadata.get("ass_info_raw"):
+            output = cls._replace_script_info(output, metadata["ass_info_raw"])
+
+        return output.encode("utf-8")
 
     DEFAULT_FONTSIZE = 64.0
+
+    @staticmethod
+    def _replace_script_info(ass_output: str, raw_info: str) -> str:
+        """Replace pysubs2-generated [Script Info] with original raw text."""
+        lines = ass_output.split("\n")
+        result = []
+        in_section = False
+        replaced = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.lower() == "[script info]":
+                in_section = True
+                result.append(raw_info)
+                replaced = True
+                continue
+            if in_section:
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    in_section = False
+                    result.append(line)
+                # Skip pysubs2-generated Script Info lines (replaced by raw)
+                continue
+            result.append(line)
+        return "\n".join(result) if replaced else ass_output
 
     @classmethod
     def _create_ass_file(
@@ -884,6 +1029,10 @@ class ASSFormat(Pysubs2Format):
     ) -> pysubs2.SSAEvent:
         """Create SSAEvent from Supervision, restoring custom attributes.
 
+        If ass_raw_text exists and the text hasn't been modified (matches the
+        plaintext derived from ass_raw_text), the original ASS text with
+        override tags is restored for roundtrip fidelity.
+
         Args:
             sup: Supervision with optional custom dict containing ass_* attributes
             text: Processed text content
@@ -893,10 +1042,26 @@ class ASSFormat(Pysubs2Format):
         """
         custom = getattr(sup, "custom", None) or {}
 
-        # Convert \n to \N for ASS format (pysubs2 uses \N for inline line breaks)
-        text = text.replace("\n", "\\N")
+        # Roundtrip: restore original ASS text with override tags if unchanged
+        ass_raw = custom.get("ass_raw_text")
+        if ass_raw:
+            # Derive plaintext from raw to compare with current text
+            # pysubs2 uses \N for line breaks; plaintext converts to \n
+            raw_plain = re.sub(r"\{[^}]*\}", "", ass_raw).replace("\\N", "\n").strip()
+            current_plain = text.replace("\\N", "\n").strip()
+            if raw_plain == current_plain:
+                text = ass_raw
+            else:
+                # Text was modified: try to preserve tag prefix from original
+                tag_prefix = cls._extract_ass_tag_prefix(ass_raw)
+                text = text.replace("\n", "\\N")
+                if tag_prefix:
+                    text = tag_prefix + text
+        else:
+            # No raw text: just convert \n to \N for ASS format
+            text = text.replace("\n", "\\N")
 
-        return pysubs2.SSAEvent(
+        event = pysubs2.SSAEvent(
             start=int(sup.start * 1000),
             end=int(sup.end * 1000),
             text=text,
@@ -908,6 +1073,19 @@ class ASSFormat(Pysubs2Format):
             marginv=custom.get("ass_margin_v", 0),
             effect=custom.get("ass_effect", ""),
         )
+        # Restore Comment type for roundtrip
+        if custom.get("ass_is_comment"):
+            event.is_comment = True
+        return event
+
+    @staticmethod
+    def _extract_ass_tag_prefix(raw_text: str) -> str:
+        """Extract leading ASS override tag block from raw text.
+
+        Example: '{\\an8\\fad(0,500)}Hello' -> '{\\an8\\fad(0,500)}'
+        """
+        match = re.match(r"^(\{[^}]*\})+", raw_text)
+        return match.group(0) if match else ""
 
     @classmethod
     def _build_ass_style(cls, config: ASSConfig) -> pysubs2.SSAStyle:

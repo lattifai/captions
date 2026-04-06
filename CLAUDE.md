@@ -53,19 +53,19 @@ Install from GitHub Pages: `pip install lattifai-captions --extra-index-url http
 
 ```
 Caption (caption.py)
-├── supervisions: List[Supervision]  # Main caption segments
-├── transcription: List[Supervision] # ASR results (if from transcription)
-├── alignments: List[Supervision]    # Post-alignment results
-├── audio_events: TextGrid           # Audio event detection
-└── speaker_diarization              # Speaker diarization output
+├── supervisions: List[Supervision]  # Caption segments with timing + text
+├── language: Optional[str]          # Source language code
+├── target_lang: Optional[str]       # Translation target language
+├── kind: Optional[str]              # 'captions' / 'subtitles' / 'descriptions'
+├── source_format: Optional[str]     # Original format (e.g., 'vtt', 'ass')
+├── source_path: Optional[str]       # Path to source file
+└── metadata: Dict[str, Any]         # Format-specific metadata (ass_info, ass_styles, etc.)
 ```
 
 **Supervision** (`supervision.py`) — local copy of Lhotse's `SupervisionSegment` to avoid heavy dependencies:
 - Core fields: `text`, `start`, `duration`, `speaker`, `id`
 - Word-level alignment: `alignment["word"]` → `List[AlignmentItem(symbol, start, duration, score)]`
 - Utility: `fastcopy()` for efficient dataclass copies, `_add_durations()` for float-safe time arithmetic (48kHz sampling)
-
-**Output priority**: `alignments` > `supervisions` > `transcription`
 
 ### Format Registry System
 
@@ -87,7 +87,7 @@ Decorator-based registration in `formats/__init__.py`:
 |------|---------|----------------|
 | Standard | srt, vtt, ass, ssa, sub, sbv | pysubs2-based |
 | Tabular | csv, tsv, aud, json | Custom parsers |
-| Specialized | textgrid, gemini, lrc, srv3 | Format-specific |
+| Specialized | textgrid, markdown, lrc, srv3 | Format-specific |
 | NLE (write-only) | avid_ds, fcpxml, premiere_xml, audition_csv | Professional video editors |
 | Broadcast (write-only) | ttml, imsc1, ebu_tt_d | Streaming/broadcast delivery |
 
@@ -95,9 +95,22 @@ Decorator-based registration in `formats/__init__.py`:
 - Read: `Caption.read(path)` → `detect_format()` → `get_reader(fmt).read()` → `Caption`
 - Write: `caption.write(path)` → `get_writer(fmt).write(supervisions)` → file
 
+### Config System (v0.4.0)
+
+```
+RenderConfig          — Cross-format: include_speaker, word_level, translation_first
+ASSConfig             — ASS-specific: font, colors, margins, karaoke_effect, speaker_color
+LRCConfig             — LRC-specific: precision, metadata
+TTMLConfig            — TTML-specific: profile, region, timing_mode
+StandardizationConfig — Broadcast compliance: duration, CPS, line limits
+```
+
+`FormatConfig` type alias = `Union[ASSConfig, LRCConfig, TTMLConfig, ...]`
+
 ### Key Modules
 
-- **config.py**: `InputCaptionFormat`, `OutputCaptionFormat` Literal types; `KaraokeConfig`, `StandardizationConfig`, `CaptionStyle`
+- **config.py**: Format type literals; `RenderConfig`, `ASSConfig`, `LRCConfig`, `StandardizationConfig`
+- **colors.py**: 12 karaoke color schemes, 10-color speaker palette, `resolve_speaker_color()`
 - **standardize.py**: Netflix/BBC broadcast compliance; `CaptionStandardizer`, `CaptionValidator`
 - **sentence_splitter.py**: wtpsplit integration for sentence segmentation (optional `[splitting]` extra)
 - **utils.py**: Timecode operations, `resolve_overlaps(CollisionMode.TRIM|REMOVE|EXTEND)`, SRT generation
@@ -116,8 +129,13 @@ CI matrix: Ubuntu/macOS/Windows × Python 3.10–3.13 (12 combinations).
 
 Test data in `tests/data/` and `tests/data/captions/`. Key test files:
 - `test_formats.py` — Format roundtrip tests
+- `test_ass_format.py` — ASS read/write, karaoke, styles
+- `test_karaoke.py` — Karaoke effects and color schemes
+- `test_speaker_color.py` — Speaker color in ASS output
+- `test_speaker_roundtrip.py` — Speaker label roundtrip across formats
 - `test_standardize.py` — Broadcast compliance
-- `test_gemini.py` — Gemini AI format (largest test file)
+- `test_markdown.py` — Markdown/bilingual format
 - `test_srv3_format.py` — YouTube SRV3 word-level timing
 - `test_professional_formats.py` — NLE export (FCPXML/Premiere/Avid)
-- `test_word_level_integration.py` — Word timing preservation across formats
+- `test_lrc_format.py` — LRC lyric format with LRCConfig
+- `test_ttml_reader.py` — TTML/IMSC1/EBU-TT-D profiles

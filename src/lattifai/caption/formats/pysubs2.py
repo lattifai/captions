@@ -132,6 +132,9 @@ class Pysubs2Format(FormatHandler):
         supervisions = []
         for event in subs.events:
             text = event.text
+            # pysubs2 uses \N internally for line breaks (even in SRT/VTT).
+            # Convert to space for non-ASS formats (ASS reader overrides this).
+            text = text.replace("\\N", " ")
             if normalize_text:
                 text = normalize_text_fn(text)
 

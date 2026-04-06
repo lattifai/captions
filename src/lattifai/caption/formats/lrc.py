@@ -50,43 +50,43 @@ class LRCFormat(FormatHandler):
         return False
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict[str, str]:
-        """Extract LRC metadata tags.
-
-        Extracts standard LRC metadata:
-        - ar: Artist name
-        - ti: Title
-        - al: Album
-        - by: Creator
-        - offset: Time offset in milliseconds
-        - length: Song length
-
-        Returns:
-            Dict with lrc_* prefixed keys for metadata preservation
-        """
-        if cls.is_content(source):
-            content = source
-        else:
-            try:
-                content = Path(str(source)).read_text(encoding="utf-8")
-            except Exception:
-                return {}
-
-        metadata = {}
-        # Pattern to match [key:value] metadata tags
+    def _extract_lrc_metadata(cls, content: str) -> Dict[str, str]:
+        """Extract LRC metadata tags from content string."""
+        metadata: Dict[str, str] = {}
         meta_pattern = re.compile(r"^\[([a-z]+):(.+)\]$", re.IGNORECASE)
-
-        for line in content.split("\n")[:50]:  # Only check first 50 lines
+        for line in content.split("\n")[:50]:
             line = line.strip()
             match = meta_pattern.match(line)
             if match:
                 key, value = match.groups()
                 key = key.lower()
-                # Store with lrc_ prefix to avoid conflicts
                 if key in ("ar", "ti", "al", "by", "offset", "length", "re", "ve"):
                     metadata[f"lrc_{key}"] = value.strip()
-
         return metadata
+
+    @classmethod
+    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict[str, str]:
+        """Extract LRC metadata. Deprecated: use parse() instead."""
+        if cls.is_content(source):
+            return cls._extract_lrc_metadata(source)
+        try:
+            return cls._extract_lrc_metadata(Path(str(source)).read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse LRC in a single pass: supervisions + metadata tags."""
+        from .base import ParseResult
+
+        if cls.is_content(source):
+            content = source
+        else:
+            content = Path(source).read_text(encoding="utf-8")
+
+        supervisions = cls.read(content, normalize_text=normalize_text, **kwargs)
+        metadata = cls._extract_lrc_metadata(content)
+        return ParseResult(supervisions=supervisions, format_metadata=metadata)
 
     @classmethod
     def read(

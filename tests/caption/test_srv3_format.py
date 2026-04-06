@@ -118,7 +118,6 @@ class TestSRV3Format:
 
         metadata = SRV3Format.extract_metadata(SRV3_FILE)
 
-        assert metadata.get("source_format") == "srv3"
         assert metadata.get("srv3_format") == "3"
 
     def test_read_from_content_string(self):

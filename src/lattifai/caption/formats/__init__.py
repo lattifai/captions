@@ -165,6 +165,110 @@ def detect_format(path: str) -> Optional[str]:
     return None
 
 
+def detect_format_from_content(content: str) -> Optional[str]:
+    """Detect caption format by inspecting content signatures.
+
+    Designed for the "paste into textarea" scenario where no file extension
+    is available. Checks distinctive markers in priority order.
+
+    Args:
+        content: Raw caption text (e.g., pasted from clipboard).
+
+    Returns:
+        Format ID string, or None if unrecognizable.
+    """
+    import re
+
+    stripped = content.lstrip("\ufeff").lstrip()
+
+    # VTT — must start with "WEBVTT"
+    if stripped.startswith("WEBVTT"):
+        return "vtt"
+
+    # ASS / SSA — "[Script Info]" header
+    if stripped.startswith("[Script Info]"):
+        if "v4.00+" in stripped[:200]:
+            return "ass"
+        return "ssa"
+
+    # SRV3 / YouTube timed text — XML with <timedtext
+    if stripped.startswith("<") and "<timedtext" in stripped[:500]:
+        return "srv3"
+
+    # TTML — XML with <tt namespace (also matches <tt:tt prefix)
+    if stripped.startswith("<") and re.search(r"<tt[\s>:]", stripped[:500]):
+        return "ttml"
+
+    # JSON — array or object with "text" key
+    if stripped.startswith(("{", "[")) and '"text"' in stripped[:2000]:
+        return "json"
+
+    # Markdown transcript — [HH:MM:SS] timestamps or **Speaker:** patterns.
+    # Must check BEFORE LRC because [MM:SS] overlaps with LRC timestamps.
+    # Distinguisher: markdown has **bold speaker** labels or ] followed by space+text
+    # (not ] followed by lyrics text directly as in LRC).
+    has_md_ts = bool(re.search(r"\[\d{1,2}:\d{2}(?::\d{2})?\]", stripped[:4096]))
+    has_md_spk = bool(re.search(r"\*\*.+?[:：]\*\*", stripped[:4096]))
+    if has_md_spk or (has_md_ts and has_md_spk):
+        return "markdown"
+
+    # LRC — lines starting with [mm:ss.xx] immediately followed by lyric text.
+    # Requires the closing bracket pattern to avoid false positives with markdown [MM:SS].
+    if re.search(r"^\[\d{1,3}:\d{2}[.\d]*\]", stripped, re.MULTILINE):
+        # If also has markdown speaker labels, prefer markdown
+        if has_md_ts:
+            return "markdown"
+        return "lrc"
+
+    # Markdown (timestamp-only, no speaker labels) — after LRC is ruled out
+    if has_md_ts:
+        return "markdown"
+
+    # SRT — "index\ntimestamp --> timestamp" pattern
+    if re.search(r"^\d+\s*\n\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->", stripped, re.MULTILINE):
+        return "srt"
+
+    # SBV — "timestamp,timestamp" pattern (YouTube legacy)
+    if re.search(r"^\d{1,2}:\d{2}:\d{2}\.\d{3},\d{1,2}:\d{2}:\d{2}\.\d{3}", stripped, re.MULTILINE):
+        return "sbv"
+
+    # FCPXML — XML with <fcpxml
+    if stripped.startswith("<") and "<fcpxml" in stripped[:500]:
+        return "fcpxml"
+
+    # Premiere XML — XML with <xmeml
+    if stripped.startswith("<") and "<xmeml" in stripped[:500]:
+        return "premiere_xml"
+
+    # CSV — header line with "start" and "text" columns, comma-separated
+    first_line = stripped.split("\n", 1)[0].lower()
+    if "," in first_line and "start" in first_line and "text" in first_line:
+        return "csv"
+
+    # TSV — header line with "start" and "text" columns, tab-separated
+    if "\t" in first_line and "start" in first_line and "text" in first_line:
+        return "tsv"
+
+    # Audacity labels — "start\tend\ttext" numeric pattern
+    if re.search(r"^\d+\.?\d*\t\d+\.?\d*\t", stripped, re.MULTILINE):
+        return "aud"
+
+    # TextGrid — Praat header
+    if stripped.startswith('File type = "ooTextFile"') or stripped.startswith("Object class"):
+        return "textgrid"
+
+    # MicroDVD SUB — {frame}{frame}text
+    if re.search(r"^\{\d+\}\{\d+\}", stripped, re.MULTILINE):
+        return "sub"
+
+    # SAMI — <SAMI> tag
+    if "<SAMI>" in stripped[:500].upper():
+        return "sami"
+
+    # Fallback: treat as plain text (e.g., raw audio transcript without timestamps)
+    return "txt"
+
+
 # Import all format modules to trigger registration
 # These imports MUST come after register_* functions are defined
 # Standard formats
@@ -201,4 +305,5 @@ __all__ = [
     "list_readers",
     "list_writers",
     "detect_format",
+    "detect_format_from_content",
 ]

@@ -214,18 +214,39 @@ class TextGridFormat(FormatHandler):
             tmp_path.unlink(missing_ok=True)
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict[str, Any]:
-        """Extract metadata from TextGrid.
-
-        Returns:
-            Dict containing:
-            - textgrid_xmin: Minimum time boundary
-            - textgrid_xmax: Maximum time boundary
-            - textgrid_tiers: List of tier names
-        """
+    def _extract_textgrid_metadata(cls, content: str) -> Dict[str, Any]:
+        """Extract TextGrid metadata from content string."""
         import re
 
         metadata: Dict[str, Any] = {}
+        match = re.search(r"xmin\s*=\s*([\d.]+)", content)
+        if match:
+            metadata["textgrid_xmin"] = float(match.group(1))
+        match = re.search(r"xmax\s*=\s*([\d.]+)", content)
+        if match:
+            metadata["textgrid_xmax"] = float(match.group(1))
+        tier_names = re.findall(r'name\s*=\s*"([^"]+)"', content)
+        if tier_names:
+            metadata["textgrid_tiers"] = tier_names
+        return metadata
+
+    @classmethod
+    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict[str, Any]:
+        """Extract TextGrid metadata. Deprecated: use parse() instead."""
+        if cls.is_content(source):
+            return cls._extract_textgrid_metadata(source)
+        try:
+            with open(source, "r", encoding="utf-8") as f:
+                return cls._extract_textgrid_metadata(f.read())
+        except Exception:
+            return {}
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse TextGrid in a single pass."""
+        from .base import ParseResult
+
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
         if cls.is_content(source):
             content = source
         else:
@@ -233,18 +254,8 @@ class TextGridFormat(FormatHandler):
                 with open(source, "r", encoding="utf-8") as f:
                     content = f.read()
             except Exception:
-                return {}
-
-        match = re.search(r"xmin\s*=\s*([\d.]+)", content)
-        if match:
-            metadata["textgrid_xmin"] = float(match.group(1))
-        match = re.search(r"xmax\s*=\s*([\d.]+)", content)
-        if match:
-            metadata["textgrid_xmax"] = float(match.group(1))
-
-        # Extract tier names
-        tier_names = re.findall(r'name\s*=\s*"([^"]+)"', content)
-        if tier_names:
-            metadata["textgrid_tiers"] = tier_names
-
-        return metadata
+                return ParseResult(supervisions=supervisions)
+        return ParseResult(
+            supervisions=supervisions,
+            format_metadata=cls._extract_textgrid_metadata(content),
+        )

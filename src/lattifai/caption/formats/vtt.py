@@ -317,20 +317,10 @@ class VTTFormat(FormatHandler):
         return supervisions
 
     @classmethod
-    def extract_metadata(cls, source, **kwargs) -> Dict[str, str]:
-        """Extract metadata from VTT header."""
-        if cls.is_content(source):
-            content = source[:4096]
-        else:
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    content = f.read(4096)
-            except Exception:
-                return {}
-
-        metadata = {}
-        lines = content.split("\n")
-        for line in lines[:10]:
+    def _extract_header_metadata(cls, content: str) -> Dict[str, str]:
+        """Extract Kind/Language/NOTE metadata from VTT header lines."""
+        metadata: Dict[str, str] = {}
+        for line in content.split("\n")[:10]:
             line = line.strip()
             if line.startswith("Kind:"):
                 metadata["kind"] = line.split(":", 1)[1].strip()
@@ -343,6 +333,40 @@ class VTTFormat(FormatHandler):
                     metadata[key.lower()] = value.strip()
 
         return metadata
+
+    @classmethod
+    def extract_metadata(cls, source, **kwargs) -> Dict[str, str]:
+        """Extract metadata from VTT header. Deprecated: use parse() instead."""
+        if cls.is_content(source):
+            return cls._extract_header_metadata(source)
+        try:
+            with open(source, "r", encoding="utf-8") as f:
+                return cls._extract_header_metadata(f.read(4096))
+        except Exception:
+            return {}
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse VTT in a single pass: supervisions + header metadata."""
+        from .base import ParseResult
+
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
+        # Extract metadata from the same content
+        if cls.is_content(source):
+            header_meta = cls._extract_header_metadata(source)
+        else:
+            try:
+                with open(source, "r", encoding="utf-8") as f:
+                    header_meta = cls._extract_header_metadata(f.read(4096))
+            except Exception:
+                header_meta = {}
+
+        return ParseResult(
+            supervisions=supervisions,
+            language=header_meta.pop("language", None),
+            kind=header_meta.pop("kind", None),
+            format_metadata=header_meta,
+        )
 
     @classmethod
     def write(

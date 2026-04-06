@@ -1111,7 +1111,7 @@ class MarkdownFormat(FormatHandler):
 
     @classmethod
     def extract_metadata(cls, source: Union[Pathlike, str]) -> Dict[str, Any]:
-        """Extract metadata from YAML frontmatter in markdown transcript."""
+        """Extract metadata from YAML frontmatter. Deprecated: use parse() instead."""
         if FormatReader.is_content(source):
             content = str(source)
         else:
@@ -1132,6 +1132,25 @@ class MarkdownFormat(FormatHandler):
             for sup in supervisions:
                 sup.text = normalize_text_fn(sup.text)
         return supervisions
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse markdown transcript in a single pass."""
+        from .base import ParseResult
+
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
+        if FormatReader.is_content(source):
+            content = str(source)
+        else:
+            p = Path(source).expanduser().resolve()
+            if p.exists() and p.is_file():
+                content = p.read_text(encoding="utf-8")
+            else:
+                return ParseResult(supervisions=supervisions)
+        return ParseResult(
+            supervisions=supervisions,
+            format_metadata=MarkdownReader.extract_frontmatter(content),
+        )
 
     @classmethod
     def write(

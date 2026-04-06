@@ -152,8 +152,8 @@ This is a test
         """Test that VTT reader extracts Kind and Language."""
         caption = Caption.from_string(self.VTT_CONTENT, format="vtt")
 
-        assert caption.metadata.get("kind") == "captions"
-        assert caption.metadata.get("language") == "en"
+        assert caption.kind == "captions"
+        assert caption.language == "en"
 
     def test_vtt_round_trip_preserves_metadata(self):
         """Test that VTT metadata is preserved in round-trip."""

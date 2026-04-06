@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     ]
 
 from .config import InputCaptionFormat, OutputCaptionFormat  # noqa: F401
-from .formats import detect_format, get_reader, get_writer
+from .formats import detect_format, detect_format_from_content, get_reader, get_writer
 from .supervision import AlignmentItem, Pathlike, Supervision, fastcopy
 
 
@@ -462,7 +462,7 @@ class Caption:
     def from_string(
         cls,
         content: str,
-        format: str,
+        format: Optional[str] = None,
         normalize_text: bool = True,
     ) -> "Caption":
         """
@@ -470,20 +470,49 @@ class Caption:
 
         Args:
             content: Caption content as string
-            format: Caption format (e.g., 'srt', 'vtt', 'ass')
+            format: Caption format (e.g., 'srt', 'vtt', 'ass').
+                Auto-detected from content when omitted.
             normalize_text: Whether to normalize text during reading
 
         Returns:
             New Caption instance
 
+        Raises:
+            ValueError: If format is not provided and cannot be detected.
+
         Example:
-            >>> srt_content = \"\"\"1
-            ... 00:00:00,000 --> 00:00:02,000
-            ... Hello world\"\"\"
-            >>> caption = Caption.from_string(srt_content, format=\"srt\")
+            >>> caption = Caption.from_string(srt_content)          # auto-detect
+            >>> caption = Caption.from_string(srt_content, "srt")   # explicit
         """
-        buffer = io.StringIO(content)
-        return cls.read(buffer, format=format, normalize_text=normalize_text)
+        if not format or format == "auto":
+            format = detect_format_from_content(content)
+            if not format:
+                raise ValueError(
+                    "Unable to detect caption format from content. "
+                    "Please specify the 'format' parameter explicitly."
+                )
+
+        reader_cls = get_reader(format)
+        if not reader_cls:
+            from .formats.pysubs2 import Pysubs2Format
+
+            reader_cls = Pysubs2Format
+
+        # Sentinel newline: readers use "\n" presence to distinguish
+        # content from file paths. Without this, single-line content
+        # (e.g., short CJK text) would be misidentified.
+        if "\n" not in content:
+            content += "\n"
+
+        result = reader_cls.parse(content, normalize_text=normalize_text)
+
+        return cls(
+            supervisions=result.supervisions,
+            language=result.language,
+            kind=result.kind,
+            source_format=format,
+            metadata=result.format_metadata,
+        )
 
     def to_bytes(
         self,
@@ -520,72 +549,48 @@ class Caption:
         path: Union[Pathlike, io.BytesIO, io.StringIO],
         format: Optional[str] = None,
         normalize_text: bool = True,
+        encoding: str = "utf-8",
     ) -> "Caption":
         """
         Read caption file or in-memory data and return Caption object.
 
         Args:
-            path: Path to caption file, or BytesIO/StringIO object with caption content
-            format: Caption format (auto-detected if not provided, required for in-memory data)
-            normalize_text: Whether to normalize text during reading
+            path: Path to caption file, or BytesIO/StringIO object with caption content.
+            format: Caption format. Auto-detected from file extension or content
+                when omitted.
+            normalize_text: Whether to normalize text during reading.
+            encoding: Character encoding for BytesIO / file reading (default utf-8).
 
         Returns:
-            Caption object containing supervisions and metadata
+            Caption object containing supervisions and metadata.
+
+        Raises:
+            ValueError: If format cannot be determined.
+            FileNotFoundError: If file path does not exist.
         """
-        # Detect format if not provided
-        if not format or format == "auto":
-            if isinstance(path, (io.BytesIO, io.StringIO)):
-                raise ValueError("format parameter is required when reading from BytesIO/StringIO")
-            format = detect_format(str(path))
+        source_path: Optional[str] = None
 
-        if not format:
-            # Fallback to extension
-            if not isinstance(path, (io.BytesIO, io.StringIO)):
-                format = Path(str(path)).suffix.lstrip(".").lower()
-
-        if not format:
-            format = "srt"  # Last resort default
-
-        # Get content if it's an in-memory buffer
-        source = path
-        if isinstance(path, io.BytesIO):
-            source = path.read().decode("utf-8")
-        elif isinstance(path, io.StringIO):
-            source = path.read()
-
-        # Reset buffer position if it was a stream
+        # --- Load content into memory string ---
         if isinstance(path, (io.BytesIO, io.StringIO)):
-            path.seek(0)
+            content = path.read().decode(encoding, errors="replace") if isinstance(path, io.BytesIO) else path.read()
+        else:
+            file_path = Path(str(path))
+            if not file_path.is_file():
+                raise FileNotFoundError(f"Caption file not found: {file_path}")
+            source_path = str(file_path)
+            if not format or format == "auto":
+                format = detect_format(source_path) or file_path.suffix.lstrip(".").lower()
+            with open(file_path, "r", encoding=encoding, errors="replace") as f:
+                content = f.read()
 
-        # Get reader and perform extraction
-        reader_cls = get_reader(format)
-        if not reader_cls:
-            # Use pysubs2 as a generic fallback if no specific reader exists
-            from .formats.pysubs2 import Pysubs2Format
+        # --- Resolve format: explicit > file extension > content sniffing ---
+        if not format or format == "auto":
+            format = detect_format_from_content(content)
 
-            reader_cls = Pysubs2Format
-
-        supervisions = reader_cls.read(source, normalize_text=normalize_text)
-        metadata = reader_cls.extract_metadata(source)
-
-        # Create Caption object
-        source_path = None
-        if isinstance(path, (str, Path)) and not ("\n" in str(path) or len(str(path)) > 500):
-            try:
-                p = Path(str(path))
-                if p.exists():
-                    source_path = str(p)
-            except (OSError, ValueError):
-                pass
-
-        return cls(
-            supervisions=supervisions,
-            language=metadata.get("language"),
-            kind=metadata.get("kind"),
-            source_format=format,
-            source_path=source_path,
-            metadata=metadata,
-        )
+        # --- Parse ---
+        caption = cls.from_string(content, format=format, normalize_text=normalize_text)
+        caption.source_path = source_path
+        return caption
 
     def write(
         self,
@@ -636,8 +641,13 @@ class Caption:
                     end_margin=standardization.end_margin or 0.10,
                 )
 
-        # Roundtrip metadata from self.metadata
+        # Roundtrip metadata: merge format_metadata with Caption-level attrs
+        # so writers (e.g., VTT) can access kind/language from the metadata dict.
         effective_metadata = dict(self.metadata) if self.metadata else {}
+        if self.kind:
+            effective_metadata.setdefault("kind", self.kind)
+        if self.language:
+            effective_metadata.setdefault("language", self.language)
 
         # For JSON format: build full Caption-level metadata dict
         caption_level_metadata = {

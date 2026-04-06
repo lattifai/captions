@@ -30,7 +30,7 @@ Hello world
 00:00:02.000 --> 00:00:04.000
 Standard VTT
 """
-        caption = Caption.read(content, format="vtt")
+        caption = Caption.from_string(content, format="vtt")
         assert len(caption.supervisions) == 2
         assert caption.supervisions[0].text == "Hello world"
         assert caption.supervisions[1].text == "Standard VTT"
@@ -46,7 +46,7 @@ Language: en-US
 00:00:00.000 --> 00:00:02.000
 Test content
 """
-        caption = Caption.read(content, format="vtt")
+        caption = Caption.from_string(content, format="vtt")
         assert caption.kind == "captions"
         assert caption.language == "en-US"
 
@@ -117,7 +117,7 @@ Language: en
 00:00:01.000 --> 00:00:02.000
 <00:00:01.000><c> This</c><00:00:01.500><c> is</c>
 """
-        caption = Caption.read(content, format="vtt")
+        caption = Caption.from_string(content, format="vtt")
 
         assert len(caption.supervisions) == 2
 
@@ -149,7 +149,7 @@ Language: en
 00:00:00.000 --> 00:00:01.000
 First<00:00:00.400><c> second</c>
 """
-        caption = Caption.read(content, format="vtt")
+        caption = Caption.from_string(content, format="vtt")
         assert len(caption.supervisions) == 1
         words = caption.supervisions[0].alignment["word"]
         assert len(words) == 2
@@ -169,7 +169,7 @@ Language: zh-Hans
 00:00:00.000 --> 00:00:01.000
 <00:00:00.000><c> 测试</c>
 """
-        caption = Caption.read(content, format="vtt")
+        caption = Caption.from_string(content, format="vtt")
         assert caption.kind == "captions"
         assert caption.language == "zh-Hans"
 
@@ -181,7 +181,7 @@ Kind: captions
 00:00:00.000 --> 00:00:01.000
 <00:00:00.000><c> Auto</c><00:00:00.500><c> detect</c>
 """
-        caption = Caption.read(content, format="vtt")
+        caption = Caption.from_string(content, format="vtt")
         assert len(caption.supervisions) == 1
         assert caption.supervisions[0].text == "Auto detect"
         # Should have word-level alignment

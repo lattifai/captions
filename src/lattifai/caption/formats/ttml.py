@@ -117,36 +117,14 @@ class TTMLFormatBase(FormatHandler):
             return 0.0
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict:
-        """Extract TTML metadata including profile, language, and timing mode.
-
-        Returns:
-            Dict containing:
-            - ttml_profile: Profile URI (imsc1, ebu-tt-d, or basic)
-            - ttml_language: Language code from xml:lang
-            - ttml_timing: iTunes timing mode if present
-        """
-        if isinstance(source, (str, Path)) and not cls.is_content(source):
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                return {}
-        else:
-            content = str(source)
-
-        metadata = {}
-
+    def _extract_ttml_metadata(cls, content: str) -> Dict:
+        """Extract TTML metadata from content string."""
+        metadata: Dict = {}
         try:
-            # Don't strip namespaces for metadata extraction
             root = ET.fromstring(content)
-
-            # Extract language
             lang = root.get(f"{{{XML_NS}}}lang") or root.get("lang")
             if lang:
                 metadata["ttml_language"] = lang
-
-            # Extract profile
             profile = root.get(f"{{{TTML_PARAM_NS}}}profile") or root.get("profile")
             if profile:
                 if "imsc1" in profile.lower():
@@ -155,16 +133,40 @@ class TTMLFormatBase(FormatHandler):
                     metadata["ttml_profile"] = "ebu-tt-d"
                 else:
                     metadata["ttml_profile"] = "basic"
-
-            # Extract iTunes timing mode if present
             timing = root.get(f"{{{ITUNES_NS}}}timing")
             if timing:
                 metadata["ttml_timing"] = timing
-
         except ET.ParseError:
             pass
-
         return metadata
+
+    @classmethod
+    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict:
+        """Extract TTML metadata. Deprecated: use parse() instead."""
+        if isinstance(source, (str, Path)) and not cls.is_content(source):
+            try:
+                with open(source, "r", encoding="utf-8") as f:
+                    return cls._extract_ttml_metadata(f.read())
+            except Exception:
+                return {}
+        return cls._extract_ttml_metadata(str(source))
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse TTML in a single pass: supervisions + profile/language metadata."""
+        from .base import ParseResult
+
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
+        if isinstance(source, (str, Path)) and not cls.is_content(source):
+            try:
+                with open(source, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception:
+                return ParseResult(supervisions=supervisions)
+        else:
+            content = str(source)
+        metadata = cls._extract_ttml_metadata(content)
+        return ParseResult(supervisions=supervisions, format_metadata=metadata)
 
     @classmethod
     def read(

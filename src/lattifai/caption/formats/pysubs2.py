@@ -144,6 +144,20 @@ class Pysubs2Format(FormatHandler):
         return metadata
 
     @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse pysubs2-based format in a single pass."""
+        from .base import ParseResult
+
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
+        metadata = cls.extract_metadata(source)
+        return ParseResult(
+            supervisions=supervisions,
+            language=metadata.pop("language", None),
+            kind=metadata.pop("kind", None),
+            format_metadata=metadata,
+        )
+
+    @classmethod
     def write(
         cls,
         supervisions: List[Supervision],
@@ -328,22 +342,72 @@ class ASSFormat(Pysubs2Format):
 
     @classmethod
     def extract_metadata(cls, source, **kwargs) -> Dict:
-        """Extract ASS global metadata including Script Info and Styles.
+        """Extract ASS metadata. Deprecated: use parse() instead."""
+        return cls.parse(source, normalize_text=False).format_metadata
 
-        Returns:
-            Dict containing:
-            - ass_info: Script Info section as dict
-            - ass_styles: Style definitions as dict of dicts
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse ASS in a single pass: supervisions + styles/info metadata.
+
+        Previously read() and extract_metadata() each parsed the file with
+        pysubs2 independently. This method parses once and returns both.
         """
+        from .base import ParseResult
+
         try:
             if cls.is_content(source):
                 subs = pysubs2.SSAFile.from_string(source, format_=cls.pysubs2_format)
             else:
                 subs = pysubs2.load(str(source), encoding="utf-8", format_=cls.pysubs2_format)
         except Exception:
-            return {}
+            if cls.is_content(source):
+                subs = pysubs2.SSAFile.from_string(source)
+            else:
+                subs = pysubs2.load(str(source), encoding="utf-8")
 
-        # Convert styles to serializable dict
+        # --- Extract supervisions from events ---
+        all_texts = [e.text for e in subs.events]
+        candidates = detect_speaker_candidates(all_texts)
+        if candidates:
+            set_speaker_candidates(candidates)
+
+        supervisions = []
+        for event in subs.events:
+            text = event.text
+            if normalize_text:
+                text = normalize_text_fn(text)
+
+            speaker, text = parse_speaker_text(text)
+            if not speaker and event.name:
+                for sep in (": ", "： "):
+                    prefix = event.name + sep
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                        break
+
+            custom = {
+                "ass_style": event.style,
+                "ass_layer": event.layer,
+                "ass_margin_l": event.marginl,
+                "ass_margin_r": event.marginr,
+                "ass_margin_v": event.marginv,
+                "ass_effect": event.effect,
+            }
+
+            supervisions.append(
+                Supervision(
+                    text=text,
+                    speaker=speaker or event.name or None,
+                    start=event.start / 1000.0 if event.start is not None else 0,
+                    duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
+                    custom=custom,
+                )
+            )
+
+        if candidates:
+            set_speaker_candidates(set())
+
+        # --- Extract styles/info metadata from the SAME subs object ---
         styles_dict = {}
         for name, style in subs.styles.items():
             styles_dict[name] = {
@@ -373,10 +437,13 @@ class ASSFormat(Pysubs2Format):
                 "encoding": style.encoding,
             }
 
-        return {
-            "ass_info": dict(subs.info),
-            "ass_styles": styles_dict,
-        }
+        return ParseResult(
+            supervisions=supervisions,
+            format_metadata={
+                "ass_info": dict(subs.info),
+                "ass_styles": styles_dict,
+            },
+        )
 
     @staticmethod
     def _color_to_str(color: pysubs2.Color) -> str:

@@ -5,13 +5,35 @@ ensuring a consistent interface across different caption formats.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from ..supervision import Pathlike
 
 if TYPE_CHECKING:
     from ..supervision import Supervision
+
+
+@dataclass
+class ParseResult:
+    """Result of parsing caption content.
+
+    Combines supervisions with metadata in a single return value,
+    eliminating the need for separate read() + extract_metadata() calls.
+
+    Attributes:
+        supervisions: Parsed caption segments with timing and text.
+        language: Source language code (e.g., 'en', 'zh-Hans').
+        kind: Caption kind (e.g., 'captions', 'subtitles', 'descriptions').
+        format_metadata: Format-specific roundtrip data (e.g., ass_info,
+            ass_styles, ttml_profile). Keyed by format-prefixed names.
+    """
+
+    supervisions: List["Supervision"] = field(default_factory=list)
+    language: Optional[str] = None
+    kind: Optional[str] = None
+    format_metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class FormatReader(ABC):
@@ -54,6 +76,9 @@ class FormatReader(ABC):
     def extract_metadata(cls, source: Union[Pathlike, str]) -> Dict[str, str]:
         """Extract metadata from caption file or content.
 
+        Deprecated: override parse() instead, which returns ParseResult
+        with metadata included.
+
         Args:
             source: File path or string content
 
@@ -61,6 +86,39 @@ class FormatReader(ABC):
             Dictionary of metadata key-value pairs
         """
         return {}
+
+    @classmethod
+    def parse(
+        cls,
+        source: Union[Pathlike, str],
+        normalize_text: bool = True,
+        **kwargs,
+    ) -> ParseResult:
+        """Parse caption content in a single pass.
+
+        Returns ParseResult containing supervisions, language, kind,
+        and format-specific metadata. Subclasses should override this
+        to fold metadata extraction into parsing.
+
+        Default implementation calls read() + extract_metadata() for
+        backward compatibility.
+
+        Args:
+            source: File path or string content
+            normalize_text: Whether to normalize text
+            **kwargs: Format-specific options
+
+        Returns:
+            ParseResult with supervisions and metadata
+        """
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
+        metadata = cls.extract_metadata(source)
+        return ParseResult(
+            supervisions=supervisions,
+            language=metadata.pop("language", None),
+            kind=metadata.pop("kind", None),
+            format_metadata=metadata,
+        )
 
     @classmethod
     def can_read(cls, path: Union[Pathlike, str]) -> bool:

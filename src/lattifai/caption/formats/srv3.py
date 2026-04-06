@@ -203,15 +203,25 @@ class SRV3Format(FormatHandler):
         return supervisions
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> dict:
-        """Extract SRV3 metadata.
+    def _extract_srv3_metadata(cls, root: ET.Element) -> dict:
+        """Extract SRV3 metadata from an already-parsed XML root."""
+        metadata: dict = {}
+        fmt = root.get("format")
+        if fmt:
+            metadata["srv3_format"] = fmt
+        head = root.find("head")
+        if head is not None:
+            ws_ids = [ws.get("id") for ws in head.findall("ws") if ws.get("id")]
+            if ws_ids:
+                metadata["srv3_window_styles"] = ws_ids
+            wp_ids = [wp.get("id") for wp in head.findall("wp") if wp.get("id")]
+            if wp_ids:
+                metadata["srv3_window_positions"] = wp_ids
+        return metadata
 
-        Returns:
-            Dict containing:
-            - srv3_format: Format version (always "3")
-            - srv3_window_styles: List of window style IDs
-            - srv3_window_positions: List of window position IDs
-        """
+    @classmethod
+    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> dict:
+        """Extract SRV3 metadata. Deprecated: use parse() instead."""
         if cls.is_content(source):
             content = source
         else:
@@ -220,34 +230,35 @@ class SRV3Format(FormatHandler):
                     content = f.read()
             except Exception:
                 return {}
+        try:
+            return cls._extract_srv3_metadata(ET.fromstring(content))
+        except ET.ParseError:
+            return {}
 
-        metadata = {"source_format": "srv3"}
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+        """Parse SRV3 in a single pass: supervisions + head metadata."""
+        from .base import ParseResult
+
+        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
+
+        # Extract metadata from already-loaded content
+        if cls.is_content(source):
+            content = source
+        else:
+            try:
+                with open(source, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except Exception:
+                return ParseResult(supervisions=supervisions)
 
         try:
             root = ET.fromstring(content)
-
-            # Get format version
-            fmt = root.get("format")
-            if fmt:
-                metadata["srv3_format"] = fmt
-
-            # Get head section info
-            head = root.find("head")
-            if head is not None:
-                # Window styles
-                ws_ids = [ws.get("id") for ws in head.findall("ws") if ws.get("id")]
-                if ws_ids:
-                    metadata["srv3_window_styles"] = ws_ids
-
-                # Window positions
-                wp_ids = [wp.get("id") for wp in head.findall("wp") if wp.get("id")]
-                if wp_ids:
-                    metadata["srv3_window_positions"] = wp_ids
-
+            metadata = cls._extract_srv3_metadata(root)
         except ET.ParseError:
-            pass
+            metadata = {}
 
-        return metadata
+        return ParseResult(supervisions=supervisions, format_metadata=metadata)
 
     @classmethod
     def write(

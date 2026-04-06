@@ -87,7 +87,7 @@ class CSVFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to CSV format bytes."""
-        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        render, include_speaker, _ = cls._unpack_render(**kwargs)
         has_translations = any(sup.translation for sup in supervisions)
         output = StringIO()
         writer = csv.writer(output)
@@ -192,7 +192,7 @@ class TSVFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to TSV format bytes."""
-        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        render, include_speaker, _ = cls._unpack_render(**kwargs)
         has_translations = any(sup.translation for sup in supervisions)
         lines = []
         if include_speaker:
@@ -313,7 +313,7 @@ class AUDFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to AUD format bytes."""
-        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        render, include_speaker, _ = cls._unpack_render(**kwargs)
         lines = []
         for sup in supervisions:
             text = sup.text.strip().replace("\t", " ")
@@ -389,7 +389,7 @@ class TXTFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to TXT format bytes."""
-        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        render, include_speaker, _ = cls._unpack_render(**kwargs)
         lines = []
         for sup in supervisions:
             text = sup.text or ""

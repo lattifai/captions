@@ -2,7 +2,7 @@
 
 import pytest
 
-from lattifai.caption.config import ASSConfig, OutputBehavior, KaraokeConfig
+from lattifai.caption.config import ASSConfig, RenderConfig
 from lattifai.caption.supervision import Supervision
 
 
@@ -47,13 +47,12 @@ class TestASSConfigBackgroundColor:
 class TestASSBackgroundColor:
     """ASS writer background_color handling."""
 
-    def _write_ass(self, sups, karaoke=None, **kwargs):
+    def _write_ass(self, sups, **kwargs):
         from lattifai.caption.formats.pysubs2 import ASSFormat
 
         return ASSFormat.to_bytes(
             sups,
             include_speaker=False,
-            karaoke=karaoke,
             **kwargs,
         ).decode("utf-8")
 
@@ -101,8 +100,7 @@ class TestASSBackgroundColor:
 
     def test_karaoke_with_background(self):
         """Karaoke style should use borderstyle=3 when background_color is set via config param."""
-        karaoke = KaraokeConfig(enabled=True)
-        config = ASSConfig(background_color="#00000080")
+        config = ASSConfig(karaoke_effect="sweep", background_color="#00000080")
         sups = _make_sups()
         from lattifai.caption.supervision import AlignmentItem
 
@@ -112,7 +110,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, karaoke=karaoke, word_level=True, config=config)
+        result = self._write_ass(sups, word_level=True, config=config)
         lines = result.split("\n")
         karaoke_style_line = [l for l in lines if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
@@ -124,8 +122,7 @@ class TestASSBackgroundColor:
 
     def test_shadow_disabled_in_box_mode(self):
         """When background_color is set, shadow should be 0."""
-        karaoke = KaraokeConfig(enabled=True)
-        ass_config = ASSConfig(shadow_depth=2.0, background_color="#00000080")
+        ass_config = ASSConfig(karaoke_effect="sweep", shadow_depth=2.0, background_color="#00000080")
         sups = _make_sups()
         from lattifai.caption.supervision import AlignmentItem
 
@@ -135,7 +132,7 @@ class TestASSBackgroundColor:
                 AlignmentItem(symbol="world", start=0.6, duration=0.4),
             ]
         }
-        result = self._write_ass(sups, karaoke=karaoke, word_level=True, config=ass_config)
+        result = self._write_ass(sups, word_level=True, config=ass_config)
         karaoke_style_line = [l for l in result.split("\n") if l.startswith("Style: Karaoke")]
         assert len(karaoke_style_line) == 1
         fields = karaoke_style_line[0].split(",")

@@ -1,5 +1,3 @@
-from lattifai.caption.config import OutputBehavior
-
 """Test suite for detect_speaker_candidates robustness.
 
 Covers all edge cases for title-case speaker name detection:
@@ -8,6 +6,7 @@ real dialogues, false-positive labels, short files, mixed content.
 
 import pytest
 
+from lattifai.caption.config import RenderConfig
 from lattifai.caption.parsers.text_parser import detect_speaker_candidates
 
 
@@ -409,7 +408,7 @@ class TestWriteReadRoundtrip:
         ]
 
         ass_file = tmp_path / "test.ass"
-        Caption.from_supervisions(supervisions).write(ass_file, behavior=OutputBehavior(include_speaker_in_text=False))
+        Caption.from_supervisions(supervisions).write(ass_file, render=RenderConfig(include_speaker_in_text=False))
 
         result = Caption.read(ass_file)
         assert result.supervisions[0].speaker == "Alice"

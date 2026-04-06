@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 import pysubs2
 
 from ..colors import SPEAKER_PALETTE, resolve_speaker_color
-from ..config import ASSConfig, KaraokeConfig
+from ..config import ASSConfig
 from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
@@ -162,7 +162,6 @@ class Pysubs2Format(FormatHandler):
         cls,
         supervisions: List[Supervision],
         fps: float = 25.0,
-        karaoke: Optional[KaraokeConfig] = None,
         **kwargs,
     ) -> bytes:
         """Convert to bytes using pysubs2.
@@ -170,21 +169,16 @@ class Pysubs2Format(FormatHandler):
         Args:
             supervisions: List of Supervision objects
             fps: Frames per second (for MicroDVD format)
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                use karaoke styling (format-specific)
 
         Returns:
             Subtitle content as bytes
         """
         from .base import expand_to_word_supervisions
 
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
 
-        # Check if karaoke is enabled
-        karaoke_enabled = karaoke is not None and karaoke.enabled
-
-        # Expand to word-per-segment if word_level=True and karaoke is not enabled
-        if word_level and not karaoke_enabled:
+        # Expand to word-per-segment if word_level=True
+        if word_level:
             supervisions = expand_to_word_supervisions(supervisions)
 
         from .base import render_bilingual_text
@@ -412,7 +406,6 @@ class ASSFormat(Pysubs2Format):
         cls,
         supervisions: List[Supervision],
         fps: float = 25.0,
-        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         config: Optional[ASSConfig] = None,
         **kwargs,
@@ -422,11 +415,9 @@ class ASSFormat(Pysubs2Format):
         Args:
             supervisions: List of supervision segments
             fps: Frames per second (not used for ASS)
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                generate karaoke tags
             metadata: Optional metadata dict containing ass_info and ass_styles
                 to restore original ASS formatting
-            behavior: OutputBehavior controlling output behavior (via **kwargs)
+            render: RenderConfig controlling output behavior (via **kwargs)
             config: ASSConfig controlling ASS-specific rendering context and style
 
         Returns:
@@ -434,13 +425,13 @@ class ASSFormat(Pysubs2Format):
         """
         from .base import expand_to_word_supervisions
 
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         config = config if isinstance(config, ASSConfig) else ASSConfig()
 
-        karaoke_enabled = karaoke is not None and karaoke.enabled
+        karaoke_effect = config.karaoke_effect
 
         # Expand to word-per-segment if word_level=True and karaoke is not enabled
-        if word_level and not karaoke_enabled:
+        if word_level and not karaoke_effect:
             supervisions = expand_to_word_supervisions(supervisions)
 
         # Create ASS file from config + metadata
@@ -450,7 +441,7 @@ class ASSFormat(Pysubs2Format):
 
         # Add karaoke style
         has_metadata_styles = metadata and "ass_styles" in metadata
-        if karaoke_enabled and "Karaoke" not in subs.styles:
+        if karaoke_effect and "Karaoke" not in subs.styles:
             if has_metadata_styles and "Default" in metadata["ass_styles"]:
                 subs.styles["Karaoke"] = subs.styles["Default"].copy()
             else:
@@ -469,8 +460,8 @@ class ASSFormat(Pysubs2Format):
             word_items = alignment.get("word") if alignment else None
 
             # Karaoke mode with word alignment
-            if word_level and karaoke_enabled and word_items:
-                karaoke_text = cls._build_karaoke_text(word_items, karaoke.effect, original_text=sup.text)
+            if word_level and karaoke_effect and word_items:
+                karaoke_text = cls._build_karaoke_text(word_items, karaoke_effect, original_text=sup.text)
                 karaoke_text = karaoke_text.replace("\n", "\\N")
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
@@ -492,7 +483,7 @@ class ASSFormat(Pysubs2Format):
                     event.name = sup.speaker
                 subs.append(event)
             else:
-                # Standard mode: restore custom attributes from supervision
+                # Standard mode
                 from .base import render_bilingual_text
 
                 text = render_bilingual_text(sup, separator="\\N", translation_first=behavior.translation_first)
@@ -758,7 +749,6 @@ class SSAFormat(ASSFormat):
         cls,
         supervisions: List[Supervision],
         fps: float = 25.0,
-        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         config: Optional[ASSConfig] = None,
         **kwargs,
@@ -766,10 +756,10 @@ class SSAFormat(ASSFormat):
         """Convert to SSA bytes with style preservation."""
         from .base import expand_to_word_supervisions
 
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         config = config if isinstance(config, ASSConfig) else ASSConfig()
 
-        if word_level and not (karaoke and karaoke.enabled):
+        if word_level:
             supervisions = expand_to_word_supervisions(supervisions)
 
         from .base import render_bilingual_text

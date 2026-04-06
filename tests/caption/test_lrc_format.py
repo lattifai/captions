@@ -2,7 +2,6 @@
 
 import pytest
 
-from lattifai.caption.config import KaraokeConfig
 from lattifai.caption.formats.lrc import LRCFormat
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
@@ -25,7 +24,7 @@ class TestLRCFormatWrite:
         assert "<" not in content
 
     def test_enhanced_lrc_word_level(self):
-        """Enhanced LRC should include word timestamps when karaoke_config.enabled=True."""
+        """Enhanced LRC should include word timestamps when word_level=True."""
         sups = [
             Supervision(
                 text="Hello world",
@@ -39,8 +38,7 @@ class TestLRCFormatWrite:
                 },
             )
         ]
-        karaoke_config = KaraokeConfig(enabled=True)
-        result = LRCFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
+        result = LRCFormat.to_bytes(sups, word_level=True)
         content = result.decode("utf-8")
 
         assert "[00:15.200]" in content
@@ -48,7 +46,7 @@ class TestLRCFormatWrite:
         assert "<00:15.650>world" in content
 
     def test_word_per_line_output(self):
-        """word_level=True without karaoke should output word per line."""
+        """word_level=True without alignment should output word per line."""
         sups = [
             Supervision(
                 text="Hello world",
@@ -62,14 +60,12 @@ class TestLRCFormatWrite:
                 },
             )
         ]
-        result = LRCFormat.to_bytes(sups, word_level=True)  # No karaoke_config
+        result = LRCFormat.to_bytes(sups, word_level=True)
         content = result.decode("utf-8")
 
-        # Each word should be on its own line
-        assert "[00:15.200]Hello" in content
-        assert "[00:15.650]world" in content
-        # No enhanced LRC format
-        assert "<" not in content
+        # Enhanced LRC has inline timestamps
+        assert "<00:15.200>Hello" in content
+        assert "<00:15.650>world" in content
 
     def test_lrc_with_metadata(self):
         """LRC should include metadata via LRCConfig."""
@@ -99,8 +95,7 @@ class TestLRCFormatWrite:
     def test_lrc_fallback_without_alignment(self):
         """Word-level should fallback to line-level without alignment data."""
         sups = [Supervision(text="No alignment", start=10.0, duration=2.0)]
-        karaoke_config = KaraokeConfig(enabled=True)
-        result = LRCFormat.to_bytes(sups, word_level=True, karaoke=karaoke_config)
+        result = LRCFormat.to_bytes(sups, word_level=True)
         content = result.decode("utf-8")
 
         assert "[00:10.000]No alignment" in content
@@ -193,8 +188,7 @@ class TestLRCFormatRoundTrip:
                 },
             )
         ]
-        karaoke_config = KaraokeConfig(enabled=True)
-        content = LRCFormat.to_bytes(original, word_level=True, karaoke=karaoke_config).decode("utf-8")
+        content = LRCFormat.to_bytes(original, word_level=True).decode("utf-8")
         restored = LRCFormat.read(content)
 
         assert len(restored) == 1
@@ -231,8 +225,8 @@ class TestLRCConfig:
         assert "[ar:Artist]" in content
         assert "[ti:Title]" in content
 
-    def test_lrc_config_with_karaoke(self):
-        """LRCConfig + KaraokeConfig should work together."""
+    def test_lrc_config_with_word_level(self):
+        """LRCConfig + word_level=True should work together."""
         from lattifai.caption.config import LRCConfig
 
         sups = [
@@ -249,8 +243,7 @@ class TestLRCConfig:
             )
         ]
         lrc_config = LRCConfig(precision="centisecond", metadata={"ar": "Test"})
-        karaoke = KaraokeConfig(enabled=True, effect="sweep")
-        result = LRCFormat.to_bytes(sups, word_level=True, karaoke=karaoke, config=lrc_config)
+        result = LRCFormat.to_bytes(sups, word_level=True, config=lrc_config)
         content = result.decode("utf-8")
 
         assert "[ar:Test]" in content

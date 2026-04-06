@@ -1,5 +1,3 @@
-from lattifai.caption.config import OutputBehavior, KaraokeConfig
-
 #!/usr/bin/env python3
 """
 Test suite for speaker label roundtrip consistency
@@ -11,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from lattifai.caption import Caption, Supervision
+from lattifai.caption.config import RenderConfig
 from lattifai.caption.supervision import AlignmentItem
 
 
@@ -139,7 +138,7 @@ BOB: Third speaker format
         # Write without speaker
         srt_file = tmp_path / "test.srt"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(srt_file, behavior=OutputBehavior(include_speaker_in_text=False))
+        caption.write(srt_file, render=RenderConfig(include_speaker_in_text=False))
 
         # Read back
         caption_read = Caption.read(srt_file)
@@ -265,8 +264,7 @@ BOB: Third speaker format
         caption = Caption.from_supervisions(supervisions)
         caption.write(
             vtt_file,
-            behavior=OutputBehavior(word_level=True),
-            karaoke=KaraokeConfig(enabled=True),
+            render=RenderConfig(word_level=True),
         )
 
         content = vtt_file.read_text()
@@ -340,8 +338,7 @@ BOB: Third speaker format
         caption = Caption.from_supervisions(supervisions)
         caption.write(
             vtt_file,
-            behavior=OutputBehavior(word_level=True),
-            karaoke=KaraokeConfig(enabled=True),
+            render=RenderConfig(word_level=True),
         )
 
         content = vtt_file.read_text()
@@ -399,7 +396,7 @@ BOB: Third speaker format
 
         ass_file = tmp_path / "test.ass"
         caption = Caption.from_supervisions(supervisions)
-        caption.write(ass_file, behavior=OutputBehavior(include_speaker_in_text=False))
+        caption.write(ass_file, render=RenderConfig(include_speaker_in_text=False))
 
         content = ass_file.read_text()
         # Name field should still have speaker

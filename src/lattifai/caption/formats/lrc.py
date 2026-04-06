@@ -20,7 +20,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from ..config import KaraokeConfig, LRCConfig
+from ..config import LRCConfig
 from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
@@ -180,7 +180,6 @@ class LRCFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         output_path,
-        karaoke: Optional[KaraokeConfig] = None,
         **kwargs,
     ) -> Path:
         """Write supervisions to LRC file.
@@ -188,9 +187,7 @@ class LRCFormat(FormatHandler):
         Args:
             supervisions: List of Supervision objects to write
             output_path: Path to output file
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                use enhanced LRC with inline timestamps
-            **kwargs: Additional options
+            **kwargs: Additional options (config=LRCConfig, render=RenderConfig)
 
         Returns:
             Path to the written file
@@ -198,7 +195,6 @@ class LRCFormat(FormatHandler):
         output_path = Path(output_path)
         content = cls.to_bytes(
             supervisions,
-            karaoke=karaoke,
             **kwargs,
         )
         output_path.write_bytes(content)
@@ -208,7 +204,6 @@ class LRCFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         config: Optional[LRCConfig] = None,
         **kwargs,
@@ -217,17 +212,14 @@ class LRCFormat(FormatHandler):
 
         Args:
             supervisions: List of Supervision objects
-            karaoke: Karaoke configuration (enabled, effect)
             metadata: Optional metadata dict containing lrc_* keys to restore
             config: LRC format configuration (precision, metadata)
 
         Returns:
             Caption content as bytes
         """
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         lrc_config = config if isinstance(config, LRCConfig) else LRCConfig()
-        karaoke_config = karaoke or KaraokeConfig(enabled=False)
-        karaoke_enabled = karaoke_config.enabled
         precision = lrc_config.precision
         lines = []
 
@@ -241,7 +233,6 @@ class LRCFormat(FormatHandler):
 
         # Also add LRCConfig metadata
         for key, value in lrc_config.metadata.items():
-            # Avoid duplicates
             existing_line = f"[{key}:"
             if not any(line.startswith(existing_line) for line in lines):
                 lines.append(f"[{key}:{value}]")
@@ -251,20 +242,14 @@ class LRCFormat(FormatHandler):
 
         for sup in supervisions:
             if word_level and sup.alignment and "word" in sup.alignment:
+                # Enhanced LRC mode: each word has inline timestamp
                 word_items = sup.alignment["word"]
-                if karaoke_enabled:
-                    # Enhanced LRC mode: each word has inline timestamp
-                    line_time = cls._format_time(word_items[0].start, precision)
-                    word_parts = []
-                    for word in word_items:
-                        word_time = cls._format_time(word.start, precision)
-                        word_parts.append(f"<{word_time}>{word.symbol}")
-                    lines.append(f"[{line_time}]{' '.join(word_parts)}")
-                else:
-                    # Word-per-line mode: each word as separate line
-                    for word in sup.alignment["word"]:
-                        word_time = cls._format_time(word.start, precision)
-                        lines.append(f"[{word_time}]{word.symbol}")
+                line_time = cls._format_time(word_items[0].start, precision)
+                word_parts = []
+                for word in word_items:
+                    word_time = cls._format_time(word.start, precision)
+                    word_parts.append(f"<{word_time}>{word.symbol}")
+                lines.append(f"[{line_time}]{' '.join(word_parts)}")
             else:
                 # Standard LRC mode: only line timestamp
                 from .base import render_bilingual_text

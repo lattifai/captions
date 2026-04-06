@@ -9,7 +9,7 @@ import re
 import pytest
 
 from lattifai.caption import Caption, Supervision
-from lattifai.caption.config import ASSConfig, OutputBehavior, KaraokeConfig, StandardizationConfig
+from lattifai.caption.config import ASSConfig, RenderConfig, StandardizationConfig
 from lattifai.caption.formats.pysubs2 import ASSFormat
 from lattifai.caption.standardize import CaptionStandardizer
 from lattifai.caption.supervision import AlignmentItem
@@ -256,8 +256,8 @@ class TestASSSpeaker:
     def test_speaker_excluded_from_text(self, simple_sups, tmp_path):
         """include_speaker_in_text=False: speaker only in Name field."""
         ass_file = tmp_path / "no_speaker_text.ass"
-        behavior = OutputBehavior(include_speaker_in_text=False)
-        Caption.from_supervisions(simple_sups).write(ass_file, behavior=behavior)
+        render = RenderConfig(include_speaker_in_text=False)
+        Caption.from_supervisions(simple_sups).write(ass_file, render=render)
         content = ass_file.read_text()
         assert ",Alice," in content  # Name field
         assert "Alice:" not in content  # Not in text
@@ -283,7 +283,7 @@ class TestASSSpeaker:
         ]
         ass_file = tmp_path / "rt2.ass"
         Caption.from_supervisions(sups).write(
-            ass_file, behavior=OutputBehavior(include_speaker_in_text=False)
+            ass_file, render=RenderConfig(include_speaker_in_text=False)
         )
 
         read_back = Caption.read(ass_file)
@@ -585,34 +585,33 @@ class TestASSKaraoke:
 
     def test_karaoke_tags_present(self, word_aligned_sups):
         r"""Karaoke mode should produce \kf timing tags."""
-        config = KaraokeConfig(enabled=True)
+        config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, karaoke=config
+            word_aligned_sups, word_level=True, config=config
         ).decode("utf-8")
         assert "{\\kf" in content
 
     def test_karaoke_style_defined(self, word_aligned_sups):
         """Karaoke mode should define a Karaoke style."""
-        config = KaraokeConfig(enabled=True)
+        config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, karaoke=config
+            word_aligned_sups, word_level=True, config=config
         ).decode("utf-8")
         assert "Style: Karaoke" in content
 
     def test_karaoke_with_speaker_color(self, word_aligned_sups):
         r"""Karaoke + speaker_color='auto' should produce \c color tags."""
-        karaoke = KaraokeConfig(enabled=True)
-        config = ASSConfig(speaker_color="auto")
+        config = ASSConfig(karaoke_effect="sweep", speaker_color="auto")
         content = ASSFormat.to_bytes(
-            word_aligned_sups, word_level=True, karaoke=karaoke, config=config
+            word_aligned_sups, word_level=True, config=config
         ).decode("utf-8")
         assert "{\\c&H" in content
 
     def test_karaoke_without_alignment_falls_back(self, simple_sups):
         """Supervisions without alignment should render in standard mode."""
-        config = KaraokeConfig(enabled=True)
+        config = ASSConfig(karaoke_effect="sweep")
         content = ASSFormat.to_bytes(
-            simple_sups, word_level=True, karaoke=config
+            simple_sups, word_level=True, config=config
         ).decode("utf-8")
         # Should still have Dialogue entries (standard mode fallback)
         assert "Dialogue:" in content

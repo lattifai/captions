@@ -8,7 +8,7 @@ VTTFormat supports both standard WebVTT and YouTube VTT (with word-level timesta
 import pytest
 
 from lattifai.caption import Caption, SentenceSplitter, Supervision
-from lattifai.caption.config import OutputBehavior, KaraokeConfig
+from lattifai.caption.config import RenderConfig
 from lattifai.caption.formats.vtt import VTTFormat
 from lattifai.caption.supervision import AlignmentItem
 
@@ -189,7 +189,7 @@ Kind: captions
         assert "word" in caption.supervisions[0].alignment
 
     def test_write_youtube_vtt_karaoke(self):
-        """Test writing YouTube VTT style with karaoke enabled."""
+        """Test writing YouTube VTT style with word_level enabled."""
         supervisions = [
             Supervision(
                 text="Hello world",
@@ -204,9 +204,8 @@ Kind: captions
             )
         ]
         caption = Caption.from_supervisions(supervisions)
-        karaoke_config = KaraokeConfig(enabled=True)
         vtt_content = caption.to_bytes(
-            output_format="vtt", behavior=OutputBehavior(word_level=True), karaoke=karaoke_config
+            output_format="vtt", render=RenderConfig(word_level=True)
         ).decode("utf-8")
 
         assert "WEBVTT" in vtt_content

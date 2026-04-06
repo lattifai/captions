@@ -41,8 +41,8 @@ class CaptionFonts:
 
 
 @dataclass
-class OutputBehavior:
-    """Output behavior configuration for caption writing.
+class RenderConfig:
+    """Cross-format rendering configuration for caption output.
 
     Controls how caption content is structured in the output, independent of
     visual styling or format-specific rendering.
@@ -140,30 +140,18 @@ class ASSConfig:
     - "auto":       built-in 10-color palette, auto-assigned per speaker
     """
 
+    # -- Karaoke --
 
-@dataclass
-class KaraokeConfig:
-    """Karaoke export configuration.
-
-    Karaoke-specific settings only. Subtitle styling (font, colors, background)
-    lives in ASSConfig, not here. Format-specific settings live in their own
-    config classes (LRCConfig, TTMLConfig, etc.).
-    """
-
-    enabled: bool = False
-    """Whether karaoke mode is enabled."""
-
-    effect: Literal["sweep", "instant", "outline"] = "sweep"
-    """Karaoke effect type:
+    karaoke_effect: Optional[Literal["sweep", "instant", "outline"]] = None
+    """Karaoke effect type. None = karaoke disabled.
     - "sweep": Gradual fill from left to right (ASS \\kf tag)
     - "instant": Instant highlight (ASS \\k tag)
     - "outline": Outline then fill (ASS \\ko tag)
     """
 
-    color_scheme: str = ""
+    karaoke_color_scheme: str = ""
     """Karaoke color scheme name. When set, overrides style colors.
-    See KARAOKE_COLOR_SCHEMES in colors.py for available schemes.
-    Use "" (empty) for manual style configuration."""
+    See KARAOKE_COLOR_SCHEMES in colors.py for available schemes."""
 
 
 @dataclass

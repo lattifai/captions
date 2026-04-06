@@ -362,7 +362,7 @@ class AuditionCSVFormat(FormatWriter):
         Returns:
             Path to written file
         """
-        _, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        _, include_speaker, _ = cls._unpack_render(**kwargs)
         strip_standard_kwargs(kwargs)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.write(supervisions, output_path, config)
@@ -382,7 +382,7 @@ class AuditionCSVFormat(FormatWriter):
         Returns:
             Audition CSV content as bytes
         """
-        _, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        _, include_speaker, _ = cls._unpack_render(**kwargs)
         strip_standard_kwargs(kwargs)
         config = AuditionCSVConfig(include_speaker_in_name=include_speaker, **kwargs)
         return AuditionCSVWriter.to_bytes(supervisions, config)
@@ -506,7 +506,7 @@ class EdiMarkerCSVFormat(FormatWriter):
         Returns:
             Path to written file
         """
-        _, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        _, include_speaker, _ = cls._unpack_render(**kwargs)
         strip_standard_kwargs(kwargs)
         config = EdiMarkerConfig(include_speaker=include_speaker, **kwargs)
         return EdiMarkerWriter.write(supervisions, output_path, config, fps=fps)
@@ -528,7 +528,7 @@ class EdiMarkerCSVFormat(FormatWriter):
         Returns:
             EdiMarker CSV content as bytes
         """
-        _, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        _, include_speaker, _ = cls._unpack_render(**kwargs)
         strip_standard_kwargs(kwargs)
         config = EdiMarkerConfig(include_speaker=include_speaker, **kwargs)
         return EdiMarkerWriter.to_bytes(supervisions, config, fps=fps)

@@ -145,32 +145,33 @@ class FormatWriter(ABC):
         pass
 
     @classmethod
-    def _unpack_behavior(cls, behavior=None, **kwargs):
-        """Extract output behavior flags.
+    def _unpack_render(cls, render=None, **kwargs):
+        """Extract output render flags.
 
         Resolves include_speaker, word_level, and translation_first from
-        an OutputBehavior instance. Also accepts legacy kwargs and the old
+        an RenderConfig instance. Also accepts legacy kwargs and the old
         'style' kwarg for backward compatibility.
 
         Args:
-            behavior: OutputBehavior instance or None (uses defaults)
+            render: RenderConfig instance or None (uses defaults)
             **kwargs: Legacy overrides — include_speaker, word_level, style
                 are consumed if present.
 
         Returns:
-            Tuple of (behavior, include_speaker, word_level)
+            Tuple of (render, include_speaker, word_level)
         """
-        from ..config import OutputBehavior
+        from ..config import RenderConfig
 
-        # Accept behavior from kwargs (when passed via Caption.write())
-        if behavior is None:
-            behavior = kwargs.pop("behavior", None)
+        # Accept render from kwargs (when passed via Caption.write())
+        if render is None:
+            render = kwargs.pop("render", kwargs.pop("behavior", None))
         else:
+            kwargs.pop("render", None)
             kwargs.pop("behavior", None)
-        behavior = behavior or OutputBehavior()
-        include_speaker = kwargs.pop("include_speaker", behavior.include_speaker_in_text)
-        word_level = kwargs.pop("word_level", behavior.word_level)
-        return behavior, include_speaker, word_level
+        render = render or RenderConfig()
+        include_speaker = kwargs.pop("include_speaker", render.include_speaker_in_text)
+        word_level = kwargs.pop("word_level", render.word_level)
+        return render, include_speaker, word_level
 
     @classmethod
     def _should_include_speaker(cls, sup: Any, include_speaker: bool) -> bool:
@@ -246,7 +247,7 @@ def strip_standard_kwargs(kwargs: dict) -> None:
     This avoids repetitive kwargs.pop() blocks in every NLE format wrapper.
     Mutates the dict in-place.
     """
-    for key in ("word_level", "karaoke", "metadata", "speaker_color", "behavior", "config"):
+    for key in ("word_level", "metadata", "speaker_color", "render", "behavior", "config"):
         kwargs.pop(key, None)
 
 

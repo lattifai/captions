@@ -287,7 +287,7 @@ class SRV3Format(FormatHandler):
         Returns:
             SRV3 XML content as UTF-8 encoded bytes
         """
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         # Create root element
         root = ET.Element("timedtext")
         root.set("format", "3")

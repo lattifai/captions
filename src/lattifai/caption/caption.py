@@ -375,8 +375,7 @@ class Caption:
     def to_string(
         self,
         format: str = "srt",
-        behavior: Optional["OutputBehavior"] = None,
-        karaoke: Optional["KaraokeConfig"] = None,
+        render: Optional["RenderConfig"] = None,
         format_config=None,
     ) -> str:
         """
@@ -384,14 +383,13 @@ class Caption:
 
         Args:
             format: Output format (e.g., 'srt', 'vtt', 'ass')
-            behavior: OutputBehavior controlling rendering and output behavior
-            karaoke: Karaoke configuration
+            render: RenderConfig controlling rendering and output behavior
             format_config: Format-specific configuration (ASSConfig, TTMLConfig, etc.)
 
         Returns:
             String containing formatted captions
         """
-        return self.to_bytes(output_format=format, behavior=behavior, karaoke=karaoke, format_config=format_config).decode("utf-8")
+        return self.to_bytes(output_format=format, render=render, format_config=format_config).decode("utf-8")
 
     def to_dict(self) -> Dict:
         """
@@ -475,8 +473,7 @@ class Caption:
     def to_bytes(
         self,
         output_format: Optional[str] = None,
-        behavior: Optional["OutputBehavior"] = None,
-        karaoke: Optional["KaraokeConfig"] = None,
+        render: Optional["RenderConfig"] = None,
         format_config=None,
     ) -> bytes:
         """
@@ -484,8 +481,7 @@ class Caption:
 
         Args:
             output_format: Output format (e.g., 'srt', 'vtt', 'ass'). Defaults to source_format or 'srt'
-            behavior: OutputBehavior controlling rendering and output behavior
-            karaoke: Karaoke configuration
+            render: RenderConfig controlling rendering and output behavior
             format_config: Format-specific configuration (ASSConfig, TTMLConfig, etc.)
 
         Returns:
@@ -499,8 +495,7 @@ class Caption:
         return self.write(
             None,
             format_config=format_config,
-            behavior=behavior,
-            karaoke=karaoke,
+            render=render,
             _output_format=output_format,
         )
 
@@ -581,8 +576,7 @@ class Caption:
         self,
         path: Union[Pathlike, io.BytesIO, None] = None,
         format_config=None,
-        behavior: Optional["OutputBehavior"] = None,
-        karaoke: Optional["KaraokeConfig"] = None,
+        render: Optional["RenderConfig"] = None,
         standardization: Optional["StandardizationConfig"] = None,
         _output_format: Optional[str] = None,
     ) -> Union[Pathlike, bytes]:
@@ -592,23 +586,19 @@ class Caption:
         Args:
             path: Path to output caption file, BytesIO object, or None to return bytes
             format_config: Format-specific configuration (ASSConfig, TTMLConfig, etc.)
-            behavior: OutputBehavior controlling include_speaker, word_level, translation_first
-            karaoke: Karaoke configuration (effect, color_scheme)
+            render: RenderConfig controlling include_speaker, word_level, translation_first
             standardization: Broadcast standardization (min/max duration, CPS, margins)
 
         Returns:
             Path to the written file if path is a file path, or bytes if path is BytesIO/None
         """
-        from .config import ASSConfig, OutputBehavior, apply_color_scheme
+        from .config import ASSConfig, RenderConfig, apply_color_scheme
 
-        effective_behavior = behavior or OutputBehavior()
+        effective_render = render or RenderConfig()
 
-        # Apply karaoke color scheme to format_config (ASS only)
-        if karaoke and karaoke.color_scheme:
-            if isinstance(format_config, ASSConfig):
-                format_config = apply_color_scheme(karaoke.color_scheme, format_config)
-            elif format_config is None:
-                format_config = apply_color_scheme(karaoke.color_scheme)
+        # Apply karaoke color scheme from ASSConfig
+        if isinstance(format_config, ASSConfig) and format_config.karaoke_color_scheme:
+            format_config = apply_color_scheme(format_config.karaoke_color_scheme, format_config)
 
         supervisions = self.supervisions
 
@@ -679,17 +669,15 @@ class Caption:
             return writer_cls.write(
                 supervisions,
                 path,
-                karaoke=karaoke,
                 metadata=writer_metadata,
-                behavior=effective_behavior,
+                render=effective_render,
                 config=format_config,
             )
 
         content = writer_cls.to_bytes(
             supervisions,
-            karaoke=karaoke,
             metadata=writer_metadata,
-            behavior=effective_behavior,
+            render=effective_render,
             config=format_config,
         )
         if isinstance(path, io.BytesIO):

@@ -2,7 +2,7 @@
 
 This module provides a unified VTT format handler that:
 - Reads both standard VTT and YouTube VTT (with word-level timestamps)
-- Writes standard VTT or YouTube VTT (when karaoke.enabled=True)
+- Writes standard VTT or YouTube VTT (when word_level=True)
 
 YouTube VTT format uses word-level tags like:
     Word1<00:00:10.559><c> Word2</c><00:00:11.000><c> Word3</c>
@@ -14,7 +14,6 @@ from typing import Dict, List, Optional
 
 import pysubs2
 
-from ..config import KaraokeConfig
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text
 from ..supervision import AlignmentItem, Supervision
@@ -32,7 +31,7 @@ class VTTFormat(FormatHandler):
 
     Writing:
         - Standard VTT by default
-        - YouTube VTT style when word_level=True and karaoke.enabled=True
+        - YouTube VTT style when word_level=True
     """
 
     extensions = [".vtt"]
@@ -362,38 +361,25 @@ class VTTFormat(FormatHandler):
     def to_bytes(
         cls,
         supervisions: List[Supervision],
-        fps: float = 25.0,
-        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         **kwargs,
     ) -> bytes:
-        """Convert to VTT bytes with optional karaoke and metadata preservation.
+        """Convert to VTT bytes with optional word-level and metadata preservation.
 
         Args:
             supervisions: List of supervision segments
-            fps: Frames per second (not used for VTT)
-            karaoke: Karaoke configuration. When enabled, output YouTube VTT
-                style with word-level timestamps: <00:00:10.559><c> word</c>
             metadata: Optional metadata dict containing kind and language
 
         Returns:
             VTT content as bytes
         """
-        from .base import expand_to_word_supervisions
-
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
-
-        karaoke_enabled = karaoke is not None and karaoke.enabled
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
 
         tf = behavior.translation_first
 
-        # If karaoke enabled, output YouTube VTT style
-        if word_level and karaoke_enabled:
-            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf)
-
-        # If word_level only (no karaoke), expand to word-per-segment
+        # Word-level: output YouTube VTT style with inline timestamps
         if word_level:
-            supervisions = expand_to_word_supervisions(supervisions)
+            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf)
 
         # Build VTT with metadata header
         return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata, tf)

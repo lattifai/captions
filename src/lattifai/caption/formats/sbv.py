@@ -121,7 +121,7 @@ class SBVFormat(FormatHandler):
         **kwargs,
     ) -> bytes:
         """Convert to SBV format bytes."""
-        style, include_speaker, _ = cls._unpack_behavior(**kwargs)
+        render, include_speaker, _ = cls._unpack_render(**kwargs)
         lines = []
 
         for i, sup in enumerate(supervisions):

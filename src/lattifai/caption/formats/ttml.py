@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 from xml.dom import minidom
 
-from ..config import KaraokeConfig
 from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
 from .base import FormatHandler
@@ -329,7 +328,6 @@ class TTMLFormatBase(FormatHandler):
         config: TTMLConfig,
         include_speaker: bool = True,
         word_level: bool = False,
-        karaoke: Optional[KaraokeConfig] = None,
     ) -> ET.Element:
         """Build TTML document structure.
 
@@ -337,26 +335,17 @@ class TTMLFormatBase(FormatHandler):
             supervisions: List of supervisions to convert
             config: TTML configuration
             include_speaker: Whether to include speaker names
-            word_level: Whether to output word-level timing
-            karaoke: Karaoke configuration. When provided with enabled=True,
-                use span-based karaoke; otherwise use p-per-word
+            word_level: Whether to output word-level timing (span-based karaoke)
         """
         from .base import expand_to_word_supervisions
-
-        # Check if karaoke is enabled
-        karaoke_enabled = karaoke is not None and karaoke.enabled
-
-        # If word_level=True and karaoke is not enabled, expand to word-per-paragraph
-        if word_level and not karaoke_enabled:
-            supervisions = expand_to_word_supervisions(supervisions)
 
         ET.register_namespace("", TTML_NS)
         ET.register_namespace("tts", TTML_STYLE_NS)
         ET.register_namespace("ttp", TTML_PARAM_NS)
         ET.register_namespace("xml", XML_NS)
 
-        # Register iTunes namespace if karaoke mode is enabled
-        if word_level and karaoke_enabled:
+        # Register iTunes namespace for word-level timing
+        if word_level:
             ET.register_namespace("itunes", ITUNES_NS)
 
         root = ET.Element(
@@ -372,8 +361,8 @@ class TTMLFormatBase(FormatHandler):
         elif config.profile == "ebu-tt-d":
             root.set(f"{{{TTML_PARAM_NS}}}profile", "urn:ebu:tt:distribution:2014-01")
 
-        # Add iTunes timing attribute for karaoke mode
-        if word_level and karaoke_enabled:
+        # Add iTunes timing attribute for word-level mode
+        if word_level:
             root.set(f"{{{ITUNES_NS}}}timing", config.timing_mode)
 
         # Head section
@@ -396,10 +385,9 @@ class TTMLFormatBase(FormatHandler):
         div = ET.SubElement(body, f"{{{TTML_NS}}}div")
 
         for sup in supervisions:
-            # Check if karaoke mode should be used for this supervision
+            # Check if word-level timing should be used for this supervision
             has_word_alignment = (
                 word_level
-                and karaoke_enabled
                 and sup.alignment
                 and "word" in sup.alignment
                 and len(sup.alignment["word"]) > 0
@@ -486,7 +474,6 @@ class TTMLFormat(TTMLFormatBase):
         supervisions: List[Supervision],
         output_path,
         config: Optional[TTMLConfig] = None,
-        karaoke: Optional[KaraokeConfig] = None,
         **kwargs,
     ) -> Path:
         """Write TTML format.
@@ -495,13 +482,11 @@ class TTMLFormat(TTMLFormatBase):
             supervisions: List of supervisions to write
             output_path: Output file path
             config: TTML configuration (TTMLConfig). Non-TTMLConfig values are ignored.
-            karaoke: Karaoke configuration
         """
         if not isinstance(config, TTMLConfig):
             config = TTMLConfig()
 
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
-
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
 
         output_path = Path(output_path)
         if output_path.suffix.lower() not in [".ttml", ".xml"]:
@@ -512,7 +497,6 @@ class TTMLFormat(TTMLFormatBase):
             config,
             include_speaker=include_speaker,
             word_level=word_level,
-            karaoke=karaoke,
         )
         xml_content = cls._prettify_xml(root)
 
@@ -524,7 +508,6 @@ class TTMLFormat(TTMLFormatBase):
         cls,
         supervisions: List[Supervision],
         config: Optional[TTMLConfig] = None,
-        karaoke: Optional[KaraokeConfig] = None,
         metadata: Optional[Dict] = None,
         **kwargs,
     ) -> bytes:
@@ -533,14 +516,12 @@ class TTMLFormat(TTMLFormatBase):
         Args:
             supervisions: List of supervisions to convert
             config: TTML configuration
-            karaoke: Karaoke configuration
             metadata: Optional metadata dict containing ttml_* keys to restore
         """
         if not isinstance(config, TTMLConfig):
             config = TTMLConfig()
 
-        behavior, include_speaker, word_level = cls._unpack_behavior(**kwargs)
-
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
 
         # Apply metadata to config if available
         if metadata:
@@ -554,7 +535,6 @@ class TTMLFormat(TTMLFormatBase):
             config,
             include_speaker=include_speaker,
             word_level=word_level,
-            karaoke=karaoke,
         )
         xml_content = cls._prettify_xml(root)
         return xml_content.encode("utf-8")

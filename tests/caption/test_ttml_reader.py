@@ -106,7 +106,7 @@ class TestTTMLReader:
 
 
 class TestTTMLConfigTimingMode:
-    """Test TTMLConfig.timing_mode replaces KaraokeConfig.ttml_timing_mode."""
+    """Test TTMLConfig.timing_mode replaces .ttml_timing_mode."""
 
     def test_timing_mode_in_ttml_config(self):
         """TTMLConfig should have timing_mode field."""
@@ -123,8 +123,7 @@ class TestTTMLConfigTimingMode:
         assert config.timing_mode == "Word"
 
     def test_timing_mode_used_in_ttml_output(self):
-        """TTMLConfig.timing_mode should appear in karaoke TTML output."""
-        from lattifai.caption.config import KaraokeConfig
+        """TTMLConfig.timing_mode should appear in TTML output with word_level=True."""
         from lattifai.caption.formats.ttml import TTMLConfig
 
         sups = [
@@ -141,9 +140,8 @@ class TestTTMLConfigTimingMode:
             )
         ]
         config = TTMLConfig(timing_mode="Line")
-        karaoke = KaraokeConfig(enabled=True)
         result = TTMLFormat.to_bytes(
-            sups, word_level=True, karaoke=karaoke, config=config
+            sups, word_level=True, config=config
         ).decode("utf-8")
 
         assert 'timing="Line"' in result

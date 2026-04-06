@@ -412,6 +412,7 @@ class Caption:
         return {
             "supervisions": [sup.to_dict() for sup in self.supervisions],
             "language": self.language,
+            "target_lang": self.target_lang,
             "kind": self.kind,
             "source_format": self.source_format,
             "source_path": str(self.source_path) if self.source_path else None,
@@ -426,6 +427,7 @@ class Caption:
         cls,
         supervisions: List[Supervision],
         language: Optional[str] = None,
+        target_lang: Optional[str] = None,
         kind: Optional[str] = None,
         source_format: Optional[str] = None,
         source_path: Optional[Pathlike] = None,
@@ -437,6 +439,7 @@ class Caption:
         Args:
             supervisions: List of supervision segments
             language: Language code
+            target_lang: Target language code for bilingual captions
             kind: Caption kind/type
             source_format: Original format
             source_path: Source file path
@@ -448,6 +451,7 @@ class Caption:
         return cls(
             supervisions=supervisions,
             language=language,
+            target_lang=target_lang,
             kind=kind,
             source_format=source_format,
             source_path=source_path,

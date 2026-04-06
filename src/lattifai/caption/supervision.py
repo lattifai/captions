@@ -178,6 +178,7 @@ class Supervision:
     language: Optional[str] = None
     speaker: Optional[str] = None
     gender: Optional[str] = None
+    score: Optional[float] = None
 
     # Translation fields
     translation: Optional[str] = None
@@ -340,6 +341,7 @@ class Supervision:
             language=self.language,
             speaker=self.speaker,
             gender=self.gender,
+            score=self.score,
             translation=self.translation,
             target_lang=self.target_lang,
             custom=self.custom,

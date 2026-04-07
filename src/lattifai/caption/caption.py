@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     ]
 
 from .config import InputCaptionFormat, OutputCaptionFormat  # noqa: F401
+from .exceptions import CaptionParseError, FormatDetectionError, FormatNotSupportedError
 from .formats import detect_format, detect_format_from_content, get_reader, get_writer
 from .supervision import AlignmentItem, Pathlike, Supervision, fastcopy
 
@@ -478,7 +479,9 @@ class Caption:
             New Caption instance
 
         Raises:
-            ValueError: If format is not provided and cannot be detected.
+            FormatDetectionError: If format cannot be auto-detected from content.
+            FormatNotSupportedError: If the specified format has no registered reader.
+            CaptionParseError: If the reader fails to parse the content.
 
         Example:
             >>> caption = Caption.from_string(srt_content)          # auto-detect
@@ -487,7 +490,7 @@ class Caption:
         if not format or format == "auto":
             format = detect_format_from_content(content)
             if not format:
-                raise ValueError(
+                raise FormatDetectionError(
                     "Unable to detect caption format from content. "
                     "Please specify the 'format' parameter explicitly."
                 )
@@ -504,7 +507,12 @@ class Caption:
         if "\n" not in content:
             content += "\n"
 
-        result = reader_cls.parse(content, normalize_text=normalize_text)
+        try:
+            result = reader_cls.parse(content, normalize_text=normalize_text)
+        except (FormatDetectionError, FormatNotSupportedError):
+            raise
+        except Exception as exc:
+            raise CaptionParseError(f"Failed to parse {format} content: {exc}") from exc
 
         return cls(
             supervisions=result.supervisions,

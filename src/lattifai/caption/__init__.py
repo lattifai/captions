@@ -9,6 +9,7 @@ This module provides comprehensive caption/subtitle processing capabilities:
 
 from .caption import Caption
 from .config import InputCaptionFormat, OutputCaptionFormat
+from .exceptions import CaptionError, CaptionParseError, FormatDetectionError, FormatNotSupportedError
 from .formats.gemini import GeminiReader, GeminiSegment, GeminiWriter  # backward compat
 from .formats.markdown import MarkdownReader, MarkdownSegment, MarkdownWriter
 from .formats.nle.audition import (
@@ -51,6 +52,11 @@ __all__ = [
     "Caption",
     "Supervision",
     "SentenceSplitter",
+    # Exceptions
+    "CaptionError",
+    "FormatDetectionError",
+    "FormatNotSupportedError",
+    "CaptionParseError",
     # Lhotse compat (for external use)
     "AlignmentItem",
     "fastcopy",

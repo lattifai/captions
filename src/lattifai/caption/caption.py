@@ -428,7 +428,7 @@ class Caption:
         """Create Caption from a dictionary (inverse of to_dict).
 
         Accepts the same structure as to_dict() output and CaptionData schema.
-        Ignores computed fields (duration, num_segments, speakers, source_path).
+        Ignores computed fields (duration, num_segments, speakers).
 
         Args:
             data: Dictionary with caption fields.
@@ -447,6 +447,7 @@ class Caption:
             target_lang=data.get("target_lang"),
             kind=data.get("kind"),
             source_format=data.get("source_format"),
+            source_path=data.get("source_path"),
             metadata=data.get("metadata") or {},
         )
 

@@ -357,7 +357,7 @@ def _get_format_config_map() -> Dict[str, type]:
     """Lazy-init format → config class mapping."""
     global _FORMAT_CONFIG_MAP
     if _FORMAT_CONFIG_MAP is None:
-        from .formats.nle.audition import AuditionCSVConfig
+        from .formats.nle.audition import AuditionCSVConfig, EdiMarkerConfig
         from .formats.nle.avid import AvidDSConfig
         from .formats.nle.fcpxml import FCPXMLConfig
         from .formats.nle.premiere import PremiereXMLConfig
@@ -374,6 +374,7 @@ def _get_format_config_map() -> Dict[str, type]:
             "fcpxml": FCPXMLConfig,
             "avid_ds": AvidDSConfig,
             "audition_csv": AuditionCSVConfig,
+            "edimarker_csv": EdiMarkerConfig,
         }
     return _FORMAT_CONFIG_MAP
 

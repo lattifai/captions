@@ -90,16 +90,26 @@ class TestCaptionFromDict:
         assert len(caption) == 1
 
     def test_ignores_computed_fields(self):
-        """Computed fields (duration, num_segments, speakers, source_path) are ignored."""
+        """Computed fields (duration, num_segments, speakers) are ignored."""
         caption = Caption.from_dict({
             "supervisions": [{"text": "Hi", "start": 0.0, "duration": 1.0}],
             "duration": 999.0,  # should be ignored
             "num_segments": 999,  # should be ignored
             "speakers": ["Alice"],  # should be ignored
-            "source_path": "/fake/path",  # should be ignored
         })
         assert caption.duration == 1.0  # computed from supervision, not 999
         assert len(caption) == 1
+
+    def test_source_path_preserved(self):
+        """source_path is preserved through from_dict round-trip."""
+        original = Caption(
+            supervisions=[Supervision(text="Hi", start=0.0, duration=1.0)],
+            source_path="/path/to/input.srt",
+        )
+        d = original.to_dict()
+        assert d["source_path"] == "/path/to/input.srt"
+        restored = Caption.from_dict(d)
+        assert restored.source_path == "/path/to/input.srt"
 
     def test_metadata_none_becomes_empty_dict(self):
         """metadata=None in input should become {}."""
@@ -249,6 +259,12 @@ class TestResolveFormatConfig:
         from lattifai.caption.formats.nle.audition import AuditionCSVConfig
         cfg = resolve_format_config("audition_csv", {"sample_rate": 48000})
         assert isinstance(cfg, AuditionCSVConfig)
+
+    def test_edimarker_csv_config(self):
+        from lattifai.caption.formats.nle.audition import EdiMarkerConfig
+        cfg = resolve_format_config("edimarker_csv", {"marker_prefix": "PT"})
+        assert isinstance(cfg, EdiMarkerConfig)
+        assert cfg.marker_prefix == "PT"
 
 
 # =============================================================================

@@ -2,6 +2,7 @@
 
 **The universal caption toolkit.** Read, write, convert, and validate 25+ subtitle formats with word-level precision — from YouTube to Netflix to Final Cut Pro.
 
+[![PyPI](https://img.shields.io/pypi/v/lattifai-captions)](https://pypi.org/project/lattifai-captions/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://python.org)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 

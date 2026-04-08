@@ -8,7 +8,7 @@ This module provides comprehensive caption/subtitle processing capabilities:
 """
 
 from .caption import Caption
-from .config import InputCaptionFormat, OutputCaptionFormat
+from .config import InputCaptionFormat, OutputCaptionFormat, resolve_format_config
 from .exceptions import CaptionError, CaptionParseError, FormatDetectionError, FormatNotSupportedError
 from .formats.gemini import GeminiReader, GeminiSegment, GeminiWriter  # backward compat
 from .formats.markdown import MarkdownReader, MarkdownSegment, MarkdownWriter

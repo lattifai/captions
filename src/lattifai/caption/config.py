@@ -343,3 +343,54 @@ CAPTION_FORMATS: list[str] = ["srt", "vtt", "ass", "ssa", "sub", "sbv", "txt", "
 
 # All caption formats combined (for file detection, excludes "auto")
 ALL_CAPTION_FORMATS: list[str] = list(set(INPUT_CAPTION_FORMATS + OUTPUT_CAPTION_FORMATS) - {"auto"})
+
+
+# =============================================================================
+# Format Config Resolution
+# =============================================================================
+
+# 格式 → config 类映射（延迟导入避免循环依赖）
+_FORMAT_CONFIG_MAP: Optional[Dict[str, type]] = None
+
+
+def _get_format_config_map() -> Dict[str, type]:
+    """Lazy-init format → config class mapping."""
+    global _FORMAT_CONFIG_MAP
+    if _FORMAT_CONFIG_MAP is None:
+        from .formats.nle.audition import AuditionCSVConfig
+        from .formats.nle.avid import AvidDSConfig
+        from .formats.nle.fcpxml import FCPXMLConfig
+        from .formats.nle.premiere import PremiereXMLConfig
+        from .formats.ttml import TTMLConfig
+
+        _FORMAT_CONFIG_MAP = {
+            "ass": ASSConfig,
+            "ssa": ASSConfig,
+            "lrc": LRCConfig,
+            "ttml": TTMLConfig,
+            "imsc1": TTMLConfig,
+            "ebu_tt_d": TTMLConfig,
+            "premiere_xml": PremiereXMLConfig,
+            "fcpxml": FCPXMLConfig,
+            "avid_ds": AvidDSConfig,
+            "audition_csv": AuditionCSVConfig,
+        }
+    return _FORMAT_CONFIG_MAP
+
+
+def resolve_format_config(output_format: str, config_dict: Optional[Dict] = None):
+    """Convert a plain dict to the appropriate format-specific config dataclass.
+
+    Args:
+        output_format: Output caption format (e.g., 'ass', 'lrc', 'ttml').
+        config_dict: Dictionary of config values. None returns None.
+
+    Returns:
+        Instantiated config dataclass, or None if format has no config or dict is None.
+    """
+    if not config_dict:
+        return None
+    config_cls = _get_format_config_map().get(output_format)
+    if not config_cls:
+        return None
+    return config_cls(**config_dict)

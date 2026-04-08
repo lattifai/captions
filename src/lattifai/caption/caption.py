@@ -424,6 +424,33 @@ class Caption:
         }
 
     @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Caption":
+        """Create Caption from a dictionary (inverse of to_dict).
+
+        Accepts the same structure as to_dict() output and CaptionData schema.
+        Ignores computed fields (duration, num_segments, speakers, source_path).
+
+        Args:
+            data: Dictionary with caption fields.
+
+        Returns:
+            New Caption instance.
+        """
+        sups = data.get("supervisions", [])
+        supervisions = [
+            Supervision.from_dict(s) if isinstance(s, dict) else s
+            for s in sups
+        ]
+        return cls(
+            supervisions=supervisions,
+            language=data.get("language"),
+            target_lang=data.get("target_lang"),
+            kind=data.get("kind"),
+            source_format=data.get("source_format"),
+            metadata=data.get("metadata") or {},
+        )
+
+    @classmethod
     def from_supervisions(
         cls,
         supervisions: List[Supervision],

@@ -396,7 +396,7 @@ class Supervision:
 
     @staticmethod
     def from_dict(data: dict) -> "Supervision":
-        if "alignment" in data:
+        if data.get("alignment"):
             data["alignment"] = {k: [AlignmentItem.deserialize(x) for x in v] for k, v in data["alignment"].items()}
         # Filter to known fields for forward-compatibility: older Supervision
         # versions can safely ignore fields added in newer releases.

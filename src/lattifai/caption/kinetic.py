@@ -8,30 +8,69 @@ orthogonal:
     karaoke_color_scheme -> what color        (12 presets)
     kinetic_style        -> how to move       (15 presets, this module)
 
-All 14 word-level styles are implemented as ordered lists of transition
-tuples `(t1_ms, t2_ms, override_tags)`. At build time each transition is
-rendered as an ASS `\\t(ws+t1, ws+t2, tags)` block where `ws` is the word's
-cumulative start offset from the Dialogue event's beginning. This makes
-every word animate at its own activation time rather than all at event
-start — which is what differentiates a real kinetic caption from a static
-override.
+Each preset is a KineticTemplate with two fields:
 
-The stagger style is special: it needs character-level time offsets, so it
-is handled by `expand_stagger_word()` instead of the transition table.
+    initial      — static ASS override tags applied at event start. Required
+                   for "entrance" effects (fade, pop, zoom, rise, blur_in,
+                   typewriter) where the word must be hidden/small/blurry
+                   BEFORE its activation time. Without this, the word is
+                   fully visible at event start, and the animation looks
+                   like "flash off → fade in" which reads as a flicker.
+
+    transitions  — ordered list of (t1_ms, t2_ms, override_tags). At build
+                   time each entry is rendered as
+                   `\\t(ws+t1, ws+t2, tags)` where `ws` is the word's
+                   cumulative start offset from the Dialogue event's
+                   beginning. This makes every word animate at its own
+                   activation time rather than all at event start.
+
+The stagger style is special: it needs character-level time offsets, so
+`expand_stagger_word()` wraps each character individually.
+
+Horizontal scale (`\\fscx`) is DELIBERATELY avoided everywhere. libass
+treats `\\fscx` as a change to the glyph's advance width, which triggers
+line re-flow — subsequent words get pushed right as one word scales up,
+creating visible horizontal jitter across the whole line. Vertical scale
+(`\\fscy`) does not affect advance width and is safe. See the
+`karaoke-vs-shortform-captions-research` plan for the full analysis.
 
 ASS override tags used (all libass-compatible, no absolute positioning):
-    \\fscx, \\fscy   — horizontal/vertical scale (%)
+    \\fscy            — vertical scale (%)
     \\alpha          — transparency (&H00&=opaque ... &HFF&=transparent)
     \\frz            — z-axis rotation (degrees)
     \\bord            — outline width (px)
     \\blur            — Gaussian blur radius
     \\t(t1,t2,tags)  — time-based animation between two states
 
-Deliberately NOT used: \\move, \\pos, \\org — these require absolute
-coordinates and break libass automatic layout.
+Deliberately NOT used: \\move, \\pos, \\org, \\fscx, \\fs — these either
+require absolute coordinates or change horizontal advance width.
 """
 
-from typing import Dict, FrozenSet, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import FrozenSet, List, Optional, Tuple
+
+# =============================================================================
+# Data model
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class KineticTemplate:
+    """A word-level kinetic typography preset.
+
+    Attributes:
+        initial: Static ASS override tags applied at event start. Required
+            for "entrance" animations so the word has the correct hidden /
+            small / blurry state BEFORE its activation time. Empty string
+            means "use the style defaults" (e.g. bounce, glow, pulse which
+            start from the normal rendered state and animate on top).
+        transitions: List of (t1_ms, t2_ms, tags) tuples rendered as
+            `\\t(ws+t1, ws+t2, tags)` at the word's cumulative offset.
+    """
+
+    initial: str = ""
+    transitions: Tuple[Tuple[int, int, str], ...] = field(default_factory=tuple)
+
 
 # =============================================================================
 # Public style names — keep in sync with ASSConfig.kinetic_style Literal
@@ -60,81 +99,121 @@ KINETIC_STYLE_NAMES: Tuple[str, ...] = (
 
 
 # =============================================================================
-# Word-level transition tables
+# Template table
 # =============================================================================
 
-# Each entry: list of (t1_ms, t2_ms, ass_override_tags).
-# At build time the writer adds `word_start_ms` to both t1 and t2 and wraps
-# as `\\t(t1,t2,tags)`. Multiple tuples are concatenated; libass applies
-# them in order and animates the current text state through each window.
-#
-# Convention: use a 1-ms (t, t+1) window for instant state jumps (e.g. set
-# the initial scale before the settle animation). This keeps the "jump" from
-# being visually interpolated while remaining a valid `\\t` block.
-
-_KINETIC_TRANSITIONS: Dict[str, List[Tuple[int, int, str]]] = {
+_KINETIC_TEMPLATES: "dict[str, KineticTemplate]" = {
     # ----- Impact ---------------------------------------------------------
-    "bounce": [
-        (0, 1, r"\fscx120\fscy120"),
-        (1, 151, r"\fscx100\fscy100"),
-    ],
-    "pop": [
-        (0, 1, r"\fscx60\fscy60\alpha&HFF&"),
-        (1, 121, r"\fscx100\fscy100\alpha&H00&"),
-    ],
-    "shake": [
-        (0, 60, r"\frz3"),
-        (60, 120, r"\frz-3"),
-        (120, 180, r"\frz0"),
-    ],
-    "pulse": [
-        (0, 200, r"\fscx110\fscy110"),
-        (200, 400, r"\fscx100\fscy100"),
-    ],
-    "swing": [
-        (0, 1, r"\frz-8"),
-        (1, 201, r"\frz8"),
-        (201, 400, r"\frz0"),
-    ],
+    # bounce: word snaps to 130% vertical scale at activation and springs
+    # back over 150ms. Vertical-only to avoid horizontal advance-width
+    # reflow (would shake the entire line on rapid speech).
+    "bounce": KineticTemplate(
+        transitions=(
+            (0, 1, r"\fscy130"),
+            (1, 151, r"\fscy100"),
+        ),
+    ),
+    # pop: word is vertically squashed and invisible from event start; at
+    # its activation it grows and fades in over 120ms. The static initial
+    # keeps it hidden until activation instead of flashing into view.
+    "pop": KineticTemplate(
+        initial=r"\fscy60\alpha&HFF&",
+        transitions=((0, 120, r"\fscy100\alpha&H00&"),),
+    ),
+    # shake: three-stage rotation jitter. Rotation is around the glyph's
+    # render origin and does not affect advance width.
+    "shake": KineticTemplate(
+        transitions=(
+            (0, 60, r"\frz3"),
+            (60, 120, r"\frz-3"),
+            (120, 180, r"\frz0"),
+        ),
+    ),
+    # pulse: 100% → 115% → 100% breathing over 400ms. Vertical-only.
+    "pulse": KineticTemplate(
+        transitions=(
+            (0, 200, r"\fscy115"),
+            (200, 400, r"\fscy100"),
+        ),
+    ),
+    # swing: pendulum rotation -8° → 8° → 0° over 400ms.
+    "swing": KineticTemplate(
+        transitions=(
+            (0, 1, r"\frz-8"),
+            (1, 201, r"\frz8"),
+            (201, 400, r"\frz0"),
+        ),
+    ),
     # ----- Smooth ---------------------------------------------------------
-    "fade": [
-        (0, 1, r"\alpha&HFF&"),
-        (1, 151, r"\alpha&H00&"),
-    ],
-    "zoom": [
-        (0, 1, r"\fscx80\fscy80"),
-        (1, 151, r"\fscx100\fscy100"),
-    ],
-    "rise": [
-        (0, 1, r"\fscy0"),
-        (1, 181, r"\fscy100"),
-    ],
-    "typewriter": [],  # Hard cut — relies on \k alone, no extra transitions
-    "blur_in": [
-        (0, 1, r"\blur4"),
-        (1, 151, r"\blur0"),
-    ],
+    # fade: word is fully transparent from event start; at activation it
+    # fades to opaque over 150ms. No "flash off then fade in" bug.
+    "fade": KineticTemplate(
+        initial=r"\alpha&HFF&",
+        transitions=((0, 150, r"\alpha&H00&"),),
+    ),
+    # zoom: word is vertically squashed from event start; at activation it
+    # grows to full height over 150ms. Smooth, no elasticity.
+    "zoom": KineticTemplate(
+        initial=r"\fscy80",
+        transitions=((0, 150, r"\fscy100"),),
+    ),
+    # rise: word has zero height from event start; at activation it rises
+    # to full height over 180ms, looking like it's "sprouting" from baseline.
+    "rise": KineticTemplate(
+        initial=r"\fscy0",
+        transitions=((0, 180, r"\fscy100"),),
+    ),
+    # typewriter: word is invisible from event start; at activation it
+    # appears instantly (1 ms ramp). Hard cut, no easing.
+    "typewriter": KineticTemplate(
+        initial=r"\alpha&HFF&",
+        transitions=((0, 1, r"\alpha&H00&"),),
+    ),
+    # blur_in: word is blurred from event start; at activation it sharpens
+    # to zero blur over 150ms.
+    "blur_in": KineticTemplate(
+        initial=r"\blur4",
+        transitions=((0, 150, r"\blur0"),),
+    ),
     # ----- Stylized -------------------------------------------------------
-    "glow": [
-        (0, 100, r"\bord4\blur3"),
-        (100, 250, r"\bord2\blur1"),
-    ],
-    "neon": [
-        (0, 1, r"\bord2\blur2"),
-        (1, 151, r"\bord6\blur5"),
-        (151, 400, r"\bord3\blur2"),
-    ],
-    "wave": [
-        (0, 200, r"\fscy110"),
-        (200, 400, r"\fscy90"),
-        (400, 600, r"\fscy100"),
-    ],
-    "flicker": [
-        (0, 50, r"\alpha&HA0&"),
-        (50, 100, r"\alpha&H00&"),
-        (150, 200, r"\alpha&HA0&"),
-        (200, 250, r"\alpha&H00&"),
-    ],
+    # glow: outline and blur pulse at activation. No initial state because
+    # the word should look normal before activation; the glow is a pulse
+    # on top of the normal render.
+    "glow": KineticTemplate(
+        transitions=(
+            (0, 100, r"\bord4\blur3"),
+            (100, 250, r"\bord2\blur1"),
+        ),
+    ),
+    # neon: stronger glow pulse with a pre-state and a sustained tail.
+    "neon": KineticTemplate(
+        transitions=(
+            (0, 1, r"\bord2\blur2"),
+            (1, 151, r"\bord6\blur5"),
+            (151, 400, r"\bord3\blur2"),
+        ),
+    ),
+    # wave: vertical only up-down-settle ripple. No initial state.
+    "wave": KineticTemplate(
+        transitions=(
+            (0, 200, r"\fscy110"),
+            (200, 400, r"\fscy90"),
+            (400, 600, r"\fscy100"),
+        ),
+    ),
+    # flicker: two rapid alpha flashes at activation. Word is visible
+    # before activation (default state), flickers briefly, then stays on.
+    "flicker": KineticTemplate(
+        transitions=(
+            (0, 50, r"\alpha&HA0&"),
+            (50, 100, r"\alpha&H00&"),
+            (150, 200, r"\alpha&HA0&"),
+            (200, 250, r"\alpha&H00&"),
+        ),
+    ),
+    # stagger: char-level. Handled by expand_stagger_word() — the entry
+    # here is a sentinel so validate_kinetic_style accepts the name.
+    "stagger": KineticTemplate(),
 }
 
 
@@ -166,25 +245,29 @@ def validate_kinetic_style(style: Optional[str]) -> None:
 
 
 def is_char_level_style(style: Optional[str]) -> bool:
-    """True if the style requires character-level expansion (stagger).
-
-    Char-level styles cannot use the normal word-prefix pipeline; the writer
-    must call `expand_stagger_word()` to replace the word text with a
-    per-character tagged sequence.
-    """
+    """True if the style requires character-level expansion (stagger)."""
     return style in _CHAR_LEVEL_STYLES
 
 
+def get_kinetic_template(style: str) -> KineticTemplate:
+    """Return the KineticTemplate for a named style. Raises on unknown."""
+    validate_kinetic_style(style)
+    return _KINETIC_TEMPLATES[style]
+
+
 def build_kinetic_overrides(style: Optional[str], word_start_ms: int) -> str:
-    """Return concatenated `\\t(...)` ASS override blocks for a word.
+    """Return concatenated static + `\\t(...)` ASS overrides for a word.
+
+    Format: "<static tags><\\t block 1><\\t block 2>..."
+        e.g. "\\alpha&HFF&\\t(450,600,\\alpha&H00&)"
 
     Args:
         style: Kinetic style name or None.
         word_start_ms: Cumulative ms from Dialogue event start to this word.
 
     Returns:
-        Empty string if `style` is None, typewriter, or stagger.
-        Otherwise a string like `\\t(450,451,\\fscx120\\fscy120)\\t(451,601,\\fscx100\\fscy100)`.
+        Empty string if `style` is None or stagger (char-level is handled
+        separately via expand_stagger_word).
 
     Raises:
         ValueError: unknown style name (fail-fast).
@@ -194,13 +277,12 @@ def build_kinetic_overrides(style: Optional[str], word_start_ms: int) -> str:
     validate_kinetic_style(style)
     if is_char_level_style(style):
         return ""  # Stagger is handled separately via expand_stagger_word
-    transitions = _KINETIC_TRANSITIONS[style]
-    if not transitions:
-        return ""  # typewriter
-    return "".join(
+    template = _KINETIC_TEMPLATES[style]
+    transitions = "".join(
         f"\\t({word_start_ms + t1},{word_start_ms + t2},{tags})"
-        for t1, t2, tags in transitions
+        for t1, t2, tags in template.transitions
     )
+    return template.initial + transitions
 
 
 # =============================================================================
@@ -211,7 +293,7 @@ def build_kinetic_overrides(style: Optional[str], word_start_ms: int) -> str:
 # within 500ms (3 chars * 30ms delay + 100ms window = 190ms total).
 _STAGGER_CHAR_DELAY_MS = 30
 _STAGGER_CHAR_WINDOW_MS = 100
-_STAGGER_INITIAL_SCALE = 60
+_STAGGER_INITIAL_FSCY = 60
 
 
 def expand_stagger_word(
@@ -220,17 +302,20 @@ def expand_stagger_word(
     char_delay_ms: int = _STAGGER_CHAR_DELAY_MS,
     char_window_ms: int = _STAGGER_CHAR_WINDOW_MS,
 ) -> str:
-    """Wrap each character of a word with staggered scale-in tags.
+    """Wrap each character of a word with staggered vertical-scale-in tags.
 
     Produces output like:
-        {\\t(450,451,\\fscx60\\fscy60)\\t(451,551,\\fscx100\\fscy100)}H
-        {\\t(480,481,\\fscx60\\fscy60)\\t(481,581,\\fscx100\\fscy100)}e
-        {\\t(510,511,\\fscx60\\fscy60)\\t(511,611,\\fscx100\\fscy100)}l
+        {\\alpha&HFF&\\fscy60\\t(450,550,\\alpha&H00&\\fscy100)}H
+        {\\alpha&HFF&\\fscy60\\t(480,580,\\alpha&H00&\\fscy100)}e
+        {\\alpha&HFF&\\fscy60\\t(510,610,\\alpha&H00&\\fscy100)}l
         ...
 
-    Each char enters at `word_start_ms + i * char_delay_ms` and settles
-    over `char_window_ms`. Handles CJK correctly because Python string
-    iteration yields code points.
+    Each char is invisible and squashed from event start (static `initial`
+    inside its own override block), then at `word_start_ms + i*char_delay_ms`
+    it fades in and grows to full height over `char_window_ms`.
+
+    Uses `\\fscy` only (no `\\fscx`) to avoid horizontal reflow. Handles CJK
+    correctly because Python string iteration yields code points.
 
     Args:
         word_text: Raw word text (may contain CJK, Latin, mixed).
@@ -249,8 +334,7 @@ def expand_stagger_word(
         ch_start = word_start_ms + i * char_delay_ms
         ch_settle = ch_start + char_window_ms
         parts.append(
-            f"{{\\t({ch_start},{ch_start + 1},"
-            f"\\fscx{_STAGGER_INITIAL_SCALE}\\fscy{_STAGGER_INITIAL_SCALE})"
-            f"\\t({ch_start + 1},{ch_settle},\\fscx100\\fscy100)}}{ch}"
+            f"{{\\alpha&HFF&\\fscy{_STAGGER_INITIAL_FSCY}"
+            f"\\t({ch_start},{ch_settle},\\alpha&H00&\\fscy100)}}{ch}"
         )
     return "".join(parts)

@@ -153,6 +153,47 @@ class ASSConfig:
     """Karaoke color scheme name. When set, overrides style colors.
     See KARAOKE_COLOR_SCHEMES in colors.py for available schemes."""
 
+    kinetic_style: Optional[
+        Literal[
+            "bounce",
+            "pop",
+            "shake",
+            "pulse",
+            "swing",
+            "fade",
+            "zoom",
+            "rise",
+            "typewriter",
+            "blur_in",
+            "glow",
+            "neon",
+            "wave",
+            "flicker",
+            "stagger",
+        ]
+    ] = None
+    """Word-level kinetic typography style (the 'motion' layer).
+
+    Composes orthogonally with karaoke_effect and karaoke_color_scheme:
+        karaoke_effect       -> how to reveal (sweep/instant/outline)
+        karaoke_color_scheme -> what color    (12 presets)
+        kinetic_style        -> how to move   (15 presets)
+
+    Styles grouped by feel:
+        Impact:    bounce, pop, shake, pulse, swing
+        Smooth:    fade, zoom, rise, typewriter, blur_in
+        Stylized:  glow, neon, wave, flicker, stagger
+
+    Unknown values raise ValueError at construction (fail-fast).
+    """
+
+    def __post_init__(self) -> None:
+        # Lazy import — kinetic imports nothing from config, but we keep
+        # the dependency direction one-way to avoid circulars.
+        from .kinetic import validate_kinetic_style
+
+        validate_kinetic_style(self.kinetic_style)
+
 
 @dataclass
 class LRCConfig:
@@ -168,7 +209,9 @@ class LRCConfig:
     """LRC metadata header fields (ar, ti, al, by, offset, etc.)."""
 
 
-def apply_color_scheme(scheme_name: str, config: Optional[ASSConfig] = None) -> ASSConfig:
+def apply_color_scheme(
+    scheme_name: str, config: Optional[ASSConfig] = None
+) -> ASSConfig:
     """Apply karaoke color scheme to ASSConfig.
 
     All color fields (primary, secondary, outline, back, background) are in ASSConfig.
@@ -339,10 +382,22 @@ INPUT_CAPTION_FORMATS: list[str] = list(get_args(InputCaptionFormat))
 OUTPUT_CAPTION_FORMATS: list[str] = list(get_args(OutputCaptionFormat))
 
 # Standard caption formats (formats with both reader and writer)
-CAPTION_FORMATS: list[str] = ["srt", "vtt", "ass", "ssa", "sub", "sbv", "txt", "sami", "smi"]
+CAPTION_FORMATS: list[str] = [
+    "srt",
+    "vtt",
+    "ass",
+    "ssa",
+    "sub",
+    "sbv",
+    "txt",
+    "sami",
+    "smi",
+]
 
 # All caption formats combined (for file detection, excludes "auto")
-ALL_CAPTION_FORMATS: list[str] = list(set(INPUT_CAPTION_FORMATS + OUTPUT_CAPTION_FORMATS) - {"auto"})
+ALL_CAPTION_FORMATS: list[str] = list(
+    set(INPUT_CAPTION_FORMATS + OUTPUT_CAPTION_FORMATS) - {"auto"}
+)
 
 
 # =============================================================================

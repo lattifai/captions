@@ -95,7 +95,9 @@ class Pysubs2Format(FormatHandler):
                     text=text,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
+                    duration=(event.end - event.start) / 1000.0
+                    if event.end is not None
+                    else 0,
                 )
             )
 
@@ -122,7 +124,9 @@ class Pysubs2Format(FormatHandler):
                 return {}
 
         # WebVTT metadata extraction
-        if cls.pysubs2_format == "vtt" or (isinstance(source, str) and source.startswith("WEBVTT")):
+        if cls.pysubs2_format == "vtt" or (
+            isinstance(source, str) and source.startswith("WEBVTT")
+        ):
             lines = content.split("\n")
             for line in lines[:10]:
                 line = line.strip()
@@ -284,7 +288,9 @@ class ASSFormat(Pysubs2Format):
             if cls.is_content(source):
                 subs = pysubs2.SSAFile.from_string(source, format_=cls.pysubs2_format)
             else:
-                subs = pysubs2.load(str(source), encoding="utf-8", format_=cls.pysubs2_format)
+                subs = pysubs2.load(
+                    str(source), encoding="utf-8", format_=cls.pysubs2_format
+                )
         except Exception:
             if cls.is_content(source):
                 subs = pysubs2.SSAFile.from_string(source)
@@ -330,7 +336,9 @@ class ASSFormat(Pysubs2Format):
                     text=text,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
+                    duration=(event.end - event.start) / 1000.0
+                    if event.end is not None
+                    else 0,
                     custom=custom,
                 )
             )
@@ -358,7 +366,9 @@ class ASSFormat(Pysubs2Format):
             if cls.is_content(source):
                 subs = pysubs2.SSAFile.from_string(source, format_=cls.pysubs2_format)
             else:
-                subs = pysubs2.load(str(source), encoding="utf-8", format_=cls.pysubs2_format)
+                subs = pysubs2.load(
+                    str(source), encoding="utf-8", format_=cls.pysubs2_format
+                )
         except Exception:
             if cls.is_content(source):
                 subs = pysubs2.SSAFile.from_string(source)
@@ -382,7 +392,7 @@ class ASSFormat(Pysubs2Format):
                 for sep in (": ", "： "):
                     prefix = event.name + sep
                     if text.startswith(prefix):
-                        text = text[len(prefix):]
+                        text = text[len(prefix) :]
                         break
 
             custom = {
@@ -399,7 +409,9 @@ class ASSFormat(Pysubs2Format):
                     text=text,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
+                    duration=(event.end - event.start) / 1000.0
+                    if event.end is not None
+                    else 0,
                     custom=custom,
                 )
             )
@@ -515,7 +527,9 @@ class ASSFormat(Pysubs2Format):
                 subs.styles["Karaoke"] = cls._build_ass_style(config)
 
         # Apply style to Default (when no metadata styles override)
-        has_custom_default = has_metadata_styles and "Default" in (metadata.get("ass_styles") or {})
+        has_custom_default = has_metadata_styles and "Default" in (
+            metadata.get("ass_styles") or {}
+        )
         if not has_custom_default and "Default" in subs.styles:
             subs.styles["Default"] = cls._build_ass_style(config)
 
@@ -528,13 +542,22 @@ class ASSFormat(Pysubs2Format):
 
             # Karaoke mode with word alignment
             if word_level and karaoke_effect and word_items:
-                karaoke_text = cls._build_karaoke_text(word_items, karaoke_effect, original_text=sup.text)
+                karaoke_text = cls._build_karaoke_text(
+                    word_items,
+                    karaoke_effect,
+                    original_text=sup.text,
+                    kinetic_style=config.kinetic_style,
+                )
                 karaoke_text = karaoke_text.replace("\n", "\\N")
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
-                    spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
+                    spk_color = cls._resolve_speaker_color(
+                        sup.speaker, speaker_color, _speaker_color_cache
+                    )
                     if spk_color:
-                        karaoke_text = f"{{\\c&H{spk_color}&}}{prefix}{{\\c}}{karaoke_text}"
+                        karaoke_text = (
+                            f"{{\\c&H{spk_color}&}}{prefix}{{\\c}}{karaoke_text}"
+                        )
                     else:
                         karaoke_text = f"{prefix}{karaoke_text}"
                 event_start = int(word_items[0].start * 1000)
@@ -553,10 +576,14 @@ class ASSFormat(Pysubs2Format):
                 # Standard mode
                 from .base import render_bilingual_text
 
-                text = render_bilingual_text(sup, separator="\\N", translation_first=behavior.translation_first)
+                text = render_bilingual_text(
+                    sup, separator="\\N", translation_first=behavior.translation_first
+                )
                 if cls._should_include_speaker(sup, include_speaker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
-                    spk_color = cls._resolve_speaker_color(sup.speaker, speaker_color, _speaker_color_cache)
+                    spk_color = cls._resolve_speaker_color(
+                        sup.speaker, speaker_color, _speaker_color_cache
+                    )
                     if spk_color:
                         text = f"{{\\c&H{spk_color}&}}{prefix}{{\\c}}{text}"
                     else:
@@ -570,7 +597,9 @@ class ASSFormat(Pysubs2Format):
     DEFAULT_FONTSIZE = 48.0
 
     @classmethod
-    def _create_ass_file(cls, metadata: Optional[Dict], config: ASSConfig) -> pysubs2.SSAFile:
+    def _create_ass_file(
+        cls, metadata: Optional[Dict], config: ASSConfig
+    ) -> pysubs2.SSAFile:
         """Create SSAFile from ASSConfig defaults, then overlay metadata (roundtrip).
 
         Priority: metadata (roundtrip from existing ASS) > ASSConfig > pysubs2 defaults.
@@ -587,7 +616,9 @@ class ASSFormat(Pysubs2Format):
         # 1. Apply ASSConfig rendering context
         subs.info["PlayResX"] = str(config.play_res_x)
         subs.info["PlayResY"] = str(config.play_res_y)
-        subs.info["ScaledBorderAndShadow"] = "yes" if config.scaled_border_and_shadow else "no"
+        subs.info["ScaledBorderAndShadow"] = (
+            "yes" if config.scaled_border_and_shadow else "no"
+        )
         subs.info["WrapStyle"] = str(config.wrap_style)
         subs.styles["Default"].fontsize = cls.DEFAULT_FONTSIZE
 
@@ -610,10 +641,18 @@ class ASSFormat(Pysubs2Format):
         return pysubs2.SSAStyle(
             fontname=style_dict.get("fontname", "Arial"),
             fontsize=style_dict.get("fontsize", cls.DEFAULT_FONTSIZE),
-            primarycolor=cls._str_to_color(style_dict.get("primarycolor", "&H00FFFFFF")),
-            secondarycolor=cls._str_to_color(style_dict.get("secondarycolor", "&H000000FF")),
-            tertiarycolor=cls._str_to_color(style_dict.get("tertiarycolor", "&H00000000")),
-            outlinecolor=cls._str_to_color(style_dict.get("outlinecolor", "&H00000000")),
+            primarycolor=cls._str_to_color(
+                style_dict.get("primarycolor", "&H00FFFFFF")
+            ),
+            secondarycolor=cls._str_to_color(
+                style_dict.get("secondarycolor", "&H000000FF")
+            ),
+            tertiarycolor=cls._str_to_color(
+                style_dict.get("tertiarycolor", "&H00000000")
+            ),
+            outlinecolor=cls._str_to_color(
+                style_dict.get("outlinecolor", "&H00000000")
+            ),
             backcolor=cls._str_to_color(style_dict.get("backcolor", "&H00000000")),
             bold=style_dict.get("bold", False),
             italic=style_dict.get("italic", False),
@@ -635,7 +674,9 @@ class ASSFormat(Pysubs2Format):
         )
 
     @classmethod
-    def _create_event_from_supervision(cls, sup: Supervision, text: str) -> pysubs2.SSAEvent:
+    def _create_event_from_supervision(
+        cls, sup: Supervision, text: str
+    ) -> pysubs2.SSAEvent:
         """Create SSAEvent from Supervision, restoring custom attributes.
 
         Args:
@@ -739,22 +780,41 @@ class ASSFormat(Pysubs2Format):
         return pysubs2.Color(r=r, g=g, b=b, a=ass_alpha)
 
     @staticmethod
-    def _build_karaoke_text(words: list, effect: str = "sweep", original_text: str = "") -> str:
-        """Build karaoke tag text with gap-aware timing.
+    def _build_karaoke_text(
+        words: list,
+        effect: str = "sweep",
+        original_text: str = "",
+        kinetic_style: Optional[str] = None,
+    ) -> str:
+        """Build karaoke tag text with gap-aware timing and optional kinetic motion.
 
         Each word's karaoke duration covers from its start to the next word's start,
         so silence gaps between words are absorbed into the preceding word's highlight.
         Separators between words are derived from the original text to preserve
         correct spacing for all languages (CJK, Latin, mixed).
 
+        When `kinetic_style` is set, each word additionally receives `\\t(...)`
+        override blocks relative to its cumulative start offset within the
+        Dialogue event, so every word animates at its own activation time
+        rather than all at event start. `stagger` is special-cased: the word
+        text is expanded into per-character tagged chunks.
+
         Args:
             words: List of AlignmentItem objects (must have start, duration, symbol)
             effect: Karaoke effect type ("sweep", "instant", "outline")
             original_text: Original supervision text — used to derive word separators
+            kinetic_style: Optional kinetic motion preset (see kinetic.py)
 
         Returns:
-            Text with karaoke tags, e.g. "{\\kf45}Hello {\\kf55}world"
+            Text with karaoke + kinetic tags, e.g.:
+                "{\\kf45\\t(0,1,\\fscx120\\fscy120)\\t(1,151,\\fscx100\\fscy100)}Hello ..."
         """
+        from ..kinetic import (
+            build_kinetic_overrides,
+            expand_stagger_word,
+            is_char_level_style,
+        )
+
         tag_map = {"sweep": "kf", "instant": "k", "outline": "ko"}
         tag = tag_map.get(effect, "kf")
 
@@ -774,7 +834,10 @@ class ASSFormat(Pysubs2Format):
             for i in range(1, len(words)):
                 separators[i] = " "
 
+        char_level = is_char_level_style(kinetic_style)
+
         parts = []
+        cumulative_ms = 0
         for i, word in enumerate(words):
             # Duration: span from this word to next word (absorbs silence gaps)
             if i < len(words) - 1:
@@ -783,7 +846,19 @@ class ASSFormat(Pysubs2Format):
                 duration = word.duration
             centiseconds = max(1, int(duration * 100))
 
-            parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{word.symbol}")
+            word_start_ms = cumulative_ms
+            cumulative_ms += centiseconds * 10
+
+            if char_level:
+                # Stagger — replace word text with per-char tagged sequence.
+                # The \k tag still drives karaoke fill; stagger animates scale.
+                body = expand_stagger_word(word.symbol, word_start_ms)
+                parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{body}")
+            else:
+                kinetic_override = build_kinetic_overrides(kinetic_style, word_start_ms)
+                parts.append(
+                    f"{separators[i]}{{\\{tag}{centiseconds}{kinetic_override}}}{word.symbol}"
+                )
 
         return "".join(parts)
 
@@ -791,7 +866,9 @@ class ASSFormat(Pysubs2Format):
     _SPEAKER_PALETTE = SPEAKER_PALETTE
 
     @classmethod
-    def _resolve_speaker_color(cls, speaker: str, speaker_color_spec: str, cache: dict) -> str:
+    def _resolve_speaker_color(
+        cls, speaker: str, speaker_color_spec: str, cache: dict
+    ) -> str:
         """Resolve ASS BBGGRR color string for a speaker.
 
         Delegates to colors.resolve_speaker_color() — kept as thin wrapper

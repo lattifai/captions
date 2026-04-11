@@ -13,11 +13,15 @@ Reference Standards:
 """
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .config import StandardizationConfig
 from .supervision import Supervision, fastcopy
+
+# Zero-width joiner used to glue emoji sequences (👨‍👩‍👧) into one grapheme.
+_ZWJ = "\u200d"
 
 __all__ = [
     "CaptionStandardizer",
@@ -575,18 +579,76 @@ class CaptionStandardizer:
         return fastcopy(seg, **overrides)
 
     @staticmethod
+    def _is_combining(ch: str) -> bool:
+        """True for Unicode combining marks (category Mn / Mc / Me).
+
+        These characters decorate the preceding base character (e.g. the NFD
+        form of ``é`` is ``e`` + U+0301). Splitting between a base and its
+        combining marks yields orphaned diacritics and mojibake.
+        """
+        return unicodedata.category(ch) in ("Mn", "Mc", "Me")
+
+    @staticmethod
+    def _advance_to_grapheme_boundary(s: str, idx: int) -> int:
+        """Move ``idx`` forward until it sits on a safe grapheme-cluster boundary.
+
+        Handles the three edge cases that real bilingual text throws at a
+        naive code-point splitter:
+
+        - Combining marks (Mn/Mc/Me): advance past them so the base + marks
+          stay together.
+        - Zero-width joiner: if the char at ``idx-1`` or ``idx`` is ZWJ, keep
+          advancing until the glued emoji sequence ends.
+        - Regional-indicator pairs (🇨🇳 etc.): never split a two-RI pair.
+
+        Falls back to ``len(s)`` if the cluster reaches the end.
+        """
+        n = len(s)
+        if idx <= 0 or idx >= n:
+            return max(0, min(idx, n))
+
+        # Skip forward across combining marks that belong to the previous base.
+        while idx < n and CaptionStandardizer._is_combining(s[idx]):
+            idx += 1
+
+        # If we're sitting inside a ZWJ-joined emoji sequence, skip to the end
+        # of the cluster. ZWJ chains can span multiple code points including
+        # emoji modifiers and variation selectors.
+        while idx < n and (s[idx - 1] == _ZWJ or s[idx] == _ZWJ):
+            idx += 1
+            while idx < n and CaptionStandardizer._is_combining(s[idx]):
+                idx += 1
+
+        # Regional-indicator flags are always pairs — if we landed between the
+        # two halves, advance one more.
+        if 0 < idx < n:
+            prev_ri = 0x1F1E6 <= ord(s[idx - 1]) <= 0x1F1FF
+            curr_ri = 0x1F1E6 <= ord(s[idx]) <= 0x1F1FF
+            if prev_ri and curr_ri:
+                idx += 1
+
+        return min(idx, n)
+
+    @staticmethod
     def _split_translation_proportionally(
         translation: Optional[str], text_chunks: List[str]
     ) -> List[Optional[str]]:
         """Distribute a translation string across N text chunks by char ratio.
 
         Preserves total character count so bilingual data is never silently
-        dropped when the source text is split into sub-segments. The split is
-        naive — no CJK word-boundary awareness — but guarantees integrity.
+        dropped when the source text is split into sub-segments. Split points
+        are snapped to Unicode grapheme-cluster boundaries so combining marks
+        and emoji ZWJ sequences never get torn apart.
 
-        Returns a list of ``len(text_chunks)`` entries; when ``translation`` is
-        None/empty or there is only one chunk, the full value goes on the first
-        slot and the rest are None.
+        Degenerate cases:
+
+        - ``translation`` is None/empty or there is only one chunk → the full
+          value goes on the first slot and the rest are None.
+        - Translation is meaningfully shorter than the number of chunks
+          (``len(translation) < 2 * n``) → place the whole translation on the
+          first chunk rather than dribbling out 1-char fragments. The original
+          complaint was data loss, not fragmentation, and 1-char slices make
+          bilingual rendering unreadable.
         """
         n = len(text_chunks)
         if n == 0:
@@ -599,6 +661,13 @@ class CaptionStandardizer:
             return [translation] + [None] * (n - 1)
 
         trans_len = len(translation)
+
+        # Extreme-ratio fallback: if every chunk would get < 2 chars on
+        # average, proportional splitting just produces unreadable flecks of
+        # translation. Keep the whole translation on the first chunk instead.
+        if trans_len < 2 * n:
+            return [translation] + [None] * (n - 1)
+
         out: List[Optional[str]] = []
         cursor = 0
         for i, chunk in enumerate(text_chunks):
@@ -607,6 +676,7 @@ class CaptionStandardizer:
             else:
                 ratio = len(chunk) / total
                 end = min(cursor + max(1, int(round(trans_len * ratio))), trans_len)
+                end = CaptionStandardizer._advance_to_grapheme_boundary(translation, end)
                 slice_ = translation[cursor:end]
                 out.append(slice_ or None)
                 cursor = end

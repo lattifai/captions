@@ -340,7 +340,7 @@ class SentenceSplitter:
         return texts, speakers, event_indices
 
     def _apply_sentence_splitting(
-        self, texts: List[str], event_indices: set, strip_whitespace: bool
+        self, texts: List[str], event_indices: set, strip_whitespace: bool, threshold: float
     ) -> List[List[str]]:
         """Apply wtpsplit to non-event texts.
 
@@ -350,7 +350,9 @@ class SentenceSplitter:
 
         if texts_to_split:
             split_results = list(
-                self._splitter.split(texts_to_split, threshold=0.15, strip_whitespace=strip_whitespace, batch_size=8)
+                self._splitter.split(
+                    texts_to_split, threshold=threshold, strip_whitespace=strip_whitespace, batch_size=8
+                )
             )
         else:
             split_results = []
@@ -495,7 +497,12 @@ class SentenceSplitter:
 
         return results
 
-    def split_sentences(self, supervisions: List[Supervision], strip_whitespace: bool = True) -> List[Supervision]:
+    def split_sentences(
+        self,
+        supervisions: List[Supervision],
+        strip_whitespace: bool = True,
+        threshold: float = 0.15,
+    ) -> List[Supervision]:
         """Split supervisions into sentences using the sentence splitter.
 
         Preserves speaker information across segment boundaries and keeps
@@ -504,6 +511,11 @@ class SentenceSplitter:
         Args:
             supervisions: List of Supervision objects to split
             strip_whitespace: Whether to strip whitespace from split sentences
+            threshold: wtpsplit segmentation threshold. Higher values yield
+                more conservative segmentation (fewer splits); useful to
+                protect short proper-noun phrases like "Terry Tao" from being
+                torn apart on sparse-context fragments. Default 0.15 matches
+                wtpsplit's original behavior for this pipeline.
 
         Returns:
             List of Supervision objects with split sentences
@@ -517,7 +529,7 @@ class SentenceSplitter:
             raise ValueError(f"len(speakers)={len(speakers)} != len(texts)={len(texts)}")
 
         # Phase 2: Apply sentence splitting to non-event segments
-        sentences = self._apply_sentence_splitting(texts, event_indices, strip_whitespace)
+        sentences = self._apply_sentence_splitting(texts, event_indices, strip_whitespace, threshold)
 
         # Phase 3: Process sentences with speaker tracking
         texts_with_speakers = self._process_sentences_with_speakers(speakers, sentences, event_indices, texts)

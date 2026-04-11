@@ -124,10 +124,16 @@ class JSONFormat(FormatHandler):
 
             supervisions.append(
                 Supervision(
+                    id=item.get("id", ""),
+                    recording_id=item.get("recording_id", ""),
+                    channel=item.get("channel", 0),
                     text=text,
                     start=start,
                     duration=duration,
+                    language=item.get("language"),
                     speaker=item.get("speaker"),
+                    gender=item.get("gender"),
+                    score=item.get("score"),
                     translation=item.get("translation"),
                     target_lang=item.get("target_lang"),
                     custom=item.get("custom"),
@@ -148,13 +154,25 @@ class JSONFormat(FormatHandler):
             include_words: When False, omit the ``words`` array even if word
                 alignment is present (used by ``word_level=False``).
         """
-        item: dict[str, Any] = {
-            "text": sup.text,
-            "start": round(sup.start, 4),
-            "end": round(sup.end, 4),
-        }
+        item: dict[str, Any] = {}
+        if sup.id:
+            item["id"] = sup.id
+        if sup.recording_id:
+            item["recording_id"] = sup.recording_id
+        # channel default is 0; emit only if explicitly different
+        if sup.channel != 0:
+            item["channel"] = sup.channel
+        item["text"] = sup.text
+        item["start"] = round(sup.start, 4)
+        item["end"] = round(sup.end, 4)
+        if sup.language:
+            item["language"] = sup.language
         if sup.speaker:
             item["speaker"] = sup.speaker
+        if sup.gender:
+            item["gender"] = sup.gender
+        if sup.score is not None:
+            item["score"] = round(sup.score, 4)
 
         # Word-level alignment is preserved by default (JSON is lossless),
         # but the caller can suppress it via include_words=False. Empty lists

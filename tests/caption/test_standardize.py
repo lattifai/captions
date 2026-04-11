@@ -143,16 +143,104 @@ class TestCaptionStandardizer:
         gap = result[1].start - first_end
         assert gap >= 0.08, f"Gap {gap} should be >= 0.08"
 
-    def test_max_duration_enforcement(self):
-        """Test that maximum duration is enforced."""
-        standardizer = CaptionStandardizer(max_duration=7.0)
-        segments = [
-            Supervision(id="1", start=0.0, duration=10.0, text="Too long"),  # Above max
-        ]
+    def test_max_duration_splits_not_truncates_no_alignment(self):
+        """A cue exceeding max_duration must be split into sub-segments, never
+        hard-truncated. Total output duration must equal input duration
+        (no data loss), each sub-seg must fit within max_duration, and the
+        text must be distributed proportionally by char ratio."""
+        standardizer = CaptionStandardizer(
+            min_duration=0.01,
+            max_duration=7.0,
+            min_gap=0.0,
+            max_lines=2,
+            max_chars_per_line=60,
+        )
+        text = (
+            "I think with within a decade a lot of things that mathematicians "
+            "currently do um what we spend a lot of the bulk of our time"
+        )
+        segments = [Supervision(id="1", start=0.0, duration=10.28, text=text)]
 
         result = standardizer.process(segments)
 
-        assert result[0].duration == 7.0
+        # Must split, never truncate
+        assert len(result) >= 2, "10.28s cue with max_duration=7 must split"
+        # No hard-truncation: total duration preserved
+        total = sum(r.duration for r in result)
+        assert abs(total - 10.28) < 1e-6, f"total={total} should equal 10.28s"
+        # Every sub-seg within budget
+        for r in result:
+            assert r.duration <= 7.0 + 1e-6, f"sub-seg dur {r.duration} > 7.0"
+        # Sub-segs are contiguous / ordered
+        for i in range(len(result) - 1):
+            prev_end = result[i].start + result[i].duration
+            assert result[i + 1].start >= prev_end - 1e-6, "sub-segs must not overlap"
+        # Text integrity: concatenated sub-segments (rejoined with spaces,
+        # whitespace collapsed) must equal the original text.
+        rejoined = " ".join(r.text.replace("\n", " ") for r in result).split()
+        assert " ".join(rejoined) == " ".join(text.split()), "text must be preserved"
+
+    def test_max_duration_splits_with_word_alignment(self):
+        """When word alignment is present, splits snap to word timestamps —
+        no truncation, and sub-seg boundaries come from first/last word of
+        each group, not char-ratio guessing."""
+        text_tokens = [
+            "I", "think", "with", "within", "a", "decade", "a", "lot", "of",
+            "things", "that", "mathematicians", "currently", "do", "um",
+            "what", "we", "spend", "a", "lot",
+        ]
+        # 20 words spread across 10 seconds — each word is 0.5s, no gaps
+        per = 0.5
+        words = [
+            AlignmentItem(symbol=w, start=i * per, duration=per)
+            for i, w in enumerate(text_tokens)
+        ]
+        seg = Supervision(
+            id="1",
+            start=0.0,
+            duration=10.0,
+            text=" ".join(text_tokens),
+            alignment={"word": words},
+        )
+
+        standardizer = CaptionStandardizer(
+            min_duration=0.01,
+            max_duration=4.0,  # 10s cue must become >=3 sub-segs
+            min_gap=0.0,
+            max_lines=1,
+            max_chars_per_line=200,  # text length won't trigger split alone
+        )
+        standardizer.config.start_margin = 0.0
+        standardizer.config.end_margin = 0.0
+
+        result = standardizer.process([seg])
+
+        assert len(result) >= 3, "10s cue with max_duration=4 must split into >=3 subs"
+        for r in result:
+            assert r.duration <= 4.0 + 1e-6, f"sub-seg dur {r.duration} > 4.0"
+        # Each sub-seg's start/end must snap to one of the original word boundaries
+        word_boundaries = {round(w.start, 6) for w in words}
+        word_boundaries.update(round(w.start + w.duration, 6) for w in words)
+        for r in result:
+            assert round(r.start, 6) in word_boundaries, (
+                f"sub-seg start {r.start} should snap to a word boundary"
+            )
+        # Every original word's symbol survives in the output
+        produced = " ".join(r.text for r in result).split()
+        assert produced == text_tokens, "all original words must survive in order"
+
+    def test_short_cue_is_unchanged(self):
+        """A cue that already satisfies both text and duration budgets
+        should pass through untouched."""
+        standardizer = CaptionStandardizer(
+            max_duration=7.0, max_lines=1, max_chars_per_line=50
+        )
+        segments = [
+            Supervision(id="1", start=0.0, duration=3.0, text="Hello there friend"),
+        ]
+        result = standardizer.process(segments)
+        assert len(result) == 1
+        assert result[0].duration == 3.0
 
     def test_sorting_by_start_time(self):
         """Test that segments are sorted by start time."""
@@ -377,14 +465,19 @@ class TestConvenienceFunction:
         assert result[0].duration >= 0.8
 
     def test_standardize_captions_with_custom_params(self):
-        """Test convenience function with custom parameters."""
+        """A cue exceeding max_duration must be split into sub-segments (not
+        hard-truncated). Total output span must equal input duration."""
         segments = [
             Supervision(id="1", start=0.0, duration=10.0, text="Long"),
         ]
 
         result = standardize_captions(segments, max_duration=5.0)
 
-        assert result[0].duration == 5.0
+        assert len(result) >= 2
+        for r in result:
+            assert r.duration <= 5.0 + 1e-6
+        total_span = (result[-1].start + result[-1].duration) - result[0].start
+        assert abs(total_span - 10.0) < 1e-3
 
 
 class TestEdgeCases:

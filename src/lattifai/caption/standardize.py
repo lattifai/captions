@@ -12,6 +12,7 @@ Reference Standards:
 - EBU-TT-D Standard
 """
 
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -188,73 +189,101 @@ class CaptionStandardizer:
                 new_duration = min(self.config.min_duration, max(max_extend, new_seg.duration))
                 new_seg = self._copy_segment(new_seg, duration=new_duration)
 
-            # C. Max duration check
-            if new_seg.duration > self.config.max_duration:
-                new_seg = self._copy_segment(new_seg, duration=self.config.max_duration)
+            # C. Max duration check — NO hard truncation here.
+            # A cue that exceeds max_duration must be split into sub-segments
+            # by _split_long_segments (by word timestamps if alignment exists,
+            # otherwise by proportional char ratio). Truncating would silently
+            # drop captions while the dubbed/original audio is still playing.
 
             result.append(new_seg)
 
         return result
 
     def _split_long_segments(self, segments: List[Supervision]) -> List[Supervision]:
-        """Split segments whose text exceeds max_lines × max_chars_per_line.
+        """Split segments that exceed either the text OR the duration budget.
+
+        Text budget: ``max_lines × max_chars_per_line`` characters.
+        Duration budget: ``max_duration`` seconds.
 
         Uses word alignment data when available for:
         - Precise timing from word timestamps (not character-ratio guessing)
         - Preferring split points at larger inter-word gaps (natural pauses)
         - Proper margin handling (start_margin / end_margin per sub-segment)
 
-        Falls back to proportional timing when no alignment data is present.
+        Falls back to proportional (char-ratio) timing when no alignment is
+        present. A cue is NEVER hard-truncated — if the duration budget can't
+        be met by the split itself (e.g., extremely long text with no word
+        alignment), the sub-segments still cover the original time range.
         """
         max_text_len = self.config.max_lines * self.config.max_chars_per_line
+        max_dur = self.config.max_duration
         result: List[Supervision] = []
 
         for seg in segments:
             text = self._normalize_text(seg.text or "")
-            if len(text) <= max_text_len:
+            over_text = len(text) > max_text_len
+            over_dur = seg.duration > max_dur
+            if not (over_text or over_dur):
                 result.append(seg)
                 continue
 
             words = self._get_word_alignment(seg)
             if words and len(words) >= 2:
-                sub_segs = self._split_with_alignment(seg, words, max_text_len)
+                sub_segs = self._split_with_alignment(seg, words, max_text_len, max_dur)
             else:
-                sub_segs = self._split_without_alignment(seg, text, max_text_len)
+                sub_segs = self._split_without_alignment(seg, text, max_text_len, max_dur)
 
             result.extend(sub_segs)
 
         return result
 
     def _split_with_alignment(
-        self, seg: Supervision, words: List, max_text_len: int
+        self, seg: Supervision, words: List, max_text_len: int, max_duration: float
     ) -> List[Supervision]:
         """Split a segment using word alignment data for precise timing.
 
         Strategy:
-        1. Accumulate words until character budget is reached
-        2. At budget boundary, look back for a natural gap to split at —
-           but ONLY if current chars >= 75% of budget (avoid under-filled segments)
-        3. Each sub-segment gets timing from its first/last word + margins
-        4. Prevent orphans: if last group < 25% of budget, merge into previous
+        1. Accumulate words until EITHER the character budget OR the duration
+           budget (``max_duration``) is reached.
+        2. At a budget boundary, look back for a natural pause to split at —
+           but ONLY if current chars >= 75% of the char budget (avoid
+           under-filled segments).
+        3. Each sub-segment gets timing from its first/last word + margins.
+        4. Prevent orphans: if last group < 25% of budget, merge into previous.
         """
         sm = self.config.start_margin or 0.0
         em = self.config.end_margin or 0.0
 
-        # Build word groups that fit within max_text_len
+        def group_span(group: List) -> float:
+            if not group:
+                return 0.0
+            return (group[-1].start + group[-1].duration) - group[0].start
+
+        # Build word groups that fit within max_text_len AND max_duration
         groups: List[List] = []
         current_group: List = []
         current_chars = 0
 
-        for i, word in enumerate(words):
+        for word in words:
             word_len = len(word.symbol)
             separator = 1 if current_chars > 0 else 0
             new_len = current_chars + separator + word_len
 
-            if new_len > max_text_len and current_group:
+            # Prospective group span if we appended this word
+            if current_group:
+                prospective_span = (word.start + word.duration) - current_group[0].start
+            else:
+                prospective_span = word.duration
+            over_text = new_len > max_text_len
+            over_dur = prospective_span > max_duration
+
+            if (over_text or over_dur) and current_group:
                 # Budget exceeded — find best split point
-                best_split = self._find_best_gap_split(
-                    current_group, current_chars, max_text_len
-                )
+                best_split = None
+                if over_text:
+                    best_split = self._find_best_gap_split(
+                        current_group, current_chars, max_text_len
+                    )
                 if best_split is not None:
                     overflow = current_group[best_split:]
                     current_group = current_group[:best_split]
@@ -271,11 +300,16 @@ class CaptionStandardizer:
         if current_group:
             groups.append(current_group)
 
-        # Prevent orphans: merge last group into previous if too short
+        # Prevent orphans: merge last group into previous if too short — but
+        # only when the merged group still fits the duration budget (otherwise
+        # we'd re-create the over-long cue we just worked to split).
         min_orphan_len = int(max_text_len * 0.25)
         if len(groups) >= 2:
             last_chars = sum(len(w.symbol) for w in groups[-1]) + max(0, len(groups[-1]) - 1)
-            if last_chars < min_orphan_len:
+            merged_span = (
+                groups[-1][-1].start + groups[-1][-1].duration - groups[-2][0].start
+            )
+            if last_chars < min_orphan_len and merged_span <= max_duration:
                 groups[-2].extend(groups[-1])
                 groups.pop()
 
@@ -365,24 +399,68 @@ class CaptionStandardizer:
         return None
 
     def _split_without_alignment(
-        self, seg: Supervision, text: str, max_text_len: int
+        self, seg: Supervision, text: str, max_text_len: int, max_duration: float
     ) -> List[Supervision]:
-        """Split a segment without alignment data (proportional timing fallback)."""
-        chunks = self._split_text_into_chunks(text, max_text_len)
+        """Split a segment without alignment data (char-ratio fallback).
+
+        Honors both the text budget (``max_text_len``) and the duration budget
+        (``max_duration``). Text is split into ``N = max(ceil(len/max_text_len),
+        ceil(duration/max_duration))`` chunks; duration is then distributed by
+        character ratio so the sub-segments together cover *exactly* the
+        original time range — never more (would push into the next sup) and
+        never less (would silently drop captions under dubbed audio).
+        """
+        n_by_text = max(1, math.ceil(len(text) / max_text_len)) if max_text_len > 0 else 1
+        n_by_dur = max(1, math.ceil(seg.duration / max_duration)) if max_duration > 0 else 1
+        n_chunks = max(n_by_text, n_by_dur)
+
+        if n_chunks <= 1:
+            return [seg]
+
+        # Pick a chunk-length target that yields at least n_chunks pieces.
+        # We cap at max_text_len so a duration-driven split still honors the
+        # text budget.
+        target_len = max(1, min(max_text_len, math.ceil(len(text) / n_chunks)))
+        chunks = self._split_text_into_chunks(text, target_len)
+
+        # If the chunker produced fewer pieces than we need for the duration
+        # budget (e.g., very short text with no word-break opportunities),
+        # fall back to hard character slices so we can still hit n_chunks.
+        if len(chunks) < n_chunks and len(text) >= n_chunks:
+            step = max(1, math.ceil(len(text) / n_chunks))
+            chunks = [text[i : i + step] for i in range(0, len(text), step)]
+
         if len(chunks) <= 1:
             return [seg]
 
         total_chars = sum(len(c) for c in chunks)
-        current_start = seg.start
-        result: List[Supervision] = []
+        if total_chars <= 0:
+            return [seg]
 
         trans_slices = self._split_translation_proportionally(
             getattr(seg, "translation", None), chunks
         )
 
-        for chunk, trans_slice in zip(chunks, trans_slices):
-            ratio = len(chunk) / total_chars if total_chars > 0 else 1.0 / len(chunks)
-            chunk_duration = max(self.config.min_duration, seg.duration * ratio)
+        # Distribute seg.duration proportionally. Reserve ``min_gap`` between
+        # each pair of sub-segments so the timeline still has a readable
+        # visual break, and stay within the ORIGINAL time range so we never
+        # push into the next sup or silently drop captions under dubbed audio.
+        n = len(chunks)
+        gap = self.config.min_gap or 0.0
+        total_gap = max(0.0, gap * (n - 1))
+        available = max(0.0, seg.duration - total_gap)
+
+        result: List[Supervision] = []
+        seg_end = round(seg.start + seg.duration, 4)
+        current_start = round(seg.start, 4)
+        for i, (chunk, trans_slice) in enumerate(zip(chunks, trans_slices)):
+            if i == n - 1:
+                # Last chunk absorbs any rounding error so the final end
+                # lands exactly on the original seg end.
+                chunk_duration = max(0.0, round(seg_end - current_start, 4))
+            else:
+                ratio = len(chunk) / total_chars
+                chunk_duration = round(available * ratio, 4)
 
             result.append(self._copy_segment(
                 seg,
@@ -391,7 +469,7 @@ class CaptionStandardizer:
                 duration=chunk_duration,
                 translation=trans_slice,
             ))
-            current_start += chunk_duration + self.config.min_gap
+            current_start = round(current_start + chunk_duration + gap, 4)
 
         return result
 
@@ -881,10 +959,12 @@ class CaptionValidator:
                     f"Segment {i} (id={seg.id}): duration {duration:.2f}s > max {self.config.max_duration}s"
                 )
 
-            # Gap check
+            # Gap check — float tolerance (1e-6) absorbs sub-ms drift from
+            # caption-time arithmetic, which otherwise flags perfectly valid
+            # 80ms gaps as 79.999ms.
             if i > 0:
                 gap = seg.start - prev_end
-                if gap < self.config.min_gap and gap >= 0:
+                if gap >= 0 and gap < self.config.min_gap - 1e-6:
                     result.gaps_too_small += 1
                     result.warnings.append(f"Segment {i} (id={seg.id}): gap {gap:.3f}s < min {self.config.min_gap}s")
 

@@ -36,6 +36,26 @@ flake8 src/ tests/
 - `formats/__init__.py` allows `E401, F401` (wildcard imports for re-exports)
 - `tests/` has relaxed linting (`E501, F541, F401, F841` ignored)
 
+## Timing Precision Convention
+
+All caption/subtitle times (seconds) are rounded to **4 decimal places** (100μs
+resolution) whenever they are written out or stored after arithmetic. Rationale:
+
+- 4 decimals is finer than every caption format we emit — SRT/VTT are
+  millisecond (3dp), ASS is centisecond (2dp), word-level alignment in JSON is
+  also 4dp — so we never lose resolution on serialization.
+- 4 decimals (1e-4) safely side-steps IEEE-754 float drift from arithmetic
+  chains like ``start + (ratio * duration) + gap`` which would otherwise turn
+  a perfect 0.08s gap into 0.07999999…s and fail validator checks.
+- Fewer decimals (e.g., 3dp) are NOT enough: a gap of exactly 0.08 rounded to
+  3dp still surfaces drift when the two operands don't share the same rounding
+  error. Use 4dp everywhere to keep arithmetic idempotent.
+
+**Rule:** any time you compute a new ``start``, ``end``, ``duration``, or
+``gap`` inside ``standardize.py`` / ``utils.py`` / format writers, wrap it in
+``round(value, 4)``. Tests asserting on split timings should use
+``abs(a - b) < 1e-3`` tolerance rather than exact equality.
+
 ## Publishing
 
 Two channels — both triggered by `v*.*.*` tag push or `workflow_dispatch`:

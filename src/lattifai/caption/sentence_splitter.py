@@ -501,7 +501,7 @@ class SentenceSplitter:
         self,
         supervisions: List[Supervision],
         strip_whitespace: bool = True,
-        threshold: float = 0.15,
+        threshold: float = 0.35,
     ) -> List[Supervision]:
         """Split supervisions into sentences using the sentence splitter.
 
@@ -512,10 +512,10 @@ class SentenceSplitter:
             supervisions: List of Supervision objects to split
             strip_whitespace: Whether to strip whitespace from split sentences
             threshold: wtpsplit segmentation threshold. Higher values yield
-                more conservative segmentation (fewer splits); useful to
-                protect short proper-noun phrases like "Terry Tao" from being
-                torn apart on sparse-context fragments. Default 0.15 matches
-                wtpsplit's original behavior for this pipeline.
+                more conservative segmentation (fewer splits); protects short
+                proper-noun phrases like "Terry Tao" from being torn apart on
+                sparse-context fragments. Default 0.35 tuned for YouTube
+                rolling-caption style transcripts.
 
         Returns:
             List of Supervision objects with split sentences

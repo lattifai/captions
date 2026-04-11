@@ -136,8 +136,15 @@ class TestResolveKinetic:
         assert resolve_kinetic(None, word_level=True) is None
         assert resolve_kinetic(None, word_level=False) is None
 
-    def test_dual_preset_word_level_true_picks_word(self):
+    def test_dual_preset_scope_is_natural_not_word_level(self):
+        """fade is a smooth-entrance preset — natural scope is "line" even
+        when word_level=True (which only gates \\k emission, not scope)."""
         scope, _ = resolve_kinetic("fade", word_level=True)
+        assert scope == "line"
+
+    def test_dual_preset_impact_uses_word_scope(self):
+        """bounce is a per-word impact preset — natural scope is "word"."""
+        scope, _ = resolve_kinetic("bounce", word_level=True)
         assert scope == "word"
 
     def test_dual_preset_word_level_false_picks_line(self):
@@ -216,13 +223,18 @@ class TestBuildLineOverride:
 
 
 class TestBuildWordOverrides:
-    def test_fade_word_has_static_alpha(self):
-        _, impl = resolve_kinetic("fade", word_level=True)
-        out = build_word_overrides(impl, 500)
+    def test_fade_word_impl_exists_with_static_alpha(self):
+        """fade has natural scope "line" so resolve_kinetic picks line, but
+        the word impl still exists and can be inspected directly via the
+        preset registry (useful for manual overrides and tests)."""
+        preset = get_kinetic_preset("fade")
+        assert preset.word is not None
+        out = build_word_overrides(preset.word, 500)
         assert out.startswith(r"\alpha&HFF&")
         assert r"\t(500,800,\alpha&H00&)" in out
 
     def test_bounce_word_has_bord_and_blur(self):
+        # bounce's natural scope is "word" so resolve_kinetic picks it.
         _, impl = resolve_kinetic("bounce", word_level=True)
         out = build_word_overrides(impl, 0)
         # Static reset + impact peak + decay
@@ -333,13 +345,18 @@ class TestExpandStaggerWord:
 
 
 class TestWordScopeIntegration:
-    def test_fade_word_level_per_word_reveal(self, sup_two_words):
+    def test_fade_with_word_level_uses_line_scope_plus_karaoke(self, sup_two_words):
+        """fade's natural scope is "line" — with word_level=True we get
+        \\fad(300,0) as an event-level prefix PLUS the per-word \\kf
+        karaoke sweep. Scope is decoupled from word_level."""
         content = _render_word(sup_two_words, kinetic_style="fade")
-        # Each word has its own static invisible prefix
-        assert content.count(r"\alpha&HFF&") >= 2
-        # Cumulative offsets per word (50cs × 10 = 500ms per word)
-        assert r"\t(0,300,\alpha&H00&)" in content
-        assert r"\t(500,800,\alpha&H00&)" in content
+        # \fad prefix appears exactly once at the start of the dialogue text
+        assert content.count(r"\fad(300,0)") == 1
+        # Per-word \kf tags still emitted for karaoke
+        assert content.count(r"\kf") == 2
+        # No per-word \alpha animation — that was the old buggy "left-to-right
+        # reveal" behavior
+        assert r"\t(0,300,\alpha&H00&)" not in content
 
     def test_bounce_word_level_impact(self, sup_two_words):
         content = _render_word(sup_two_words, kinetic_style="bounce")
@@ -380,18 +397,32 @@ class TestWordScopeIntegration:
         assert r"\fscx" not in content
         assert r"\fscy" not in content
 
+    @pytest.mark.parametrize("style", list(KINETIC_STYLE_NAMES))
+    def test_rendered_output_has_no_fscx_anywhere(self, sup_three_words, style):
+        """The line-reflow invariant: regardless of scope, \\fscx must never
+        appear in rendered output (reflows the line horizontally on every
+        frame change)."""
+        content = _render_word(sup_three_words, kinetic_style=style)
+        assert r"\fscx" not in content
+
+    # \fscy IS allowed in line-scope presets because the whole event scales
+    # uniformly — there's no per-word-vs-others reflow inside the event.
+    # Smooth-entrance presets (fade/zoom/rise/blur_in/pop) naturally use
+    # line-scope and may therefore emit \fscy at event start. Impact/
+    # stylized presets must stay metric-safe even in their line impls.
+    _LINE_FSCY_ALLOWED = {"zoom", "rise", "pop", "bounce", "pulse", "wave"}
+
     @pytest.mark.parametrize(
         "style",
-        [s for s in KINETIC_STYLE_NAMES if s != "rise"],  # rise special case above
+        [
+            s
+            for s in KINETIC_STYLE_NAMES
+            if s not in {"zoom", "rise", "pop", "bounce", "pulse", "wave"}
+        ],
     )
-    def test_word_scope_no_fscx_fscy_in_output(self, sup_three_words, style):
+    def test_strict_metric_safe_styles_no_fscy(self, sup_three_words, style):
         content = _render_word(sup_three_words, kinetic_style=style)
-        # rise is the only preset where \fscy may appear in the output because
-        # it falls back to its line impl. All other word-scope impls must be
-        # metric-safe.
-        if style != "rise":
-            assert r"\fscx" not in content
-            assert r"\fscy" not in content
+        assert r"\fscy" not in content
 
     @pytest.mark.parametrize("style", list(KINETIC_STYLE_NAMES))
     def test_word_scope_renders_without_error(self, sup_three_words, style):

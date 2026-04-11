@@ -361,6 +361,40 @@ _PRESETS: "dict[str, KineticPreset]" = {
 _CHAR_LEVEL_STYLES: FrozenSet[str] = frozenset({"stagger"})
 
 
+# Each preset's "natural" scope — the one that matches its visual identity.
+# Smooth entrance effects (fade/zoom/rise/blur_in/pop) naturally animate
+# the whole line as an entrance; impact & stylized effects (bounce/shake/
+# pulse/swing/glow/neon/wave/flicker/typewriter/stagger) naturally fire
+# per word as each one is activated.
+#
+# CRITICAL: scope is DECOUPLED from render.word_level. word_level only
+# controls whether \k karaoke tags are emitted; kinetic scope is picked
+# from this map. That means `render.word_level=True + kinetic_style=fade`
+# produces BOTH line-scope fade (whole line fades in) AND per-word \k
+# karaoke sweep — the two compose cleanly because \fad is an event-level
+# alpha override and \k is a per-glyph color-fill timing tag.
+_NATURAL_SCOPE: "dict[str, Scope]" = {
+    # Smooth entrance — whole-line default
+    "fade": "line",
+    "zoom": "line",
+    "rise": "line",
+    "blur_in": "line",
+    "pop": "line",
+    # Impact — per-word default (emphasis on each activated word)
+    "bounce": "word",
+    "shake": "word",
+    "pulse": "word",
+    "swing": "word",
+    # Stylized — per-word default (highlights active word)
+    "glow": "word",
+    "neon": "word",
+    "wave": "word",
+    "flicker": "word",
+    "typewriter": "word",
+    "stagger": "word",
+}
+
+
 # =============================================================================
 # Public API
 # =============================================================================
@@ -395,39 +429,64 @@ def resolve_kinetic(
     style: Optional[str],
     word_level: bool,
 ) -> Optional[Tuple[Scope, KineticImpl]]:
-    """Pick the scope and impl for a style based on the word_level preference.
+    """Pick the scope and impl for a style.
 
-    Returns None if style is None.
+    Scope is DECOUPLED from word_level. word_level only gates whether \\k
+    karaoke tags are emitted; the scope itself comes from the preset's
+    natural category (_NATURAL_SCOPE). This means setting `word_level=True`
+    with `kinetic_style=fade` produces BOTH a line-scope \\fad entrance
+    AND per-word \\k karaoke sweep — the two overlays are orthogonal and
+    libass composes them correctly.
 
-    Scope selection:
-        word_level=True  -> preset.word if available, else fall back to
-                            preset.line (preset is word-only-unavailable,
-                            e.g. rise, so use line impl uniformly across
-                            the dialogue event).
-        word_level=False -> preset.line if available, else raise (preset
-                            requires word_level=True, e.g. stagger).
+    word_level only participates as a fallback constraint: a word-only
+    preset (stagger) cannot run in the standard-text path (word_level=
+    False) because that path has no per-word rendering, so we raise.
+
+    Args:
+        style: Kinetic style name or None.
+        word_level: Whether \\k tags will be emitted by the caller.
+            Does NOT directly pick the scope, but a False value rules out
+            word-only presets.
+
+    Returns:
+        None if style is None. Otherwise (scope, impl).
 
     Raises:
-        ValueError: unknown style, or preset has no suitable impl.
+        ValueError: unknown style, or the style's natural scope cannot be
+            satisfied (e.g. stagger with word_level=False).
     """
     if style is None:
         return None
     validate_kinetic_style(style)
     preset = _PRESETS[style]
+    natural = _NATURAL_SCOPE[style]
 
-    if word_level:
-        if preset.word is not None:
-            return "word", preset.word
-        if preset.line is not None:
-            return "line", preset.line
-    else:
-        if preset.line is not None:
-            return "line", preset.line
-        if preset.word is not None:
+    # Try the natural scope first.
+    if natural == "line" and preset.line is not None:
+        return "line", preset.line
+    if natural == "word" and preset.word is not None:
+        if not word_level:
+            # Natural scope is word but the caller is in the standard-text
+            # path with no per-word rendering. Fall back to line if we have
+            # one; otherwise this preset isn't usable here.
+            if preset.line is not None:
+                return "line", preset.line
             raise ValueError(
                 f"kinetic_style={style!r} requires word_level=True "
                 f"(preset has no line-scope implementation)"
             )
+        return "word", preset.word
+
+    # Natural impl was missing — fall back to whatever is available.
+    if preset.line is not None:
+        return "line", preset.line
+    if preset.word is not None:
+        if not word_level:
+            raise ValueError(
+                f"kinetic_style={style!r} requires word_level=True "
+                f"(preset has no line-scope implementation)"
+            )
+        return "word", preset.word
 
     raise ValueError(f"kinetic preset {style!r} has no implementation")
 

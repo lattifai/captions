@@ -419,6 +419,23 @@ def is_char_level_style(style: Optional[str]) -> bool:
     return style in _CHAR_LEVEL_STYLES
 
 
+def is_word_scope_kinetic_style(style: Optional[str]) -> bool:
+    """True if the style's natural scope is per-word (vs. per-line).
+
+    Word-scope styles need ``\\k`` karaoke tags as per-word time carriers in
+    ASS output, so callers that emit ASS without ``karaoke_effect`` configured
+    should auto-default it (e.g. to ``"sweep"``) when they want a word-scope
+    preset to actually fire per-word — otherwise the writer either degrades
+    to line-scope (dual-scope presets like ``bounce``) or crashes outright
+    (word-only presets like ``stagger``).
+
+    Returns ``False`` for unknown styles and ``None``.
+    """
+    if style is None:
+        return False
+    return _NATURAL_SCOPE.get(style) == "word"
+
+
 def get_kinetic_preset(style: str) -> KineticPreset:
     """Return the KineticPreset for a named style. Raises on unknown."""
     validate_kinetic_style(style)

@@ -213,7 +213,8 @@ class FormatWriter(ABC):
             **kwargs: Remaining kwargs; 'render' is consumed if present.
 
         Returns:
-            Tuple of (render, include_speaker, word_level)
+            Tuple of (render, include_speaker, word_level) where
+            ``word_level`` is ``Optional[bool]`` (tri-state, see RenderConfig).
         """
         from ..config import RenderConfig
 
@@ -303,6 +304,110 @@ def strip_standard_kwargs(kwargs: dict) -> None:
         kwargs.pop(key, None)
 
 
+def has_word_alignment(sup: "Supervision") -> bool:
+    """True if the supervision has a non-empty word-level alignment list.
+
+    Empty lists (``alignment={"word": []}``) are treated as "no data" — they
+    are a producer artifact that would otherwise crash code that does
+    ``alignment["word"][0]``.
+    """
+    alignment = getattr(sup, "alignment", None)
+    return bool(alignment and alignment.get("word"))
+
+
+def count_supervisions_with_words(supervisions: List["Supervision"]) -> int:
+    """Count supervisions in the batch that carry usable word alignment."""
+    return sum(1 for s in supervisions if has_word_alignment(s))
+
+
+def resolve_word_level(
+    word_level: Optional[bool],
+    *,
+    n_with_words: int,
+    n_total: int,
+    format_id: str,
+    smart_default: bool = False,
+) -> bool:
+    """Resolve the tri-state ``word_level`` flag into an effective boolean.
+
+    Args:
+        word_level: Tri-state from ``RenderConfig.word_level`` (None/True/False).
+        n_with_words: Number of supervisions in the batch with usable word
+            alignment (use :func:`count_supervisions_with_words`).
+        n_total: Total number of supervisions in the batch.
+        format_id: Format identifier used in the warning message.
+        smart_default: For ``word_level=None``, the per-format default when
+            no other signal applies. ``True`` means "data-driven word level
+            when data is present"; ``False`` means "stay segment level".
+
+    Returns:
+        ``True`` if the writer should emit word-level output for this batch,
+        ``False`` otherwise.
+
+    Warnings emitted (via the ``lattifai.caption`` logger):
+        - ``word_level=True`` and ``n_with_words == 0``: full fallback warning;
+          returns ``False``.
+        - ``word_level=True`` and ``0 < n_with_words < n_total``: partial
+          warning naming the unaligned count; returns ``True`` (the per-cue
+          loop is responsible for falling back on the unaligned segments).
+    """
+    import logging
+
+    if word_level is True:
+        logger = logging.getLogger("lattifai.caption")
+        if n_with_words == 0:
+            logger.warning(
+                "%s: word_level=True requested but no word alignment available; "
+                "falling back to segment-level output for this batch",
+                format_id,
+            )
+            return False
+        if n_with_words < n_total:
+            logger.warning(
+                "%s: word_level=True but %d/%d supervisions lack word alignment; "
+                "those segments will fall back to segment-level output",
+                format_id,
+                n_total - n_with_words,
+                n_total,
+            )
+        return True
+
+    if word_level is False:
+        return False
+
+    # word_level is None — apply smart default, but only if data exists.
+    return smart_default and n_with_words > 0
+
+
+def maybe_expand_to_word_supervisions(
+    supervisions: List["Supervision"],
+    *,
+    word_level: Optional[bool],
+    format_id: str,
+) -> List["Supervision"]:
+    """Batch-level wrapper around :func:`expand_to_word_supervisions`.
+
+    Honors tri-state ``word_level``:
+        - ``True``: expand to one supervision per word; warn on empty or
+          partially-aligned batches.
+        - ``False`` / ``None``: return supervisions unchanged.
+    """
+    if word_level is not True:
+        return supervisions
+    n_total = len(supervisions)
+    n_with = count_supervisions_with_words(supervisions)
+    use = resolve_word_level(
+        True,
+        n_with_words=n_with,
+        n_total=n_total,
+        format_id=format_id,
+        smart_default=False,
+    )
+    if not use:
+        return supervisions
+    return expand_to_word_supervisions(supervisions)
+
+
 def expand_to_word_supervisions(supervisions: List["Supervision"]) -> List["Supervision"]:
     """Expand supervisions with word alignment to one supervision per word.
 
@@ -312,14 +417,14 @@ def expand_to_word_supervisions(supervisions: List["Supervision"]) -> List["Supe
         supervisions: List of Supervision objects with optional alignment data
 
     Returns:
-        List of Supervision objects, one per word if alignment exists,
-        otherwise returns original supervisions unchanged.
+        List of Supervision objects, one per word if alignment exists (and is
+        non-empty), otherwise the original supervision is preserved.
     """
     from ..supervision import Supervision
 
     result = []
     for sup in supervisions:
-        if sup.alignment and "word" in sup.alignment:
+        if has_word_alignment(sup):
             for word in sup.alignment["word"]:
                 result.append(
                     Supervision(

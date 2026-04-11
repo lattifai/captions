@@ -79,7 +79,9 @@ class TestRenderConfigDefaults:
     def test_defaults(self):
         behavior = RenderConfig()
         assert behavior.include_speaker_in_text is True
-        assert behavior.word_level is False
+        # word_level is tri-state (Optional[bool]); None == "per-format default".
+        # For Renderer formats this matches the historical False behavior.
+        assert behavior.word_level is None
         assert behavior.translation_first is False
 
     def test_custom(self):

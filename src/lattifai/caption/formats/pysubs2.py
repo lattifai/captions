@@ -191,13 +191,14 @@ class Pysubs2Format(FormatHandler):
         Returns:
             Subtitle content as bytes
         """
-        from .base import expand_to_word_supervisions
+        from .base import maybe_expand_to_word_supervisions
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
 
-        # Expand to word-per-segment if word_level=True
-        if word_level:
-            supervisions = expand_to_word_supervisions(supervisions)
+        # Tri-state: only word_level=True triggers expansion; None/False stay segment.
+        supervisions = maybe_expand_to_word_supervisions(
+            supervisions, word_level=word_level, format_id=cls.format_id
+        )
 
         from .base import render_bilingual_text
 
@@ -502,16 +503,55 @@ class ASSFormat(Pysubs2Format):
         Returns:
             ASS content as bytes
         """
-        from .base import expand_to_word_supervisions
+        import logging
+
+        from .base import count_supervisions_with_words, maybe_expand_to_word_supervisions
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         config = config if isinstance(config, ASSConfig) else ASSConfig()
 
         karaoke_effect = config.karaoke_effect
 
-        # Expand to word-per-segment if word_level=True and karaoke is not enabled
-        if word_level and not karaoke_effect:
-            supervisions = expand_to_word_supervisions(supervisions)
+        # Tri-state semantics for ASS:
+        #   word_level=False  → force segment; karaoke_effect is disabled with a warning.
+        #   word_level=True   → force word level. With karaoke → emit \k tags;
+        #                       without karaoke → expand to one Dialogue per word.
+        #   word_level=None   → karaoke_effect existence implies word level;
+        #                       otherwise stay segment-level.
+        _ass_logger = logging.getLogger("lattifai.caption")
+
+        if word_level is False and karaoke_effect is not None:
+            _ass_logger.warning(
+                "ass: word_level=False overrides karaoke_effect=%s; karaoke disabled",
+                karaoke_effect,
+            )
+            karaoke_effect = None
+
+        if word_level is True and not karaoke_effect:
+            supervisions = maybe_expand_to_word_supervisions(
+                supervisions, word_level=True, format_id="ass"
+            )
+
+        # Karaoke + missing data: warn explicitly. The inner loop falls back
+        # per-supervision, but without this guard the user gets silent
+        # segment output instead of the karaoke they requested.
+        if karaoke_effect and (word_level is True or word_level is None):
+            n_total = len(supervisions)
+            n_with = count_supervisions_with_words(supervisions)
+            if n_with == 0:
+                _ass_logger.warning(
+                    "ass: karaoke_effect=%s requested but no word alignment available; "
+                    "falling back to segment-level output (no \\k tags)",
+                    karaoke_effect,
+                )
+            elif n_with < n_total:
+                _ass_logger.warning(
+                    "ass: karaoke_effect=%s but %d/%d supervisions lack word alignment; "
+                    "those segments output without \\k tags",
+                    karaoke_effect,
+                    n_total - n_with,
+                    n_total,
+                )
 
         # Create ASS file from config + metadata
         subs = cls._create_ass_file(metadata, config)
@@ -540,8 +580,10 @@ class ASSFormat(Pysubs2Format):
             alignment = getattr(sup, "alignment", None)
             word_items = alignment.get("word") if alignment else None
 
-            # Karaoke mode with word alignment
-            if word_level and karaoke_effect and word_items:
+            # Karaoke mode: presence of karaoke_effect implies word-level rendering.
+            # word_level no longer gates this branch — it has been resolved above
+            # into karaoke_effect (False sets it to None) or expansion.
+            if karaoke_effect and word_items:
                 karaoke_text = cls._build_karaoke_text(
                     word_items,
                     karaoke_effect,
@@ -849,8 +891,10 @@ class ASSFormat(Pysubs2Format):
             for i in range(1, len(words)):
                 separators[i] = " "
 
-        # Resolve kinetic scope. word_level is always True here because the
-        # caller gated on `word_level and karaoke_effect and word_items`.
+        # Resolve kinetic scope. word_level is hardcoded True here because the
+        # caller gated on `karaoke_effect and word_items` — reaching this branch
+        # already means we have per-word data and we are in the karaoke
+        # renderer path, so word-scope kinetic is the only valid choice.
         line_prefix = ""
         word_impl = None
         char_level = False
@@ -931,13 +975,14 @@ class SSAFormat(ASSFormat):
         **kwargs,
     ) -> bytes:
         """Convert to SSA bytes with style preservation."""
-        from .base import expand_to_word_supervisions
+        from .base import maybe_expand_to_word_supervisions
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         config = config if isinstance(config, ASSConfig) else ASSConfig()
 
-        if word_level:
-            supervisions = expand_to_word_supervisions(supervisions)
+        supervisions = maybe_expand_to_word_supervisions(
+            supervisions, word_level=word_level, format_id="ssa"
+        )
 
         from .base import render_bilingual_text
 

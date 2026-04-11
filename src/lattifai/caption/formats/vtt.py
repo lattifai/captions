@@ -405,12 +405,25 @@ class VTTFormat(FormatHandler):
         Returns:
             VTT content as bytes
         """
+        from .base import count_supervisions_with_words, resolve_word_level
+
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
 
         tf = behavior.translation_first
 
-        # Word-level: output YouTube VTT style with inline timestamps
-        if word_level:
+        # VTT defaults to standard segment output (smart_default=False) so
+        # roundtripping a YouTube VTT into plain VTT keeps its historical
+        # behavior. word_level=True forces YouTube VTT inline timestamps.
+        n_with = count_supervisions_with_words(supervisions)
+        use_word = resolve_word_level(
+            word_level,
+            n_with_words=n_with,
+            n_total=len(supervisions),
+            format_id="vtt",
+            smart_default=False,
+        )
+
+        if use_word:
             return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf)
 
         # Build VTT with metadata header

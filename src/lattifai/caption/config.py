@@ -1,7 +1,7 @@
 """Caption I/O configuration for LattifAI."""
 
 from dataclasses import dataclass, field
-from typing import Dict, Literal, Optional, get_args
+from typing import Dict, Literal, Optional, get_args  # noqa: F401
 
 # Re-export color data for backward compatibility (canonical source: colors.py)
 from .colors import KARAOKE_COLOR_SCHEMES, resolve_karaoke_color_scheme  # noqa: F401
@@ -51,8 +51,24 @@ class RenderConfig:
     include_speaker_in_text: bool = True
     """Include speaker labels in caption text (e.g., 'Alice: Hello' vs 'Hello')."""
 
-    word_level: bool = False
-    """Word-level output: word-per-segment in normal mode, word timestamps in karaoke/JSON."""
+    word_level: Optional[bool] = None
+    """Tri-state word-level output control.
+
+    - None (default): per-format default. Renderer formats (SRT, VTT, ASS,
+      LRC, TTML, SRV3, Premiere, FCPXML) stay segment-level — equivalent to
+      the historical ``False`` behavior, so existing pipelines see no change.
+      Lossless serializers (JSON, TextGrid) preserve word data when
+      ``alignment["word"]`` is non-empty. ASS karaoke is triggered by
+      ``ASSConfig.karaoke_effect`` alone, independent of this flag.
+    - True: force word-level output. Renderers emit per-word cues / inline
+      timestamps; if word alignment is missing or empty, a warning is logged
+      and the writer degrades gracefully to segment-level output for that
+      supervision (mixed batches emit a partial-fallback warning naming the
+      unaligned count).
+    - False: force segment-level output. Lossless writers (JSON / TextGrid)
+      drop their word data; ASS karaoke is disabled even when
+      ``karaoke_effect`` is set (a warning is emitted).
+    """
 
     translation_first: bool = False
     """Place translation text above original text in bilingual output."""

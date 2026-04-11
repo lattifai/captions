@@ -353,42 +353,25 @@ class FCPXMLWriter:
         output_path: Pathlike,
         config: Optional[FCPXMLConfig] = None,
     ) -> Path:
-        """Write supervisions with word-level timing to FCPXML.
+        """**Deprecated.** Use ``Caption.write(..., render=RenderConfig(word_level=True))``.
 
-        This creates individual caption elements for each word, enabling
-        karaoke-style effects in Final Cut Pro.
-
-        Args:
-            supervisions: List of supervision segments with word-level alignment
-            output_path: Output file path
-            config: FCPXML export configuration
-
-        Returns:
-            Path to written file/bundle
+        Kept as a thin compatibility shim around the standard ``write()`` path
+        with explicit per-word expansion. Will be removed in a future major
+        release.
         """
+        import warnings
+
+        from ..base import expand_to_word_supervisions
+
+        warnings.warn(
+            "FCPXMLWriter.write_with_word_level() is deprecated; "
+            "call Caption.write(..., render=RenderConfig(word_level=True)) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if config is None:
             config = FCPXMLConfig()
-
-        # Expand word-level alignments into individual supervisions
-        from ...supervision import Supervision as SupClass
-
-        expanded = []
-        for sup in supervisions:
-            alignment = getattr(sup, "alignment", None)
-            if alignment and "word" in alignment:
-                for word_item in alignment["word"]:
-                    expanded.append(
-                        SupClass(
-                            text=word_item.symbol,
-                            start=word_item.start,
-                            duration=word_item.duration,
-                            speaker=sup.speaker,
-                        )
-                    )
-            else:
-                expanded.append(sup)
-
-        return cls.write(expanded, output_path, config)
+        return cls.write(expand_to_word_supervisions(supervisions), output_path, config)
 
 
 @register_writer("fcpxml")
@@ -417,6 +400,7 @@ class FCPXMLFormat(FormatWriter):
             Path to written file
         """
         config = kwargs.pop("config", None)
+        supervisions = cls._maybe_expand_for_fcpxml(supervisions, kwargs)
         strip_standard_kwargs(kwargs)
         if not isinstance(config, FCPXMLConfig):
             config = FCPXMLConfig(**kwargs)
@@ -432,16 +416,33 @@ class FCPXMLFormat(FormatWriter):
 
         Args:
             supervisions: List of supervision segments
-            **kwargs: style, config (FCPXMLConfig), additional config options
+            **kwargs: style, config (FCPXMLConfig), render (RenderConfig)
 
         Returns:
             FCPXML content as bytes
         """
         config = kwargs.pop("config", None)
+        supervisions = cls._maybe_expand_for_fcpxml(supervisions, kwargs)
         strip_standard_kwargs(kwargs)
         if not isinstance(config, FCPXMLConfig):
             config = FCPXMLConfig(**kwargs)
         return FCPXMLWriter.to_bytes(supervisions, config)
+
+    @classmethod
+    def _maybe_expand_for_fcpxml(
+        cls, supervisions: List[Supervision], kwargs: dict
+    ) -> List[Supervision]:
+        """Apply tri-state RenderConfig.word_level to FCPXML output.
+
+        FCPXML is segment-default: only ``word_level=True`` opts into per-word
+        clip expansion (replaces the deprecated ``write_with_word_level``).
+        """
+        from ..base import maybe_expand_to_word_supervisions
+
+        _, _, word_level = cls._unpack_render(**kwargs)
+        return maybe_expand_to_word_supervisions(
+            supervisions, word_level=word_level, format_id="fcpxml"
+        )
 
 
 class FCPXMLReader:

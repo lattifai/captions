@@ -218,8 +218,21 @@ class LRCFormat(FormatHandler):
         Returns:
             Caption content as bytes
         """
+        from .base import count_supervisions_with_words, has_word_alignment, resolve_word_level
+
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         lrc_config = config if isinstance(config, LRCConfig) else LRCConfig()
+
+        # LRC is segment-by-default: smart_default=False. Only word_level=True
+        # opts into enhanced LRC inline timestamps; word_level=None stays plain.
+        _n_with = count_supervisions_with_words(supervisions)
+        _use_word = resolve_word_level(
+            word_level,
+            n_with_words=_n_with,
+            n_total=len(supervisions),
+            format_id="lrc",
+            smart_default=False,
+        )
         precision = lrc_config.precision
         lines = []
 
@@ -241,7 +254,7 @@ class LRCFormat(FormatHandler):
             lines.append("")
 
         for sup in supervisions:
-            if word_level and sup.alignment and "word" in sup.alignment:
+            if _use_word and has_word_alignment(sup):
                 # Enhanced LRC mode: each word has inline timestamp
                 word_items = sup.alignment["word"]
                 line_time = cls._format_time(word_items[0].start, precision)

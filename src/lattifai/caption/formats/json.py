@@ -138,8 +138,16 @@ class JSONFormat(FormatHandler):
         return supervisions
 
     @classmethod
-    def _serialize_supervision(cls, sup: Supervision) -> dict[str, Any]:
-        """Serialize a single Supervision to the canonical JSON segment dict."""
+    def _serialize_supervision(
+        cls, sup: Supervision, *, include_words: bool = True
+    ) -> dict[str, Any]:
+        """Serialize a single Supervision to the canonical JSON segment dict.
+
+        Args:
+            sup: Supervision to serialize.
+            include_words: When False, omit the ``words`` array even if word
+                alignment is present (used by ``word_level=False``).
+        """
         item: dict[str, Any] = {
             "text": sup.text,
             "start": round(sup.start, 4),
@@ -148,8 +156,12 @@ class JSONFormat(FormatHandler):
         if sup.speaker:
             item["speaker"] = sup.speaker
 
-        # Word-level alignment (always preserved in JSON — lossless format)
-        if sup.alignment and "word" in sup.alignment:
+        # Word-level alignment is preserved by default (JSON is lossless),
+        # but the caller can suppress it via include_words=False. Empty lists
+        # are treated as "no data" to avoid emitting "words": [].
+        from .base import has_word_alignment as _has_word_align
+
+        if include_words and _has_word_align(sup):
             item["words"] = []
             for w in sup.alignment["word"]:
                 word_dict: dict[str, Any] = {
@@ -176,7 +188,11 @@ class JSONFormat(FormatHandler):
 
     @classmethod
     def _build_document(
-        cls, supervisions: list[Supervision], metadata: dict[str, Any] | None = None
+        cls,
+        supervisions: list[Supervision],
+        metadata: dict[str, Any] | None = None,
+        *,
+        include_words: bool = True,
     ) -> dict[str, Any]:
         """Build document dict mirroring Caption-level fields.
 
@@ -184,6 +200,7 @@ class JSONFormat(FormatHandler):
             supervisions: List of Supervision objects
             metadata: Optional dict of Caption-level fields (language, target_lang,
                 kind, source_format, metadata, etc.)
+            include_words: Forwarded to ``_serialize_supervision``.
         """
         meta = dict(metadata or {})
 
@@ -209,7 +226,9 @@ class JSONFormat(FormatHandler):
         doc["num_segments"] = len(supervisions)
         doc["speakers"] = speakers
         # Segments
-        doc["supervisions"] = [cls._serialize_supervision(sup) for sup in supervisions]
+        doc["supervisions"] = [
+            cls._serialize_supervision(sup, include_words=include_words) for sup in supervisions
+        ]
 
         return doc
 
@@ -323,6 +342,27 @@ class JSONFormat(FormatHandler):
         Returns:
             JSON content as UTF-8 encoded bytes
         """
+        import logging
+
+        from .base import count_supervisions_with_words
+
         metadata = kwargs.pop("metadata", None)
-        data = cls._build_document(supervisions, metadata=metadata)
+
+        # JSON is a lossless serializer: word data is preserved by default,
+        # but RenderConfig.word_level=False explicitly opts out of word arrays.
+        # word_level=True is informational here (data is already preserved),
+        # but if the user explicitly asks for word-level and there's nothing
+        # to write, surface a warning so they can debug their producer.
+        _, _, word_level = cls._unpack_render(**kwargs)
+        include_words = word_level is not False
+        if word_level is True:
+            n_total = len(supervisions)
+            n_with = count_supervisions_with_words(supervisions)
+            if n_with == 0 and n_total > 0:
+                logging.getLogger("lattifai.caption").warning(
+                    "json: word_level=True but no supervisions carry word alignment; "
+                    "output will not contain a 'words' array"
+                )
+
+        data = cls._build_document(supervisions, metadata=metadata, include_words=include_words)
         return json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8")

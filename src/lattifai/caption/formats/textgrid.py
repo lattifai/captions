@@ -124,7 +124,24 @@ class TextGridFormat(FormatHandler):
             Events (text like [Applause] or segment_type="event") are placed
             in separate tiers (Event, Event2, ...) to handle overlaps.
         """
+        import logging
+
         from tgt import Interval, IntervalTier, TextGrid, write_to_file
+
+        from .base import count_supervisions_with_words, has_word_alignment
+
+        # TextGrid is a lossless container: word tier is emitted by default,
+        # but RenderConfig.word_level=False explicitly suppresses it.
+        _, _, _word_level = cls._unpack_render(**kwargs)
+        include_words = _word_level is not False
+        if _word_level is True:
+            n_total = len(supervisions)
+            n_with = count_supervisions_with_words(supervisions)
+            if n_with == 0 and n_total > 0:
+                logging.getLogger("lattifai.caption").warning(
+                    "textgrid: word_level=True but no supervisions carry word alignment; "
+                    "output will not contain a 'words' tier"
+                )
 
         output_path = Path(output_path)
         tg = TextGrid()
@@ -150,10 +167,9 @@ class TextGridFormat(FormatHandler):
 
             speaker_utterances.setdefault(speaker_key, []).append(Interval(sup.start, sup.end, text))
 
-            # Extract word-level alignment if present
-            alignment = getattr(sup, "alignment", None)
-            if alignment and "word" in alignment:
-                for item in alignment["word"]:
+            # Extract word-level alignment if present (skip when stripped or empty)
+            if include_words and has_word_alignment(sup):
+                for item in sup.alignment["word"]:
                     words.append(Interval(item.start, item.end, item.symbol))
                     if item.score is not None:
                         scores["words"].append(Interval(item.start, item.end, f"{item.score:.2f}"))

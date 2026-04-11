@@ -386,14 +386,11 @@ class TTMLFormatBase(FormatHandler):
         body = ET.SubElement(root, f"{{{TTML_NS}}}body")
         div = ET.SubElement(body, f"{{{TTML_NS}}}div")
 
+        from .base import has_word_alignment as _has_word_align
+
         for sup in supervisions:
             # Check if word-level timing should be used for this supervision
-            has_word_alignment = (
-                word_level
-                and sup.alignment
-                and "word" in sup.alignment
-                and len(sup.alignment["word"]) > 0
-            )
+            has_word_alignment = word_level and _has_word_align(sup)
 
             # Use word timestamps for timing when available (more accurate)
             if has_word_alignment:
@@ -485,6 +482,8 @@ class TTMLFormat(TTMLFormatBase):
             output_path: Output file path
             config: TTML configuration (TTMLConfig). Non-TTMLConfig values are ignored.
         """
+        from .base import count_supervisions_with_words, resolve_word_level
+
         if not isinstance(config, TTMLConfig):
             config = TTMLConfig()
 
@@ -494,11 +493,21 @@ class TTMLFormat(TTMLFormatBase):
         if output_path.suffix.lower() not in [".ttml", ".xml"]:
             output_path = output_path.with_suffix(".ttml")
 
+        # TTML is segment-by-default; only word_level=True opts into iTunes spans.
+        n_with = count_supervisions_with_words(supervisions)
+        use_word = resolve_word_level(
+            word_level,
+            n_with_words=n_with,
+            n_total=len(supervisions),
+            format_id="ttml",
+            smart_default=False,
+        )
+
         root = cls._build_ttml(
             supervisions,
             config,
             include_speaker=include_speaker,
-            word_level=word_level,
+            word_level=use_word,
         )
         xml_content = cls._prettify_xml(root)
 
@@ -520,6 +529,8 @@ class TTMLFormat(TTMLFormatBase):
             config: TTML configuration
             metadata: Optional metadata dict containing ttml_* keys to restore
         """
+        from .base import count_supervisions_with_words, resolve_word_level
+
         if not isinstance(config, TTMLConfig):
             config = TTMLConfig()
 
@@ -532,11 +543,20 @@ class TTMLFormat(TTMLFormatBase):
             if metadata.get("ttml_profile"):
                 config.profile = metadata["ttml_profile"]
 
+        n_with = count_supervisions_with_words(supervisions)
+        use_word = resolve_word_level(
+            word_level,
+            n_with_words=n_with,
+            n_total=len(supervisions),
+            format_id="ttml",
+            smart_default=False,
+        )
+
         root = cls._build_ttml(
             supervisions,
             config,
             include_speaker=include_speaker,
-            word_level=word_level,
+            word_level=use_word,
         )
         xml_content = cls._prettify_xml(root)
         return xml_content.encode("utf-8")

@@ -298,7 +298,19 @@ class SRV3Format(FormatHandler):
         Returns:
             SRV3 XML content as UTF-8 encoded bytes
         """
+        from .base import count_supervisions_with_words, has_word_alignment, resolve_word_level
+
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
+        # SRV3 defaults to segment output (smart_default=False) for backward
+        # compatibility. RenderConfig.word_level=True opts into per-word <s> timing.
+        _n_with = count_supervisions_with_words(supervisions)
+        _use_word = resolve_word_level(
+            word_level,
+            n_with_words=_n_with,
+            n_total=len(supervisions),
+            format_id="srv3",
+            smart_default=False,
+        )
         # Create root element
         root = ET.Element("timedtext")
         root.set("format", "3")
@@ -344,8 +356,8 @@ class SRV3Format(FormatHandler):
             p.set("d", str(p_duration_ms))
             p.set("w", "1")
 
-            # Check if we should output word-level timing
-            has_words = word_level and sup.alignment and "word" in sup.alignment and len(sup.alignment["word"]) > 0
+            # Check if we should output word-level timing for THIS supervision
+            has_words = _use_word and has_word_alignment(sup)
 
             if has_words:
                 # Output each word as <s> element with timing

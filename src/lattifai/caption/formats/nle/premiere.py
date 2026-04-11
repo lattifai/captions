@@ -34,11 +34,27 @@ class PremiereXMLConfig:
     height: int = 1080
     """Sequence height in pixels."""
 
-    use_word_level: bool = False
-    """Export each word as separate clip (for karaoke effects)."""
-
     separate_speaker_tracks: bool = True
     """Put different speakers on different video tracks."""
+
+    use_word_level: bool = False
+    """**Deprecated.** Use ``RenderConfig.word_level=True`` instead.
+
+    When ``True`` this still forces per-word clip expansion for backward
+    compatibility, but it triggers a ``DeprecationWarning`` and will be
+    removed in a future major release.
+    """
+
+    def __post_init__(self) -> None:
+        if self.use_word_level:
+            import warnings
+
+            warnings.warn(
+                "PremiereXMLConfig.use_word_level is deprecated; "
+                "pass RenderConfig(word_level=True) to Caption.write() instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
     font_name: str = "Arial"
     """Font name for text generators."""
@@ -58,10 +74,9 @@ class PremiereXMLWriter:
 
     Example:
         >>> from lattifai.caption import Caption
-        >>> from lattifai.caption.formats.nle.premiere_xml_writer import PremiereXMLWriter, PremiereXMLConfig
+        >>> from lattifai.caption.config import RenderConfig
         >>> caption = Caption.read("input.srt")
-        >>> config = PremiereXMLConfig(use_word_level=True)
-        >>> PremiereXMLWriter.write(caption.supervisions, "output.xml", config)
+        >>> caption.write("output.xml", render=RenderConfig(word_level=True))
     """
 
     @classmethod
@@ -172,12 +187,15 @@ class PremiereXMLWriter:
         cls,
         supervisions: List["Supervision"],
         config: PremiereXMLConfig,
+        word_level: bool = False,
     ) -> ET.Element:
         """Build Premiere Pro XML document structure.
 
         Args:
             supervisions: List of supervision segments
             config: Export configuration
+            word_level: When True, expand each word in alignment data to its
+                own clip (driven by ``RenderConfig.word_level``).
 
         Returns:
             Root XML element
@@ -238,13 +256,14 @@ class PremiereXMLWriter:
         for speaker, sups in speaker_groups.items():
             track = ET.SubElement(video, "track")
 
-            # Expand to word level if configured
-            if config.use_word_level:
+            # Expand to word level when RenderConfig.word_level=True
+            if word_level:
+                from ..base import has_word_alignment
+
                 items_to_process = []
                 for sup in sups:
-                    alignment = getattr(sup, "alignment", None)
-                    if alignment and "word" in alignment:
-                        for word_item in alignment["word"]:
+                    if has_word_alignment(sup):
+                        for word_item in sup.alignment["word"]:
                             items_to_process.append(
                                 {
                                     "text": word_item.symbol,
@@ -313,6 +332,7 @@ class PremiereXMLWriter:
         supervisions: List["Supervision"],
         output_path: Pathlike,
         config: Optional[PremiereXMLConfig] = None,
+        word_level: bool = False,
     ) -> Path:
         """Write supervisions to Premiere Pro XML format.
 
@@ -320,6 +340,8 @@ class PremiereXMLWriter:
             supervisions: List of supervision segments
             output_path: Output file path
             config: Export configuration
+            word_level: Per-word clip expansion flag, normally derived from
+                ``RenderConfig.word_level`` by the wrapping format class.
 
         Returns:
             Path to written file
@@ -328,7 +350,7 @@ class PremiereXMLWriter:
             config = PremiereXMLConfig()
 
         output_path = Path(output_path).with_suffix(".xml")
-        root = cls._build_xml(supervisions, config)
+        root = cls._build_xml(supervisions, config, word_level=word_level)
         xml_content = cls._prettify_xml(root)
 
         with open(output_path, "w", encoding="utf-8") as f:
@@ -341,12 +363,15 @@ class PremiereXMLWriter:
         cls,
         supervisions: List["Supervision"],
         config: Optional[PremiereXMLConfig] = None,
+        word_level: bool = False,
     ) -> bytes:
         """Convert supervisions to Premiere Pro XML format bytes.
 
         Args:
             supervisions: List of supervision segments
             config: Export configuration
+            word_level: Per-word clip expansion flag, normally derived from
+                ``RenderConfig.word_level`` by the wrapping format class.
 
         Returns:
             Premiere XML content as bytes
@@ -354,7 +379,7 @@ class PremiereXMLWriter:
         if config is None:
             config = PremiereXMLConfig()
 
-        root = cls._build_xml(supervisions, config)
+        root = cls._build_xml(supervisions, config, word_level=word_level)
         xml_content = cls._prettify_xml(root)
         return xml_content.encode("utf-8")
 
@@ -385,10 +410,13 @@ class PremiereXMLFormat(FormatWriter):
             Path to written file
         """
         config = kwargs.pop("config", None)
+        word_level_flag = cls._resolve_word_level(supervisions, kwargs, config)
         strip_standard_kwargs(kwargs)
         if not isinstance(config, PremiereXMLConfig):
             config = PremiereXMLConfig(**kwargs)
-        return PremiereXMLWriter.write(supervisions, output_path, config)
+        return PremiereXMLWriter.write(
+            supervisions, output_path, config, word_level=word_level_flag
+        )
 
     @classmethod
     def to_bytes(
@@ -400,16 +428,56 @@ class PremiereXMLFormat(FormatWriter):
 
         Args:
             supervisions: List of supervision segments
-            **kwargs: style, config (PremiereXMLConfig), additional config options
+            **kwargs: style, config (PremiereXMLConfig), render (RenderConfig)
 
         Returns:
             Premiere Pro XML content as bytes
         """
         config = kwargs.pop("config", None)
+        word_level_flag = cls._resolve_word_level(supervisions, kwargs, config)
         strip_standard_kwargs(kwargs)
         if not isinstance(config, PremiereXMLConfig):
             config = PremiereXMLConfig(**kwargs)
-        return PremiereXMLWriter.to_bytes(supervisions, config)
+        return PremiereXMLWriter.to_bytes(supervisions, config, word_level=word_level_flag)
+
+    @classmethod
+    def _resolve_word_level(
+        cls,
+        supervisions: List[Supervision],
+        kwargs: dict,
+        config,
+    ) -> bool:
+        """Compute the effective per-word expansion flag for Premiere.
+
+        Source of truth (in order):
+            1. ``RenderConfig.word_level`` from ``kwargs['render']``
+               (the standard ``Caption.write()`` plumbing).
+            2. Deprecated ``PremiereXMLConfig.use_word_level=True`` (legacy).
+
+        Premiere is a segment-default format, so ``None`` and ``False`` both
+        produce one clip per segment.
+        """
+        from ..base import count_supervisions_with_words, resolve_word_level
+
+        # _unpack_render consumes the 'render' parameter from the local
+        # binding only — caller's kwargs dict still owns it. strip_standard_kwargs
+        # later removes it from kwargs.
+        _, _, word_level = cls._unpack_render(**kwargs)
+
+        n_with = count_supervisions_with_words(supervisions)
+        effective = resolve_word_level(
+            word_level,
+            n_with_words=n_with,
+            n_total=len(supervisions),
+            format_id="premiere_xml",
+            smart_default=False,
+        )
+
+        # Deprecated config-level escape hatch (warning fires in __post_init__).
+        if isinstance(config, PremiereXMLConfig) and config.use_word_level:
+            effective = True
+
+        return effective
 
 
 class PremiereXMLReader:

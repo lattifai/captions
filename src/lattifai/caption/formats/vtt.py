@@ -240,6 +240,14 @@ class VTTFormat(FormatHandler):
                 if not cue_line:
                     continue
 
+                # Only process NEW lines (those carrying inline word-level
+                # timestamps). OLD rolling lines are discarded here — they
+                # duplicate words already captured in the previous cue and
+                # carry stale >> markers that would falsely flag speaker
+                # changes on every subsequent cue.
+                if not has_word_timestamps(cue_line):
+                    continue
+
                 # Detect and strip >> speaker change markers
                 stripped_line = cls.SPEAKER_CHANGE_RE.sub("", cue_line, count=1)
                 if stripped_line != cue_line:

@@ -573,7 +573,8 @@ class ASSFormat(Pysubs2Format):
                     event.name = sup.speaker
                 subs.append(event)
             else:
-                # Standard mode
+                # Standard mode (no per-word \k tags). If kinetic_style is set,
+                # apply line-scope kinetic as a single {override} at text start.
                 from .base import render_bilingual_text
 
                 text = render_bilingual_text(
@@ -588,6 +589,18 @@ class ASSFormat(Pysubs2Format):
                         text = f"{{\\c&H{spk_color}&}}{prefix}{{\\c}}{text}"
                     else:
                         text = f"{prefix}{text}"
+
+                if config.kinetic_style is not None:
+                    from ..kinetic import build_line_override, resolve_kinetic
+
+                    resolved = resolve_kinetic(config.kinetic_style, word_level=False)
+                    if resolved is not None:
+                        scope, impl = resolved
+                        # resolve_kinetic with word_level=False only returns
+                        # scope="line" or raises — so we are safe to prepend.
+                        override = build_line_override(impl)
+                        if override:
+                            text = f"{{{override}}}{text}"
 
                 event = cls._create_event_from_supervision(sup, text)
                 subs.append(event)
@@ -793,11 +806,12 @@ class ASSFormat(Pysubs2Format):
         Separators between words are derived from the original text to preserve
         correct spacing for all languages (CJK, Latin, mixed).
 
-        When `kinetic_style` is set, each word additionally receives `\\t(...)`
-        override blocks relative to its cumulative start offset within the
-        Dialogue event, so every word animates at its own activation time
-        rather than all at event start. `stagger` is special-cased: the word
-        text is expanded into per-character tagged chunks.
+        Kinetic scope is resolved for word_level=True here (callers gate on
+        word_level). If the preset is word-scope, each word gets \\t() overrides
+        offset to its cumulative activation time. If the preset is line-only
+        (e.g. rise), a single line-scope override is prepended to the text so
+        the whole block animates while \\k sweep still runs per word. Stagger is
+        handled via expand_stagger_word().
 
         Args:
             words: List of AlignmentItem objects (must have start, duration, symbol)
@@ -806,13 +820,14 @@ class ASSFormat(Pysubs2Format):
             kinetic_style: Optional kinetic motion preset (see kinetic.py)
 
         Returns:
-            Text with karaoke + kinetic tags, e.g.:
-                "{\\kf45\\t(0,1,\\fscx120\\fscy120)\\t(1,151,\\fscx100\\fscy100)}Hello ..."
+            Text with karaoke + kinetic tags.
         """
         from ..kinetic import (
-            build_kinetic_overrides,
+            build_line_override,
+            build_word_overrides,
             expand_stagger_word,
             is_char_level_style,
+            resolve_kinetic,
         )
 
         tag_map = {"sweep": "kf", "instant": "k", "outline": "ko"}
@@ -834,9 +849,26 @@ class ASSFormat(Pysubs2Format):
             for i in range(1, len(words)):
                 separators[i] = " "
 
-        char_level = is_char_level_style(kinetic_style)
+        # Resolve kinetic scope. word_level is always True here because the
+        # caller gated on `word_level and karaoke_effect and word_items`.
+        line_prefix = ""
+        word_impl = None
+        char_level = False
+        resolved = resolve_kinetic(kinetic_style, word_level=True)
+        if resolved is not None:
+            scope, impl = resolved
+            if scope == "line":
+                override = build_line_override(impl)
+                if override:
+                    line_prefix = "{" + override + "}"
+            else:  # scope == "word"
+                word_impl = impl
+                char_level = is_char_level_style(kinetic_style)
 
-        parts = []
+        parts: List[str] = []
+        if line_prefix:
+            parts.append(line_prefix)
+
         cumulative_ms = 0
         for i, word in enumerate(words):
             # Duration: span from this word to next word (absorbs silence gaps)
@@ -850,15 +882,16 @@ class ASSFormat(Pysubs2Format):
             cumulative_ms += centiseconds * 10
 
             if char_level:
-                # Stagger — replace word text with per-char tagged sequence.
-                # The \k tag still drives karaoke fill; stagger animates scale.
+                # Stagger — per-char alpha reveal replaces the word body.
                 body = expand_stagger_word(word.symbol, word_start_ms)
                 parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{body}")
-            else:
-                kinetic_override = build_kinetic_overrides(kinetic_style, word_start_ms)
+            elif word_impl is not None:
+                kinetic_override = build_word_overrides(word_impl, word_start_ms)
                 parts.append(
                     f"{separators[i]}{{\\{tag}{centiseconds}{kinetic_override}}}{word.symbol}"
                 )
+            else:
+                parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{word.symbol}")
 
         return "".join(parts)
 

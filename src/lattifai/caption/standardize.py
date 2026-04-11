@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from .config import StandardizationConfig
-from .supervision import Supervision
+from .supervision import Supervision, fastcopy
 
 __all__ = [
     "CaptionStandardizer",
@@ -275,8 +275,16 @@ class CaptionStandardizer:
                 groups[-2].extend(groups[-1])
                 groups.pop()
 
+        # Pre-compute per-group text so we can split bilingual translation
+        # proportionally across sub-segments.
+        group_texts = [" ".join(w.symbol for w in g) for g in groups if g]
+        trans_slices = self._split_translation_proportionally(
+            getattr(seg, "translation", None), group_texts
+        )
+
         # Create sub-segments from word groups
         result: List[Supervision] = []
+        slice_iter = iter(trans_slices)
         for group in groups:
             if not group:
                 continue
@@ -301,6 +309,7 @@ class CaptionStandardizer:
                 start=seg_start,
                 duration=duration,
                 alignment={"word": list(group)},
+                translation=next(slice_iter, None),
             ))
 
         return result if result else [seg]
@@ -363,7 +372,11 @@ class CaptionStandardizer:
         current_start = seg.start
         result: List[Supervision] = []
 
-        for chunk in chunks:
+        trans_slices = self._split_translation_proportionally(
+            getattr(seg, "translation", None), chunks
+        )
+
+        for chunk, trans_slice in zip(chunks, trans_slices):
             ratio = len(chunk) / total_chars if total_chars > 0 else 1.0 / len(chunks)
             chunk_duration = max(self.config.min_duration, seg.duration * ratio)
 
@@ -372,6 +385,7 @@ class CaptionStandardizer:
                 text=chunk,
                 start=current_start,
                 duration=chunk_duration,
+                translation=trans_slice,
             ))
             current_start += chunk_duration + self.config.min_gap
 
@@ -545,7 +559,11 @@ class CaptionStandardizer:
         **overrides,
     ) -> Supervision:
         """
-        Create a copy of Supervision.
+        Create a copy of Supervision preserving ALL dataclass fields by default.
+
+        Uses fastcopy so bilingual fields (translation, target_lang), scoring,
+        and any future dataclass fields are carried through automatically —
+        callers only need to override what they want to change.
 
         Args:
             seg: Original segment
@@ -554,19 +572,45 @@ class CaptionStandardizer:
         Returns:
             New Supervision instance
         """
-        return Supervision(
-            id=overrides.get("id", seg.id),
-            recording_id=overrides.get("recording_id", seg.recording_id),
-            start=overrides.get("start", seg.start),
-            duration=overrides.get("duration", seg.duration),
-            channel=overrides.get("channel", getattr(seg, "channel", None)),
-            text=overrides.get("text", seg.text),
-            language=overrides.get("language", getattr(seg, "language", None)),
-            speaker=overrides.get("speaker", getattr(seg, "speaker", None)),
-            gender=overrides.get("gender", getattr(seg, "gender", None)),
-            custom=overrides.get("custom", getattr(seg, "custom", None)),
-            alignment=overrides.get("alignment", getattr(seg, "alignment", None)),
-        )
+        return fastcopy(seg, **overrides)
+
+    @staticmethod
+    def _split_translation_proportionally(
+        translation: Optional[str], text_chunks: List[str]
+    ) -> List[Optional[str]]:
+        """Distribute a translation string across N text chunks by char ratio.
+
+        Preserves total character count so bilingual data is never silently
+        dropped when the source text is split into sub-segments. The split is
+        naive — no CJK word-boundary awareness — but guarantees integrity.
+
+        Returns a list of ``len(text_chunks)`` entries; when ``translation`` is
+        None/empty or there is only one chunk, the full value goes on the first
+        slot and the rest are None.
+        """
+        n = len(text_chunks)
+        if n == 0:
+            return []
+        if not translation or n == 1:
+            return [translation] + [None] * (n - 1)
+
+        total = sum(len(c) for c in text_chunks)
+        if total <= 0:
+            return [translation] + [None] * (n - 1)
+
+        trans_len = len(translation)
+        out: List[Optional[str]] = []
+        cursor = 0
+        for i, chunk in enumerate(text_chunks):
+            if i == n - 1:
+                out.append(translation[cursor:] or None)
+            else:
+                ratio = len(chunk) / total
+                end = min(cursor + max(1, int(round(trans_len * ratio))), trans_len)
+                slice_ = translation[cursor:end]
+                out.append(slice_ or None)
+                cursor = end
+        return out
 
     def apply_margins(
         self,

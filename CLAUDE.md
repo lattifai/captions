@@ -36,6 +36,52 @@ flake8 src/ tests/
 - `formats/__init__.py` allows `E401, F401` (wildcard imports for re-exports)
 - `tests/` has relaxed linting (`E501, F541, F401, F841` ignored)
 
+## Multilingual Text Convention
+
+**Canonical source of truth is the original text string, never reconstructed
+from word symbols.** This repo stores user-facing text on ``Supervision.text``
+(verbatim, exactly as the user provided it) and stores per-word timing
+separately on ``Supervision.alignment["word"]`` as ``AlignmentItem``s. Any
+pipeline that needs the written text must read ``sup.text`` — it must not
+rebuild it by joining ``w.symbol`` values.
+
+Rationale (pulled from how the core tokenizer and backend handle this):
+
+- ``lattifai_core.tokenization.tokenize_multilingual_text`` splits CJK
+  (``\u4e00-\u9fff``) **per character**, Latin letter sequences per word,
+  and keeps punctuation/spaces as separate tokens. The inverse operation
+  (detokenize) is deliberately ``raise NotImplementedError`` in
+  ``LatticeTokenizer.detokenize`` — reconstructing text from tokens is
+  considered ambiguous and the codebase refuses to do it.
+- ``lattifai-backend/app/api/v1/alignment.py:finalize_alignments`` builds
+  supervisions with ``text=transcript`` (the exact client-supplied text) —
+  word alignment lives on ``supervision.alignment["word"]`` only. Clients
+  rely on the text being untouched for display and roundtrip.
+- The only places in ``lattifai_core`` that do ``" ".join(w.symbol ...)``
+  (``tokenization/overlap.py``, ``diarization/stages/a2b_resolve.py``) feed
+  the result *back into the aligner*, whose tokenizer then re-splits CJK
+  per character. So those paths are internal pipeline stages, not
+  user-facing output.
+
+**Rule for this repo (lattifai-captions):**
+
+- When you split a supervision that has word alignment, slice the
+  **original** ``sup.text`` at the char positions that correspond to the
+  first/last word of each group — do not ``" ".join(w.symbol)``. Joining
+  produces ``"我 觉 得"`` for Chinese, breaks ``"Terry Tao"``'s expected
+  spacing in mixed-language content, and destroys user-authored whitespace
+  and punctuation.
+- Mapping words → char positions: walk ``sup.text`` and ``words`` in order,
+  using ``text.find(word.symbol, cursor)`` to advance a cursor. Word order
+  in the alignment matches text order; this is O(n).
+- If you legitimately need a roundtrippable text from a word list with no
+  original text (rare — only when the list is synthesized from scratch),
+  call ``tokenize_multilingual_text`` to re-tokenize and concatenate: CJK
+  chars concatenate directly, Latin/punctuation tokens keep their
+  separators. Never hard-code ``" ".join``.
+- Tests covering multilingual text must include at least one pure-CJK case
+  and one CJK+Latin mixed case.
+
 ## Timing Precision Convention
 
 All caption/subtitle times (seconds) are rounded to **4 decimal places** (100μs

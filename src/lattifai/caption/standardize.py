@@ -313,9 +313,14 @@ class CaptionStandardizer:
                 groups[-2].extend(groups[-1])
                 groups.pop()
 
-        # Pre-compute per-group text so we can split bilingual translation
-        # proportionally across sub-segments.
-        group_texts = [" ".join(w.symbol for w in g) for g in groups if g]
+        # Slice the ORIGINAL text at the char positions of each group's first
+        # word — never reconstruct by joining w.symbol values. See CLAUDE.md
+        # "Multilingual Text Convention": joining symbols inserts ASCII spaces
+        # between every CJK character and destroys user-authored whitespace
+        # and punctuation in mixed-language text.
+        non_empty_groups = [g for g in groups if g]
+        group_texts = self._slice_text_by_word_groups(seg.text or "", non_empty_groups)
+
         trans_slices = self._split_translation_proportionally(
             getattr(seg, "translation", None), group_texts
         )
@@ -323,11 +328,12 @@ class CaptionStandardizer:
         # Create sub-segments from word groups
         result: List[Supervision] = []
         slice_iter = iter(trans_slices)
+        text_iter = iter(group_texts)
         for group in groups:
             if not group:
                 continue
 
-            text = " ".join(w.symbol for w in group)
+            text = next(text_iter)
             first_start = group[0].start
             last_end = group[-1].start + group[-1].duration
 
@@ -351,6 +357,68 @@ class CaptionStandardizer:
             ))
 
         return result if result else [seg]
+
+    @staticmethod
+    def _slice_text_by_word_groups(text: str, groups: List[List]) -> List[str]:
+        """Slice the original ``text`` into per-group substrings, using the
+        char position of each group's first word as the cut boundary.
+
+        This preserves CJK spacing (no ASCII space between Chinese chars),
+        Latin word spacing (``"Terry Tao"`` stays together), and any
+        user-authored whitespace/punctuation between words.
+
+        Walks ``text`` and ``groups`` in order; each word's symbol is located
+        via ``text.find(symbol, cursor)``. If a word's symbol can't be found
+        (text/alignment mismatch), falls back to the last known cursor.
+        Runs in O(len(text) + total_word_chars) since each ``find`` advances
+        the cursor monotonically.
+        """
+        if not groups:
+            return []
+        if not text:
+            return [""] * len(groups)
+
+        # For each group, record the char position where its first word
+        # appears in ``text``.
+        group_starts: List[int] = []
+        cursor = 0
+        for group in groups:
+            if not group:
+                group_starts.append(cursor)
+                continue
+            first_sym = group[0].symbol
+            if not first_sym:
+                group_starts.append(cursor)
+                continue
+            found = text.find(first_sym, cursor)
+            if found < 0:
+                # Fallback: alignment symbol missing from text (normalization
+                # drift, token rewriting, etc.). Use the running cursor so
+                # we never emit garbage slices.
+                group_starts.append(cursor)
+            else:
+                group_starts.append(found)
+                cursor = found + len(first_sym)
+            # Advance cursor through the rest of the group's words so the
+            # next group's first-word search starts after this group.
+            for w in group[1:]:
+                if not w.symbol:
+                    continue
+                nxt = text.find(w.symbol, cursor)
+                if nxt >= 0:
+                    cursor = nxt + len(w.symbol)
+
+        # Each group's slice runs from its start to the next group's start
+        # (last group runs to end-of-text). Inter-word whitespace lives on
+        # the LEFT side of the boundary (i.e. trailing on group i), which
+        # keeps concatenation lossless: "".join(slices) == text. No .strip()
+        # here — a trailing invisible space is harmless when rendered, but
+        # stripping it silently drops user-authored characters.
+        group_ends = group_starts[1:] + [len(text)]
+        slices: List[str] = []
+        for start, end in zip(group_starts, group_ends):
+            slices.append(text[start:end])
+        return slices
 
     def _find_best_gap_split(
         self, current_group: List, current_chars: int, max_text_len: int
@@ -517,6 +585,18 @@ class CaptionStandardizer:
         Returns:
             Text with line breaks
         """
+        # Fast-path: text already fits and has no embedded newlines / double
+        # spaces. Return it verbatim so we don't accidentally strip boundary
+        # whitespace that ``_split_with_alignment`` deliberately preserved
+        # between adjacent sub-segments (needed to keep "Terry Tao 的" from
+        # collapsing to "Terry Tao的" in mixed-language captions).
+        if (
+            len(text) <= self.config.max_chars_per_line
+            and "\n" not in text
+            and "  " not in text
+        ):
+            return text
+
         # Clean text
         text = self._normalize_text(text)
 

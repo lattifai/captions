@@ -229,6 +229,110 @@ class TestCaptionStandardizer:
         produced = " ".join(r.text for r in result).split()
         assert produced == text_tokens, "all original words must survive in order"
 
+    def test_cjk_word_split_slices_original_text(self):
+        """When a CJK cue with per-character word alignment is split, every
+        sub-segment's text must be a VERBATIM slice of the original text —
+        no ASCII spaces inserted between Chinese characters. This is the
+        multilingual-text convention (see CLAUDE.md): user-facing text is
+        always sliced from ``sup.text``, never reconstructed by joining
+        ``w.symbol`` values."""
+        source = "我觉得这个问题非常有趣所以我们需要认真讨论一下然后才能得出结论"
+        chars = list(source)
+        per = 0.5  # 0.5s per char → 32s total, force split at 4s cap
+        words = [
+            AlignmentItem(symbol=c, start=i * per, duration=per)
+            for i, c in enumerate(chars)
+        ]
+        seg = Supervision(
+            id="cn-1",
+            start=0.0,
+            duration=len(chars) * per,
+            text=source,
+            alignment={"word": words},
+        )
+
+        standardizer = CaptionStandardizer(
+            min_duration=0.01,
+            max_duration=4.0,  # force split into ~8 pieces
+            min_gap=0.0,
+            max_lines=1,
+            max_chars_per_line=200,
+        )
+        standardizer.config.start_margin = 0.0
+        standardizer.config.end_margin = 0.0
+
+        result = standardizer.process([seg])
+
+        assert len(result) >= 2, "long CJK cue must be split"
+        # No ASCII space may appear between CJK characters in any sub-seg
+        for r in result:
+            assert " " not in r.text, (
+                f"pure-CJK sub-seg must not contain ASCII space: {r.text!r}"
+            )
+        # Concatenation of sub-seg texts (no separator) must equal the
+        # original verbatim — every char preserved, in order.
+        assert "".join(r.text for r in result) == source
+
+    def test_mixed_cjk_and_latin_word_split_preserves_original_spacing(self):
+        """Mixed CJK+Latin cue split by max_duration must slice the original
+        text so ``Terry Tao`` keeps its internal space and CJK chars never
+        gain one. The split happens at word-group boundaries, not inside a
+        Latin token."""
+        tokens = [
+            "我", "觉", "得", "Terry", "Tao", "的", "数", "学", "非", "常", "有", "意", "思",
+        ]
+        source = "我觉得 Terry Tao 的数学非常有意思"
+        # Validate the test fixture: each token appears in the source and in order
+        cursor = 0
+        for t in tokens:
+            i = source.find(t, cursor)
+            assert i >= 0, f"token {t!r} not in source at/after {cursor}"
+            cursor = i + len(t)
+
+        per = 0.8  # 13 * 0.8 = 10.4s → force 2+ splits at max_duration=4
+        words = [
+            AlignmentItem(symbol=t, start=i * per, duration=per)
+            for i, t in enumerate(tokens)
+        ]
+        seg = Supervision(
+            id="mix-1",
+            start=0.0,
+            duration=len(tokens) * per,
+            text=source,
+            alignment={"word": words},
+        )
+
+        standardizer = CaptionStandardizer(
+            min_duration=0.01,
+            max_duration=4.0,
+            min_gap=0.0,
+            max_lines=1,
+            max_chars_per_line=200,
+        )
+        standardizer.config.start_margin = 0.0
+        standardizer.config.end_margin = 0.0
+
+        result = standardizer.process([seg])
+
+        assert len(result) >= 2, "10.4s cue must split at max_duration=4"
+        # Text integrity: concatenation equals the original source verbatim
+        assert "".join(r.text for r in result) == source
+        # "Terry Tao" must stay intact in whichever sub-seg it lands
+        joined = "".join(r.text for r in result)
+        assert "Terry Tao" in joined
+        # No CJK char should be followed or preceded by an ASCII space within
+        # any sub-seg (i.e. the only ASCII spaces must bracket the Latin token).
+        for r in result:
+            for i, ch in enumerate(r.text):
+                if ch == " ":
+                    # The space must neighbor at least one ASCII letter.
+                    left = r.text[i - 1] if i > 0 else ""
+                    right = r.text[i + 1] if i + 1 < len(r.text) else ""
+                    assert left.isascii() and (left.isalpha() or not left) or \
+                           right.isascii() and (right.isalpha() or not right), (
+                        f"space not adjacent to Latin token in {r.text!r}"
+                    )
+
     def test_short_cue_is_unchanged(self):
         """A cue that already satisfies both text and duration budgets
         should pass through untouched."""

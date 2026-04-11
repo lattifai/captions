@@ -100,8 +100,7 @@ Plain line without timestamp
             Supervision(text="Second line", start=4.0, duration=2.0, speaker="BOB"),
         ]
 
-        # JSON format uses custom structure, not pysubs2 compatible for reading
-        formats_to_test = ["srt", "vtt", "sbv"]
+        formats_to_test = ["srt", "vtt", "sbv", "json"]
 
         for fmt in formats_to_test:
             caption = Caption.from_supervisions(original_supervisions)
@@ -162,8 +161,8 @@ Plain line without timestamp
         supervisions = [Supervision(text=special_chars, start=1.0, duration=2.0)]
         caption = Caption.from_supervisions(supervisions)
 
-        # Test formats that support round-trip (exclude json as it uses custom format)
-        for fmt in ["srt", "vtt", "sbv"]:
+        # Test formats that support round-trip
+        for fmt in ["srt", "vtt", "sbv", "json"]:
             output_file = tmp_path / f"special_{fmt}.{fmt}"
             caption.write(output_file)
 

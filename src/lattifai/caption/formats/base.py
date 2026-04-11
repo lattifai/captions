@@ -25,6 +25,7 @@ class ParseResult:
     Attributes:
         supervisions: Parsed caption segments with timing and text.
         language: Source language code (e.g., 'en', 'zh-Hans').
+        target_lang: Target language code for translated captions.
         kind: Caption kind (e.g., 'captions', 'subtitles', 'descriptions').
         format_metadata: Format-specific roundtrip data (e.g., ass_info,
             ass_styles, ttml_profile). Keyed by format-prefixed names.
@@ -32,6 +33,7 @@ class ParseResult:
 
     supervisions: List["Supervision"] = field(default_factory=list)
     language: Optional[str] = None
+    target_lang: Optional[str] = None
     kind: Optional[str] = None
     format_metadata: Dict[str, Any] = field(default_factory=dict)
 

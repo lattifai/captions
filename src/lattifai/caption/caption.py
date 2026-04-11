@@ -545,6 +545,7 @@ class Caption:
         return cls(
             supervisions=result.supervisions,
             language=result.language,
+            target_lang=result.target_lang,
             kind=result.kind,
             source_format=format,
             metadata=result.format_metadata,

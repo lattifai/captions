@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Tuple
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..supervision import Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 @register_format("json")
@@ -228,6 +228,35 @@ class JSONFormat(FormatHandler):
         """
         supervisions, _ = cls.read_document(source, normalize_text=normalize_text, **kwargs)
         return supervisions
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse JSON including document-level metadata (v2 only).
+
+        For v2 documents, lifts top-level fields (language, target_lang, kind,
+        metadata) into ParseResult so Caption.read() can preserve them.
+        v1 flat arrays have no document metadata — only supervisions are returned.
+
+        Args:
+            source: File path or JSON string content
+            normalize_text: Whether to normalize text content
+
+        Returns:
+            ParseResult with supervisions and document-level metadata.
+        """
+        supervisions, doc_metadata = cls.read_document(source, normalize_text=normalize_text, **kwargs)
+
+        # v2 document: lift top-level fields; user metadata lives under "metadata" key.
+        # v1 flat array: doc_metadata is empty dict, all getters return None.
+        user_metadata = doc_metadata.get("metadata") or {}
+
+        return ParseResult(
+            supervisions=supervisions,
+            language=doc_metadata.get("language"),
+            target_lang=doc_metadata.get("target_lang"),
+            kind=doc_metadata.get("kind"),
+            format_metadata=user_metadata,
+        )
 
     @classmethod
     def read_document(

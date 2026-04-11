@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 import pysubs2
 
-from ..colors import SPEAKER_PALETTE, resolve_speaker_color
+from ..colors import SPEAKER_PALETTE, hex_rgb_to_bgr, resolve_speaker_color
 from ..config import ASSConfig
 from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
@@ -602,6 +602,36 @@ class ASSFormat(Pysubs2Format):
                         )
                     else:
                         karaoke_text = f"{prefix}{karaoke_text}"
+                # Bilingual karaoke: append the translation as a second plain
+                # line below (or above) the karaoke target line. Without this
+                # branch, translation would be silently dropped — only the
+                # non-karaoke path called render_bilingual_text.
+                #
+                # COLOR JUMP FIX: \N is just a forced line break — it does
+                # NOT reset tag state. A \k tag applies to all following text
+                # until the next karaoke tag, \r, or end of line. So plain
+                # text after the last {\kf...} is still inside that karaoke
+                # run, and its color tracks the \k tween between
+                # SecondaryColour → PrimaryColour, then snaps when the sweep
+                # ends. The fix is two-pronged:
+                #   1) {\rKaraoke}      cancel active karaoke state, reset
+                #                       to the same Karaoke style
+                #   2) {\1c&Hxxxx&}{\2c&Hxxxx&}  lock both fill colors to
+                #                       the same value so any residual tween
+                #                       is invisible.
+                # Default color is Karaoke style PrimaryColour (the "sung/end"
+                # state) — eye reads the translation as the visual rest
+                # position next to the karaoke's destination color.
+                if sup.translation:
+                    trans_bgr = cls._resolve_translation_bgr(config)
+                    trans_body = sup.translation.replace("\n", "\\N")
+                    trans_span = (
+                        f"{{\\rKaraoke\\1c&H{trans_bgr}&\\2c&H{trans_bgr}&}}{trans_body}"
+                    )
+                    if behavior.translation_first:
+                        karaoke_text = f"{trans_span}\\N{karaoke_text}"
+                    else:
+                        karaoke_text = f"{karaoke_text}\\N{trans_span}"
                 event_start = int(word_items[0].start * 1000)
                 event_end = int(word_items[-1].end * 1000)
 
@@ -952,6 +982,24 @@ class ASSFormat(Pysubs2Format):
         for backward compatibility with tests referencing ASSFormat._resolve_speaker_color.
         """
         return resolve_speaker_color(speaker, speaker_color_spec, cache)
+
+    @staticmethod
+    def _resolve_translation_bgr(config: ASSConfig) -> str:
+        """Resolve the translation line's locked color to ASS BBGGRR hex.
+
+        Accepts ``config.translation_color`` as one of:
+            None | "primary"   → config.primary_color   (Karaoke "sung" end)
+            "secondary"        → config.secondary_color (Karaoke "unsung" start)
+            "#RRGGBB"          → explicit hex
+
+        Returns the BBGGRR string (no prefix), ready for inline ASS overrides.
+        """
+        spec = (config.translation_color or "primary").strip().lower()
+        if spec == "primary":
+            return hex_rgb_to_bgr(config.primary_color)
+        if spec == "secondary":
+            return hex_rgb_to_bgr(config.secondary_color)
+        return hex_rgb_to_bgr(config.translation_color)
 
 
 @register_format("ssa")

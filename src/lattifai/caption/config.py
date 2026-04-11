@@ -169,6 +169,27 @@ class ASSConfig:
     """Karaoke color scheme name. When set, overrides style colors.
     See KARAOKE_COLOR_SCHEMES in colors.py for available schemes."""
 
+    translation_color: Optional[str] = None
+    """Color for the translation line in bilingual karaoke mode.
+
+    Why this exists: in bilingual karaoke (target text + translation on a
+    second \\N line), libass treats the translation as a trailing karaoke
+    syllable. While the karaoke is mid-sweep the translation tracks the
+    \\k color tween, then snaps to PrimaryColour when the sweep ends —
+    visible as a color "jump". The fix is to (a) reset karaoke state via
+    \\rKaraoke and (b) lock both \\1c + \\2c so any residual animation
+    becomes invisible.
+
+    Accepted values:
+        None | "primary"   → use Karaoke style PrimaryColour (the
+                             "sung/filled" end state — most cohesive)
+        "secondary"        → use Karaoke style SecondaryColour (the
+                             "unsung/initial" start state)
+        "#RRGGBB"          → explicit color, regardless of scheme
+
+    Default is None → primary, because the eye reads the translation as
+    the visual "rest position" alongside the karaoke's end state."""
+
     kinetic_style: Optional[
         Literal[
             "bounce",

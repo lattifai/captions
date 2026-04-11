@@ -222,20 +222,21 @@ class TestBuildWordOverrides:
         assert out.startswith(r"\alpha&HFF&")
         assert r"\t(500,800,\alpha&H00&)" in out
 
-    def test_bounce_word_has_bord_and_frz(self):
+    def test_bounce_word_has_bord_and_blur(self):
         _, impl = resolve_kinetic("bounce", word_level=True)
         out = build_word_overrides(impl, 0)
-        assert r"\bord6" in out
-        assert r"\frz3" in out
-        assert r"\bord2" in out
-        assert r"\frz0" in out
+        # Static reset + impact peak + decay
+        assert out.startswith(r"\bord2\blur0")
+        assert r"\bord8\blur4" in out
 
-    def test_bounce_word_no_fscy(self):
-        """Word scope must be metric-safe — no vertical scale allowed."""
+    def test_bounce_word_no_metric_nor_rotation(self):
+        """Word scope bounce uses pure \\bord+\\blur impact — no \\fscy (metric
+        reflow) and no \\frz (origin-displacement at off-center words)."""
         _, impl = resolve_kinetic("bounce", word_level=True)
         out = build_word_overrides(impl, 0)
         assert r"\fscy" not in out
         assert r"\fscx" not in out
+        assert r"\frz" not in out
 
     def test_word_offset_shifts_times(self):
         _, impl = resolve_kinetic("shake", word_level=True)
@@ -342,10 +343,26 @@ class TestWordScopeIntegration:
 
     def test_bounce_word_level_impact(self, sup_two_words):
         content = _render_word(sup_two_words, kinetic_style="bounce")
-        assert r"\bord6\frz3" in content
-        assert r"\bord2\frz0" in content
+        # Each word's override block has a static \bord2\blur0 reset to
+        # break libass's cumulative override inheritance from the previous
+        # word's in-flight animation.
+        assert content.count(r"\bord2\blur0") >= 2  # reset + decay target
+        assert r"\bord8\blur4" in content  # impact peak
+        assert r"\frz" not in content  # no rotation
         # \kf still present for karaoke sweep
         assert r"\kf" in content
+
+    def test_bounce_word_has_static_reset_per_word(self, sup_two_words):
+        """Each word must open with the static reset so inheritance from the
+        previous word's animation cannot leak into this word's rendering.
+        The per-word block starts with \\k<cs> for the karaoke timing,
+        immediately followed by the kinetic reset \\bord2\\blur0."""
+        content = _render_word(sup_two_words, kinetic_style="bounce")
+        import re
+
+        # Match `{\kf<digits>\bord2\blur0` at the start of each word block.
+        hits = re.findall(r"\{\\kf\d+\\bord2\\blur0", content)
+        assert len(hits) >= 2
 
     def test_rise_word_level_falls_back_to_line_prefix(self, sup_two_words):
         """rise has no word impl, so word_level=True uses the line impl as a

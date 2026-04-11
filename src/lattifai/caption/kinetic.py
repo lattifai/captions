@@ -188,22 +188,33 @@ _PRESETS: "dict[str, KineticPreset]" = {
         ),
     ),
     # ===== Impact =============================================================
-    # bounce — line: vertical 130% springback; word: bord+frz impact (chosen
-    # from Codex's 3 alternatives: \frx is visually weaker, \bord+\blur too
-    # close to glow, \bord+\frz gives distinct "impact plus recoil" identity)
+    # bounce — line: vertical 130% springback; word: sharp \bord+\blur impact.
+    # word-scope dropped \frz after field report: ASS rotation origin at \an2
+    # is the line's bottom-center, so off-center words swing significantly
+    # from the origin during rotation, creating visible horizontal jitter.
+    # Also, without a static reset, \frz3 from word N leaks to words N+1..
+    # via libass override inheritance until each word's own \t fires.
+    # Sharp \bord impact keeps the "hit" feel without any positional shift.
+    # Distinguished from glow by timing: 1ms attack / 199ms decay vs glow's
+    # 100ms gradual grow / 150ms shrink.
     "bounce": KineticPreset(
         line=KineticImpl(
             initial=r"\fscy130",
             transitions=((0, 300, r"\fscy100"),),
         ),
         word=KineticImpl(
+            # Static reset breaks libass cumulative override inheritance so
+            # this word's render state doesn't leak from the previous word's
+            # ongoing animation.
+            initial=r"\bord2\blur0",
             transitions=(
-                (0, 1, r"\bord6\frz3"),
-                (1, 200, r"\bord2\frz0"),
+                (0, 1, r"\bord8\blur4"),
+                (1, 200, r"\bord2\blur0"),
             ),
         ),
     ),
-    # shake — 3-stage rotation jitter (same pattern both scopes, shorter window for word)
+    # shake — 3-stage rotation jitter. Word scope static \frz0 reset prevents
+    # the previous word's rotation from bleeding into this word's rendering.
     "shake": KineticPreset(
         line=KineticImpl(
             transitions=(
@@ -213,6 +224,7 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
         word=KineticImpl(
+            initial=r"\frz0",
             transitions=(
                 (0, 60, r"\frz3"),
                 (60, 120, r"\frz-3"),
@@ -220,7 +232,8 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
     ),
-    # pulse — line: single fscy breathe; word: bord+blur breathe
+    # pulse — line: single fscy breathe; word: bord+blur breathe with static
+    # reset so inheritance doesn't leak between rapid words.
     "pulse": KineticPreset(
         line=KineticImpl(
             transitions=(
@@ -229,6 +242,7 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
         word=KineticImpl(
+            initial=r"\bord2\blur0",
             transitions=(
                 (0, 200, r"\bord4\blur2"),
                 (200, 400, r"\bord2\blur0"),
@@ -253,7 +267,8 @@ _PRESETS: "dict[str, KineticPreset]" = {
         ),
     ),
     # ===== Stylized ===========================================================
-    # glow — outline + blur pulse (metric-safe, same shape both scopes)
+    # glow — outline + blur pulse. Word static reset \bord2\blur0 neutralizes
+    # any in-flight animation inherited from prior words.
     "glow": KineticPreset(
         line=KineticImpl(
             transitions=(
@@ -262,13 +277,15 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
         word=KineticImpl(
+            initial=r"\bord2\blur0",
             transitions=(
                 (0, 100, r"\bord5\blur4"),
                 (100, 300, r"\bord2\blur1"),
             ),
         ),
     ),
-    # neon — stronger glow pulse with pre-state
+    # neon — stronger glow pulse. Word initial matches the first \t target
+    # so the static reset and the animation start point are consistent.
     "neon": KineticPreset(
         line=KineticImpl(
             initial=r"\bord2\blur1",
@@ -278,14 +295,16 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
         word=KineticImpl(
+            initial=r"\bord2\blur1",
             transitions=(
-                (0, 1, r"\bord2\blur1"),
-                (1, 200, r"\bord7\blur6"),
+                (0, 200, r"\bord7\blur6"),
                 (200, 500, r"\bord3\blur2"),
             ),
         ),
     ),
-    # wave — line: vertical ripple; word: per-word frz phase sway (metric-safe)
+    # wave — line: vertical ripple; word: per-word frz micro-sway with static
+    # reset. Small rotation angle (4°) keeps the origin-displacement effect
+    # tolerable ("jitter" is part of the wave aesthetic anyway).
     "wave": KineticPreset(
         line=KineticImpl(
             transitions=(
@@ -295,6 +314,7 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
         word=KineticImpl(
+            initial=r"\frz0",
             transitions=(
                 (0, 200, r"\frz4"),
                 (200, 400, r"\frz-4"),
@@ -302,7 +322,8 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
     ),
-    # flicker — two quick alpha flashes (both scopes, slightly tighter for word)
+    # flicker — two quick alpha flashes. Word static reset to fully-visible
+    # default so the flash only affects the activating word.
     "flicker": KineticPreset(
         line=KineticImpl(
             transitions=(
@@ -313,6 +334,7 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
         word=KineticImpl(
+            initial=r"\alpha&H00&",
             transitions=(
                 (0, 50, r"\alpha&HC0&"),
                 (50, 100, r"\alpha&H00&"),

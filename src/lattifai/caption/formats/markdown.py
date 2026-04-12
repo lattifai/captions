@@ -1036,14 +1036,17 @@ class MarkdownWriter:
             title = (metadata or {}).get("title", "Aligned Transcript")
             f.write(f"# {title}\n\n")
 
+            prev_speaker: Optional[str] = None
             for i, sup in enumerate(aligned_supervisions):
                 # Write segment with timestamp
                 start_ts = cls.format_timestamp(sup.start)
                 end_ts = cls.format_timestamp(sup.start + sup.duration) if sup.duration else None
                 text = sup.text or ""
 
-                # Speaker label
-                speaker_prefix = f"**{sup.speaker}:** " if sup.speaker else ""
+                # Speaker label (only when speaker changes from previous segment)
+                show_speaker = sup.speaker and sup.speaker != prev_speaker
+                speaker_prefix = f"**{sup.speaker}:** " if show_speaker else ""
+                prev_speaker = sup.speaker
 
                 # Include end timestamp when translation/word data follows
                 # to prevent Reader continuation-merge from polluting re-reads
@@ -1100,11 +1103,15 @@ class MarkdownWriter:
         buf.write(f"# {title}\n\n")
 
         include_word_timestamps = kwargs.get("include_word_timestamps", False)
+        prev_speaker: Optional[str] = None
         for sup in supervisions:
             start_ts = cls.format_timestamp(sup.start)
             end_ts = cls.format_timestamp(sup.start + sup.duration) if sup.duration else None
             text = sup.text or ""
-            speaker_prefix = f"**{sup.speaker}:** " if sup.speaker else ""
+            # Speaker label (only when speaker changes from previous segment)
+            show_speaker = sup.speaker and sup.speaker != prev_speaker
+            speaker_prefix = f"**{sup.speaker}:** " if show_speaker else ""
+            prev_speaker = sup.speaker
 
             has_followup = sup.translation or (
                 include_word_timestamps and hasattr(sup, "alignment") and sup.alignment and "word" in sup.alignment

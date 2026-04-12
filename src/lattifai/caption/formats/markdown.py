@@ -84,6 +84,24 @@ class MarkdownReader:
     # Section header with trailing timestamp: ## Title [HH:MM:SS] or ## Title [MM:SS]
     SECTION_HEADER_TRAILING_PATTERN = re.compile(r"^##\s+(.+?)\s+\[(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?\]$")
 
+    # Section header with bare timestamp (no brackets): #### HH:MM:SS Title
+    # Common in Substack-hosted podcast transcripts.
+    # Example source: https://www.a16z.news/s/podcast
+    SECTION_HEADER_BARE_PATTERN = re.compile(
+        r"^#{2,4}\s+(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?\s+(.+)$"
+    )
+
+    # Plain speaker pattern: Name: text (title-case, 1-4 words, no bold markers)
+    # Only activated when bare timestamp headings are detected (podcast mode).
+    # Example source: https://www.a16z.news/s/podcast
+    PLAIN_SPEAKER_PATTERN = re.compile(
+        r"^([A-Z][a-zA-Z'\-]+(?:\s+[A-Za-z'\-]+){0,3}):\s+(.+)$"
+    )
+
+    # TOC link: [MM:SS Title](url) — common in podcast transcript pages
+    # Example source: https://www.a16z.news/s/podcast
+    TOC_LINK_PATTERN = re.compile(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\s+[^\]]+\]\(")
+
     # Time range inline at end: text [HH:MM:SS → HH:MM:SS] (supports MM:SS and milliseconds)
     _TS = r"(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?"
     INLINE_TIME_RANGE_PATTERN = re.compile(rf"^(.+?)\s*\[{_TS}\s*→\s*{_TS}\]$")
@@ -329,12 +347,22 @@ class MarkdownReader:
 
         segments: List[MarkdownSegment] = []
         current_section = None
+        current_section_timestamp = None  # Propagated to dialogue in podcast mode
         current_speaker = None
+        podcast_mode = False  # Activated when bare timestamp headings are detected
 
         lines = content.splitlines()
         for line_num, line in enumerate(lines, start=1):
             line = line.strip()
             if not line:
+                continue
+
+            # Skip TOC links: [MM:SS Title](url) — common in podcast pages
+            if cls.TOC_LINK_PATTERN.match(line):
+                continue
+
+            # Skip italic editorial disclaimers: _text_
+            if line.startswith("_") and line.endswith("_") and not line.startswith("__"):
                 continue
 
             # Bilingual translation line: > [lang] text
@@ -404,6 +432,26 @@ class MarkdownReader:
                     segments.append(
                         MarkdownSegment(
                             text=section_title,
+                            timestamp=timestamp,
+                            section=current_section,
+                            segment_type="section_header",
+                            line_number=line_num,
+                        )
+                    )
+                continue
+
+            # Parse bare timestamp section headers: #### HH:MM:SS Title (podcast format)
+            bare_section_match = cls.SECTION_HEADER_BARE_PATTERN.match(line)
+            if bare_section_match:
+                hours, minutes, seconds, ms, section_title = bare_section_match.groups()
+                timestamp = cls.parse_timestamp(hours, minutes, seconds, ms)
+                current_section = section_title.strip()
+                current_section_timestamp = timestamp
+                podcast_mode = True
+                if include_sections:
+                    segments.append(
+                        MarkdownSegment(
+                            text=section_title.strip(),
                             timestamp=timestamp,
                             section=current_section,
                             segment_type="section_header",
@@ -511,6 +559,35 @@ class MarkdownReader:
                 )
                 current_speaker = None
                 continue
+
+            # Parse plain speaker dialogue: Name: text (podcast format, no bold)
+            # Only activated after seeing bare timestamp headings to avoid false positives.
+            # Inherits the section timestamp when no inline timestamp is present.
+            if podcast_mode:
+                plain_speaker_match = cls.PLAIN_SPEAKER_PATTERN.match(line)
+                if plain_speaker_match:
+                    speaker, dialogue_text = plain_speaker_match.groups()
+                    current_speaker = speaker.strip()
+
+                    text, start_timestamp, end_timestamp = cls._extract_timestamps(dialogue_text.strip())
+
+                    # Inherit section timestamp when dialogue has no inline timestamp
+                    if start_timestamp is None and current_section_timestamp is not None:
+                        start_timestamp = current_section_timestamp
+
+                    segments.append(
+                        MarkdownSegment(
+                            text=text.strip(),
+                            timestamp=start_timestamp,
+                            end_timestamp=end_timestamp,
+                            speaker=current_speaker,
+                            section=current_section,
+                            segment_type="dialogue",
+                            line_number=line_num,
+                        )
+                    )
+                    current_speaker = None
+                    continue
 
             # Parse plain text (might contain inline timestamps or be a continuation)
             text, start_timestamp, end_timestamp = cls._extract_timestamps(line)

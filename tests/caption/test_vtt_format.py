@@ -226,6 +226,108 @@ Kind: captions
 
 
 # =============================================================================
+# YouTube VTT Speaker Change (>>) Tests
+# =============================================================================
+
+
+class TestYouTubeVTTSpeakerChange:
+    """Tests for >> speaker change marker handling in YouTube VTT.
+
+    YouTube auto-generated captions use >> (encoded as &gt;&gt;) to indicate
+    speaker changes. The VTT reader should:
+    - Strip >> from the text content
+    - Set speaker=">>" as a speaker change marker
+    - Preserve word-level alignment without >> contamination
+    - Roundtrip >> markers correctly when writing back
+    """
+
+    YOUTUBE_VTT_WITH_SPEAKER_CHANGE = """\
+WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.080 --> 00:00:02.550 align:start position:0%
+
+The<00:00:00.320><c> diffusion</c><00:00:01.040><c> of</c><00:00:01.520><c> AI</c>
+
+00:00:02.550 --> 00:00:02.560 align:start position:0%
+The diffusion of AI
+
+
+00:00:02.560 --> 00:00:04.630 align:start position:0%
+The diffusion of AI
+capability<00:00:02.880><c> is</c><00:00:03.120><c> going.</c>
+
+00:00:04.630 --> 00:00:04.640 align:start position:0%
+capability is going.
+
+
+00:00:04.640 --> 00:00:06.319 align:start position:0%
+capability is going.
+&gt;&gt; It's<00:00:04.880><c> just</c><00:00:05.040><c> absurd.</c>
+
+00:00:06.309 --> 00:00:06.319 align:start position:0%
+&gt;&gt; It's just absurd.
+
+
+00:00:06.319 --> 00:00:08.960 align:start position:0%
+&gt;&gt; It's just absurd.
+&gt;&gt; The<00:00:06.880><c> compute</c><00:00:07.200><c> budget.</c>
+"""
+
+    def test_speaker_change_extracted(self):
+        """>> marker is extracted as speaker='>>' from text."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        speaker_sups = [s for s in sups if s.speaker == ">>"]
+        assert len(speaker_sups) >= 2
+
+    def test_speaker_change_stripped_from_text(self):
+        """>> marker is not present in supervision text."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        for s in sups:
+            assert ">>" not in (s.text or ""), f">> found in text: {s.text!r}"
+
+    def test_speaker_change_not_in_word_alignment(self):
+        """>> is not in any word alignment symbol."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        for s in sups:
+            if s.alignment and "word" in s.alignment:
+                for word in s.alignment["word"]:
+                    assert ">>" not in word.symbol, f">> in word: {word.symbol!r}"
+
+    def test_non_speaker_segments_have_none_speaker(self):
+        """Segments without >> have speaker=None."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        non_speaker = [s for s in sups if s.speaker is None]
+        assert len(non_speaker) >= 1
+
+    def test_first_segment_no_speaker(self):
+        """First segment (no >>) has speaker=None."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        assert sups[0].speaker is None
+        assert "diffusion" in sups[0].text
+
+    def test_speaker_change_text_content(self):
+        """Text after >> stripping is correct."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        speaker_sups = [s for s in sups if s.speaker == ">>"]
+        # At least one should contain "It's"
+        texts = [s.text for s in speaker_sups]
+        assert any("It's" in t for t in texts)
+
+    def test_speaker_change_roundtrip_youtube_vtt(self):
+        """Write back to YouTube VTT preserves >> markers."""
+        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        output = VTTFormat.to_bytes(
+            sups,
+            render=RenderConfig(word_level=True),
+        ).decode("utf-8")
+
+        # >> should appear in the output for speaker change segments
+        assert ">> " in output
+
+
+# =============================================================================
 # Integration Tests
 # =============================================================================
 

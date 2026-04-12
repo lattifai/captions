@@ -199,17 +199,27 @@ def detect_format_from_content(content: str) -> Optional[str]:
     if stripped.startswith("<") and re.search(r"<tt[\s>:]", stripped[:500]):
         return "ttml"
 
+    # JSON3 — YouTube native format with "wireMagic" or "events"+"tStartMs"
+    if stripped.startswith("{") and (
+        '"wireMagic"' in stripped[:500]
+        or ('"events"' in stripped[:2000] and '"tStartMs"' in stripped[:2000])
+    ):
+        return "json3"
+
     # JSON — array or object with "text" key
     if stripped.startswith(("{", "[")) and '"text"' in stripped[:2000]:
         return "json"
 
-    # Markdown transcript — [HH:MM:SS] timestamps or **Speaker:** patterns.
+    # Markdown transcript — [HH:MM:SS] timestamps, **Speaker:** patterns, or
+    # bare timestamp headings (#### HH:MM:SS Title) with plain speaker labels.
     # Must check BEFORE LRC because [MM:SS] overlaps with LRC timestamps.
-    # Distinguisher: markdown has **bold speaker** labels or ] followed by space+text
-    # (not ] followed by lyrics text directly as in LRC).
     has_md_ts = bool(re.search(r"\[\d{1,2}:\d{2}(?::\d{2})?\]", stripped[:4096]))
     has_md_spk = bool(re.search(r"\*\*.+?[:：]\*\*", stripped[:4096]))
-    if has_md_spk or (has_md_ts and has_md_spk):
+    has_bare_ts = bool(re.search(r"^#{2,4}\s+\d{1,2}:\d{2}:\d{2}", stripped[:4096], re.MULTILINE))
+    has_plain_spk = bool(
+        re.search(r"^[A-Z][a-zA-Z'\-]+(?:\s+[A-Za-z'\-]+){0,3}:\s+\S", stripped[:4096], re.MULTILINE)
+    )
+    if has_md_spk or (has_md_ts and has_md_spk) or (has_bare_ts and has_plain_spk):
         return "markdown"
 
     # LRC — lines starting with [mm:ss.xx] immediately followed by lyric text.
@@ -283,6 +293,7 @@ from . import textgrid  # noqa: E402  # Praat TextGrid
 from . import ttml  # noqa: E402  # TTML, IMSC1, EBU-TT-D
 from . import vtt  # noqa: E402  # WebVTT with YouTube VTT word-level timestamp support
 from . import json as json_format  # noqa: E402  # JSON structured format
+from . import json3  # noqa: E402  # YouTube JSON3 timed text format
 
 # Professional NLE formats
 from .nle import audition  # noqa: E402  # Adobe Audition / Pro Tools markers

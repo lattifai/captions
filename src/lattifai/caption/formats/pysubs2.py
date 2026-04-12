@@ -202,12 +202,15 @@ class Pysubs2Format(FormatHandler):
 
         from .base import render_bilingual_text
 
+        from .base import SpeakerTracker
+
         subs = pysubs2.SSAFile()
 
         tf = behavior.translation_first
+        tracker = SpeakerTracker()
         for sup in supervisions:
             text = render_bilingual_text(sup, translation_first=tf)
-            if cls._should_include_speaker(sup, include_speaker):
+            if cls._should_include_speaker(sup, include_speaker, tracker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
 
             subs.append(
@@ -302,13 +305,16 @@ class SRTFormat(Pysubs2Format):
             supervisions, word_level=word_level, format_id=cls.format_id
         )
 
+        from .base import SpeakerTracker
+
         color_cache: Dict[str, str] = {}
         subs = pysubs2.SSAFile()
         tf = behavior.translation_first
 
+        tracker = SpeakerTracker()
         for sup in supervisions:
             text = render_bilingual_text(sup, translation_first=tf)
-            if cls._should_include_speaker(sup, include_speaker) and sup.speaker:
+            if cls._should_include_speaker(sup, include_speaker, tracker) and sup.speaker:
                 color = resolve_speaker_color_rgb(
                     sup.speaker, speaker_color, color_cache
                 )
@@ -317,8 +323,6 @@ class SRTFormat(Pysubs2Format):
                     text = f'<font color="{color}">{prefix}</font>{text}'
                 else:
                     text = f"{prefix}{text}"
-            elif cls._should_include_speaker(sup, include_speaker):
-                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
 
             subs.append(
                 pysubs2.SSAEvent(
@@ -626,7 +630,10 @@ class ASSFormat(Pysubs2Format):
         # Create ASS file from config + metadata
         subs = cls._create_ass_file(metadata, config)
 
+        # Priority: ASSConfig.speaker_color > RenderConfig.speaker_color
         speaker_color = config.speaker_color
+        if not speaker_color and behavior.speaker_color:
+            speaker_color = behavior.speaker_color
 
         # Add karaoke style
         has_metadata_styles = metadata and "ass_styles" in metadata
@@ -643,9 +650,12 @@ class ASSFormat(Pysubs2Format):
         if not has_custom_default and "Default" in subs.styles:
             subs.styles["Default"] = cls._build_ass_style(config)
 
+        from .base import SpeakerTracker
+
         # Speaker color cache: maps speaker name → BBGGRR color string (assigned on first appearance)
         _speaker_color_cache = {}
 
+        tracker = SpeakerTracker()
         for sup in supervisions:
             alignment = getattr(sup, "alignment", None)
             word_items = alignment.get("word") if alignment else None
@@ -663,7 +673,7 @@ class ASSFormat(Pysubs2Format):
                     angle=config.angle,
                 )
                 karaoke_text = karaoke_text.replace("\n", "\\N")
-                if cls._should_include_speaker(sup, include_speaker):
+                if cls._should_include_speaker(sup, include_speaker, tracker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
                     spk_color = cls._resolve_speaker_color(
                         sup.speaker, speaker_color, _speaker_color_cache
@@ -724,7 +734,7 @@ class ASSFormat(Pysubs2Format):
                 text = render_bilingual_text(
                     sup, separator="\\N", translation_first=behavior.translation_first
                 )
-                if cls._should_include_speaker(sup, include_speaker):
+                if cls._should_include_speaker(sup, include_speaker, tracker):
                     prefix = cls._format_speaker_prefix(sup.speaker)
                     spk_color = cls._resolve_speaker_color(
                         sup.speaker, speaker_color, _speaker_color_cache
@@ -1139,14 +1149,15 @@ class SSAFormat(ASSFormat):
             supervisions, word_level=word_level, format_id="ssa"
         )
 
-        from .base import render_bilingual_text
+        from .base import SpeakerTracker, render_bilingual_text
 
         subs = cls._create_ass_file(metadata, config)
 
         tf = behavior.translation_first
+        tracker = SpeakerTracker()
         for sup in supervisions:
             text = render_bilingual_text(sup, separator="\\N", translation_first=tf)
-            if cls._should_include_speaker(sup, include_speaker):
+            if cls._should_include_speaker(sup, include_speaker, tracker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             event = cls._create_event_from_supervision(sup, text)
             subs.append(event)

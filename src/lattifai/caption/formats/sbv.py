@@ -121,24 +121,21 @@ class SBVFormat(FormatHandler):
         **kwargs,
     ) -> bytes:
         """Convert to SBV format bytes."""
+        from .base import SpeakerTracker
+
         render, include_speaker, _ = cls._unpack_render(**kwargs)
         lines = []
 
+        tracker = SpeakerTracker()
         for i, sup in enumerate(supervisions):
             start_time = cls._format_sbv_timestamp(sup.start)
             end_time = cls._format_sbv_timestamp(sup.end)
             lines.append(f"{start_time},{end_time}")
 
             text = sup.text.strip() if sup.text else ""
-            if include_speaker and sup.speaker:
-                # Check if speaker should be included
-                include_this_speaker = True
-                if hasattr(sup, "custom") and sup.custom and not sup.custom.get("original_speaker", True):
-                    include_this_speaker = False
-
-                if include_this_speaker:
-                    sep = " " if sup.speaker == ">>" else ": "
-                    text = f"{sup.speaker}{sep}{text}"
+            if cls._should_include_speaker(sup, include_speaker, tracker):
+                sep = " " if sup.speaker == ">>" else ": "
+                text = f"{sup.speaker}{sep}{text}"
             lines.append(text)
 
             if i < len(supervisions) - 1:

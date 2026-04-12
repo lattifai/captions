@@ -1036,7 +1036,9 @@ class MarkdownWriter:
             title = (metadata or {}).get("title", "Aligned Transcript")
             f.write(f"# {title}\n\n")
 
-            prev_speaker: Optional[str] = None
+            from .base import SpeakerTracker
+
+            tracker = SpeakerTracker()
             for i, sup in enumerate(aligned_supervisions):
                 # Write segment with timestamp
                 start_ts = cls.format_timestamp(sup.start)
@@ -1044,9 +1046,7 @@ class MarkdownWriter:
                 text = sup.text or ""
 
                 # Speaker label (only when speaker changes from previous segment)
-                show_speaker = sup.speaker and sup.speaker != prev_speaker
-                speaker_prefix = f"**{sup.speaker}:** " if show_speaker else ""
-                prev_speaker = sup.speaker
+                speaker_prefix = f"**{sup.speaker}:** " if tracker.is_new(sup.speaker) else ""
 
                 # Include end timestamp when translation/word data follows
                 # to prevent Reader continuation-merge from polluting re-reads
@@ -1102,16 +1102,16 @@ class MarkdownWriter:
         title = (metadata or {}).get("title", "Aligned Transcript")
         buf.write(f"# {title}\n\n")
 
+        from .base import SpeakerTracker
+
         include_word_timestamps = kwargs.get("include_word_timestamps", False)
-        prev_speaker: Optional[str] = None
+        tracker = SpeakerTracker()
         for sup in supervisions:
             start_ts = cls.format_timestamp(sup.start)
             end_ts = cls.format_timestamp(sup.start + sup.duration) if sup.duration else None
             text = sup.text or ""
             # Speaker label (only when speaker changes from previous segment)
-            show_speaker = sup.speaker and sup.speaker != prev_speaker
-            speaker_prefix = f"**{sup.speaker}:** " if show_speaker else ""
-            prev_speaker = sup.speaker
+            speaker_prefix = f"**{sup.speaker}:** " if tracker.is_new(sup.speaker) else ""
 
             has_followup = sup.translation or (
                 include_word_timestamps and hasattr(sup, "alignment") and sup.alignment and "word" in sup.alignment

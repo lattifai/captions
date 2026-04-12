@@ -615,9 +615,14 @@ class VTTFormat(FormatHandler):
             smart_default=False,
         )
 
+        # Priority: VTTConfig.speaker_color > RenderConfig.speaker_color
+        speaker_color = vtt_config.speaker_color
+        if not speaker_color and behavior.speaker_color:
+            speaker_color = behavior.speaker_color
+
         if use_word:
-            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf, vtt_config)
-        return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata, tf, vtt_config)
+            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf, vtt_config, speaker_color)
+        return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata, tf, vtt_config, speaker_color)
 
     # =========================================================================
     # Writer: header blocks (REGION, STYLE, NOTE)
@@ -719,25 +724,34 @@ class VTTFormat(FormatHandler):
         metadata: Optional[Dict] = None,
         translation_first: bool = False,
         vtt_config: Any = None,
+        speaker_color: str = "",
     ) -> bytes:
         """Generate standard VTT with full feature support."""
+        from ..colors import resolve_speaker_color_rgb
         from ..config import VTTConfig
-        from .base import render_bilingual_text
+        from .base import SpeakerTracker, render_bilingual_text
 
         vtt_config = vtt_config or VTTConfig()
         lines: List[str] = []
+        color_cache: Dict[str, str] = {}
 
         cls._write_header(metadata, lines)
 
+        tracker = SpeakerTracker()
         for idx, sup in enumerate(supervisions, 1):
             text = render_bilingual_text(sup, translation_first=translation_first)
 
-            # Speaker: voice tag or prefix
-            if cls._should_include_speaker(sup, include_speaker):
+            # Speaker: voice tag or prefix (dedup consecutive)
+            if cls._should_include_speaker(sup, include_speaker, tracker):
                 if vtt_config.voice_tag:
                     text = f"<v {sup.speaker}>{text}</v>"
                 else:
-                    text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
+                    prefix = cls._format_speaker_prefix(sup.speaker)
+                    if speaker_color and sup.speaker:
+                        color = resolve_speaker_color_rgb(sup.speaker, speaker_color, color_cache)
+                        if color:
+                            prefix = f'<font color="{color}">{prefix}</font>'
+                    text = f"{prefix}{text}"
 
             # Timestamp line with cue settings
             ts_line = (
@@ -765,25 +779,30 @@ class VTTFormat(FormatHandler):
         metadata: Optional[Dict] = None,
         translation_first: bool = False,
         vtt_config: Any = None,
+        speaker_color: str = "",
     ) -> bytes:
         """Generate YouTube VTT format with word-level timestamps.
 
         Format: <00:00:10.559><c> word</c>
         """
+        from ..colors import resolve_speaker_color_rgb
         from ..config import VTTConfig
-        from .base import render_bilingual_text
+        from .base import SpeakerTracker, render_bilingual_text
 
         vtt_config = vtt_config or VTTConfig()
         lines: List[str] = []
+        color_cache: Dict[str, str] = {}
 
         cls._write_header(metadata, lines)
 
+        tracker = SpeakerTracker()
         for sup in sorted(supervisions, key=lambda x: x.start):
             text = sup.text or ""
             alignment = getattr(sup, "alignment", None)
             words = alignment.get("word") if alignment else None
 
             cue_settings_str = cls._format_cue_settings(sup, vtt_config)
+            show_speaker = cls._should_include_speaker(sup, include_speaker, tracker)
 
             if words:
                 cue_start = words[0].start
@@ -794,13 +813,17 @@ class VTTFormat(FormatHandler):
                 )
 
                 text_parts: List[str] = []
-                if include_speaker and sup.speaker == ">>":
+                if show_speaker and sup.speaker == ">>":
                     text_parts.append(">> ")
                 for i, word in enumerate(words):
                     symbol = word.symbol
-                    if i == 0 and include_speaker and sup.speaker and sup.speaker != ">>":
-                        sep = " " if sup.speaker == ">>" else ": "
-                        symbol = f"{sup.speaker}{sep}{symbol}"
+                    if i == 0 and show_speaker and sup.speaker and sup.speaker != ">>":
+                        prefix = f"{sup.speaker}: "
+                        if speaker_color:
+                            color = resolve_speaker_color_rgb(sup.speaker, speaker_color, color_cache)
+                            if color:
+                                prefix = f'<font color="{color}">{prefix}</font>'
+                        symbol = f"{prefix}{symbol}"
                     text_parts.append(f"<{cls._format_timestamp(word.start)}><c> {symbol}</c>")
                 lines.append("".join(text_parts))
             else:
@@ -809,9 +832,14 @@ class VTTFormat(FormatHandler):
                     f"{cls._format_timestamp(sup.start)} --> "
                     f"{cls._format_timestamp(sup.end)}{cue_settings_str}"
                 )
-                if include_speaker and sup.speaker:
+                if show_speaker and sup.speaker:
                     sep = " " if sup.speaker == ">>" else ": "
-                    text = f"{sup.speaker}{sep}{text}"
+                    prefix = f"{sup.speaker}{sep}"
+                    if speaker_color and sup.speaker != ">>":
+                        color = resolve_speaker_color_rgb(sup.speaker, speaker_color, color_cache)
+                        if color:
+                            prefix = f'<font color="{color}">{prefix}</font>'
+                    text = f"{prefix}{text}"
                 lines.append(text)
             lines.append("")
 

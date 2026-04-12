@@ -345,7 +345,10 @@ class SRV3Format(FormatHandler):
         w.set("wp", "1")
         w.set("ws", "1")
 
+        from .base import SpeakerTracker
+
         # Process supervisions
+        tracker = SpeakerTracker()
         for sup in supervisions:
             # Convert timing to milliseconds
             p_start_ms = int(sup.start * 1000)
@@ -381,7 +384,7 @@ class SRV3Format(FormatHandler):
             else:
                 # Output full text without word-level timing
                 text = sup.text
-                if include_speaker and sup.speaker:
+                if cls._should_include_speaker(sup, include_speaker, tracker):
                     text = f"[{sup.speaker}] {text}"
 
                 # Split text into words and output as <s> elements without timing

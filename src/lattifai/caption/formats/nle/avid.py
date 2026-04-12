@@ -184,9 +184,12 @@ class AvidDSWriter:
         if config is None:
             config = AvidDSConfig()
 
+        from ..formats.base import SpeakerTracker
+
         output_path = Path(output_path)
         lines = [cls.HEADER, ""]  # Header + blank line
 
+        tracker = SpeakerTracker()
         for sup in supervisions:
             # Convert timestamps to timecode
             start_tc = cls.seconds_to_timecode(sup.start, config.fps, config.drop_frame)
@@ -195,13 +198,8 @@ class AvidDSWriter:
             # Prepare text
             text = render_bilingual_text(sup)
 
-            # Check if speaker should be included
-            include_this_speaker = config.include_speaker and sup.speaker
-            if include_this_speaker and hasattr(sup, "custom") and sup.custom:
-                if not sup.custom.get("original_speaker", True):
-                    include_this_speaker = False
-
-            if include_this_speaker:
+            # Speaker label (dedup consecutive)
+            if config.include_speaker and tracker.is_new(sup.speaker):
                 sep = " " if sup.speaker == ">>" else ": "
                 text = f"{sup.speaker}{sep}{text}"
 
@@ -236,21 +234,19 @@ class AvidDSWriter:
         if config is None:
             config = AvidDSConfig()
 
+        from ..formats.base import SpeakerTracker
+
         lines = [cls.HEADER, ""]
 
+        tracker = SpeakerTracker()
         for sup in supervisions:
             start_tc = cls.seconds_to_timecode(sup.start, config.fps, config.drop_frame)
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
             text = render_bilingual_text(sup)
 
-            # Check if speaker should be included
-            include_this_speaker = config.include_speaker and sup.speaker
-            if include_this_speaker and hasattr(sup, "custom") and sup.custom:
-                if not sup.custom.get("original_speaker", True):
-                    include_this_speaker = False
-
-            if include_this_speaker:
+            # Speaker label (dedup consecutive)
+            if config.include_speaker and tracker.is_new(sup.speaker):
                 sep = " " if sup.speaker == ">>" else ": "
                 text = f"{sup.speaker}{sep}{text}"
 

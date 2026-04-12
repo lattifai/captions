@@ -313,11 +313,14 @@ class AUDFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to AUD format bytes."""
+        from .base import SpeakerTracker
+
         render, include_speaker, _ = cls._unpack_render(**kwargs)
         lines = []
+        tracker = SpeakerTracker()
         for sup in supervisions:
             text = sup.text.strip().replace("\t", " ")
-            if cls._should_include_speaker(sup, include_speaker):
+            if cls._should_include_speaker(sup, include_speaker, tracker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             lines.append(f"{sup.start}\t{sup.end}\t{text}")
 
@@ -389,11 +392,14 @@ class TXTFormat(FormatHandler):
     @classmethod
     def to_bytes(cls, supervisions: List[Supervision], **kwargs) -> bytes:
         """Convert to TXT format bytes."""
+        from .base import SpeakerTracker
+
         render, include_speaker, _ = cls._unpack_render(**kwargs)
         lines = []
+        tracker = SpeakerTracker()
         for sup in supervisions:
             text = sup.text or ""
-            if cls._should_include_speaker(sup, include_speaker):
+            if cls._should_include_speaker(sup, include_speaker, tracker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             lines.append(f"[{sup.start:.2f}-{sup.end:.2f}] {text}")
 

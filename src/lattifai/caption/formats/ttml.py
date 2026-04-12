@@ -388,6 +388,9 @@ class TTMLFormatBase(FormatHandler):
 
         from .base import has_word_alignment as _has_word_align
 
+        from .base import SpeakerTracker
+
+        tracker = SpeakerTracker()
         for sup in supervisions:
             # Check if word-level timing should be used for this supervision
             has_word_alignment = word_level and _has_word_align(sup)
@@ -416,7 +419,7 @@ class TTMLFormatBase(FormatHandler):
             else:
                 p.set("style", "default")
 
-            include_this_speaker = cls._should_include_speaker(sup, include_speaker)
+            include_this_speaker = cls._should_include_speaker(sup, include_speaker, tracker)
 
             if has_word_alignment:
                 # Karaoke mode: create span for each word with timing

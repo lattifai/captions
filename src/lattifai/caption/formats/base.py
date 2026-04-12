@@ -227,16 +227,25 @@ class FormatWriter(ABC):
         return render, render.include_speaker_in_text, render.word_level
 
     @classmethod
-    def _should_include_speaker(cls, sup: Any, include_speaker: bool) -> bool:
+    def _should_include_speaker(
+        cls,
+        sup: Any,
+        include_speaker: bool,
+        tracker: Optional["SpeakerTracker"] = None,
+    ) -> bool:
         """Check if speaker should be included in output text.
 
-        Considers both the global include_speaker flag and the segment-level
-        'original_speaker' flag in custom metadata.
+        Considers the global *include_speaker* flag, the segment-level
+        ``original_speaker`` flag in custom metadata, and — when a
+        *tracker* is provided — suppresses consecutive duplicates so a
+        speaker label is only emitted when it changes.
         """
         if not include_speaker or not getattr(sup, "speaker", None):
             return False
         custom = getattr(sup, "custom", None)
         if custom and not custom.get("original_speaker", True):
+            return False
+        if tracker is not None and not tracker.is_new(sup.speaker):
             return False
         return True
 
@@ -257,6 +266,34 @@ class FormatWriter(ABC):
         if stripped and stripped[-1] in (":", "："):
             return f"{stripped} "
         return f"{speaker}: "
+
+
+class SpeakerTracker:
+    """Track previous speaker to suppress consecutive duplicate labels.
+
+    Use in writer loops to avoid repeating the same speaker prefix when
+    standardization splits one speaker's text into multiple supervisions.
+
+    Usage::
+
+        tracker = SpeakerTracker()
+        for sup in supervisions:
+            if tracker.is_new(sup.speaker) and include_speaker:
+                # emit speaker prefix
+    """
+
+    __slots__ = ("_prev",)
+
+    def __init__(self) -> None:
+        self._prev: Optional[str] = None
+
+    def is_new(self, speaker: Optional[str]) -> bool:
+        """Return True if *speaker* differs from the previous call's value."""
+        if not speaker or speaker == self._prev:
+            self._prev = speaker
+            return False
+        self._prev = speaker
+        return True
 
 
 class FormatHandler(FormatReader, FormatWriter):

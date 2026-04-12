@@ -253,6 +253,9 @@ class LRCFormat(FormatHandler):
         if lines:
             lines.append("")
 
+        from .base import SpeakerTracker
+
+        tracker = SpeakerTracker()
         for sup in supervisions:
             if _use_word and has_word_alignment(sup):
                 # Enhanced LRC mode: each word has inline timestamp
@@ -269,7 +272,7 @@ class LRCFormat(FormatHandler):
 
                 line_time = cls._format_time(sup.start, precision)
                 text = render_bilingual_text(sup, translation_first=behavior.translation_first)
-                if cls._should_include_speaker(sup, include_speaker):
+                if cls._should_include_speaker(sup, include_speaker, tracker):
                     text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
                 lines.append(f"[{line_time}]{text}")
 

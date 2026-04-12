@@ -370,15 +370,14 @@ class TestWordScopeIntegration:
         assert r"\kf" in content
 
     def test_bounce_word_has_static_reset_per_word(self, sup_two_words):
-        """Each word must open with the static reset so inheritance from the
-        previous word's animation cannot leak into this word's rendering.
-        The per-word block starts with \\k<cs> for the karaoke timing,
-        immediately followed by the kinetic reset \\bord2\\blur0."""
+        r"""Each word must open with \rKaraoke style reset to prevent animation
+        inheritance from the previous word, followed by \kf karaoke timing
+        and the kinetic static reset \bord2\blur0."""
         content = _render_word(sup_two_words, kinetic_style="bounce")
         import re
 
-        # Match `{\kf<digits>\bord2\blur0` at the start of each word block.
-        hits = re.findall(r"\{\\kf\d+\\bord2\\blur0", content)
+        # Match `{\rKaraoke\kf<digits>\bord2\blur0` at the start of each word block.
+        hits = re.findall(r"\{\\rKaraoke\\kf\d+\\bord2\\blur0", content)
         assert len(hits) >= 2
 
     def test_rise_word_level_falls_back_to_line_prefix(self, sup_two_words):
@@ -537,3 +536,74 @@ class TestBackwardCompatibility:
     def test_kinetic_none_has_no_overrides(self, sup_two_words):
         content = _render_word(sup_two_words)
         assert r"\t(" not in content
+
+
+# =============================================================================
+# \r style reset isolation for word-scope kinetic
+# =============================================================================
+
+
+class TestKineticStyleResetIsolation:
+    r"""Word-scope kinetic should use \rKaraoke to prevent animation bleeding."""
+
+    def _render(self, sup, kinetic_style):
+        return ASSFormat.to_bytes(
+            [sup],
+            render=RenderConfig(word_level=True, include_speaker_in_text=False),
+            config=ASSConfig(karaoke_effect="sweep", kinetic_style=kinetic_style),
+        ).decode()
+
+    def test_shake_has_style_reset(self):
+        r"""shake (word-scope) should emit \rKaraoke before each word."""
+        sup = _sup()
+        content = self._render(sup, "shake")
+        dialogue = [l for l in content.splitlines() if l.startswith("Dialogue:")][0]
+        # Each word's override block should contain \rKaraoke
+        assert r"\rKaraoke" in dialogue
+
+    def test_swing_has_style_reset(self):
+        r"""swing (word-scope) should emit \rKaraoke."""
+        sup = _sup()
+        content = self._render(sup, "swing")
+        dialogue = [l for l in content.splitlines() if l.startswith("Dialogue:")][0]
+        assert r"\rKaraoke" in dialogue
+
+    def test_bounce_has_style_reset(self):
+        r"""bounce (word-scope) should emit \rKaraoke."""
+        sup = _sup()
+        content = self._render(sup, "bounce")
+        dialogue = [l for l in content.splitlines() if l.startswith("Dialogue:")][0]
+        assert r"\rKaraoke" in dialogue
+
+    def test_no_kinetic_no_reset(self):
+        r"""Plain karaoke without kinetic should NOT emit \rKaraoke."""
+        sup = _sup()
+        content = ASSFormat.to_bytes(
+            [sup],
+            render=RenderConfig(word_level=True, include_speaker_in_text=False),
+            config=ASSConfig(karaoke_effect="sweep"),
+        ).decode()
+        dialogue = [l for l in content.splitlines() if l.startswith("Dialogue:")][0]
+        assert r"\rKaraoke" not in dialogue
+
+    def test_line_scope_no_reset(self):
+        r"""Line-scope kinetic (zoom) should NOT emit \rKaraoke — no word bleeding."""
+        sup = _sup()
+        content = self._render(sup, "zoom")
+        dialogue = [l for l in content.splitlines() if l.startswith("Dialogue:")][0]
+        assert r"\rKaraoke" not in dialogue
+
+    def test_reset_per_word_count(self):
+        r"""Each word in a 3-word sup should get its own \rKaraoke."""
+        sup = _sup(
+            text="Hello beautiful world",
+            duration=3.0,
+            words=[
+                AlignmentItem(symbol="Hello", start=0.0, duration=0.8),
+                AlignmentItem(symbol="beautiful", start=1.0, duration=0.8),
+                AlignmentItem(symbol="world", start=2.0, duration=0.8),
+            ],
+        )
+        content = self._render(sup, "shake")
+        dialogue = [l for l in content.splitlines() if l.startswith("Dialogue:")][0]
+        assert dialogue.count(r"\rKaraoke") == 3

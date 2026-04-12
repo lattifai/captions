@@ -993,9 +993,13 @@ class ASSFormat(Pysubs2Format):
                 body = expand_stagger_word(word.symbol, word_start_ms)
                 parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{body}")
             elif word_impl is not None:
+                # \rKaraoke resets all inherited \t() animations from the
+                # previous word, preventing animation "bleeding" in libass.
+                # Must come before \kf and kinetic tags so the word starts
+                # from a clean Karaoke style baseline.
                 kinetic_override = build_word_overrides(word_impl, word_start_ms)
                 parts.append(
-                    f"{separators[i]}{{\\{tag}{centiseconds}{kinetic_override}}}{word.symbol}"
+                    f"{separators[i]}{{\\rKaraoke\\{tag}{centiseconds}{kinetic_override}}}{word.symbol}"
                 )
             else:
                 parts.append(f"{separators[i]}{{\\{tag}{centiseconds}}}{word.symbol}")

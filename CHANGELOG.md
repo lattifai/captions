@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.6 - 2026-04-12
+
+### Features
+- **WebVTT W3C standard compliance**: cue settings (align/line/position/size/vertical/region), `<v>` voice tags, inline formatting (`<b>/<i>/<u>/<c>/<ruby>/<lang>`), REGION/STYLE/NOTE blocks, `VTTConfig`
+- SRT: speaker color support via `<font color="#RRGGBB">` HTML tags with `SRTConfig.speaker_color`
+- `RenderConfig.speaker_color`: cross-format speaker coloring fallback (ASS/SRT/VTT)
+- Deduplicate consecutive speaker labels in ASS/markdown writer output
+
+### Fixes
+- VTT: `_format_timestamp()` boundary carry (59.9996s no longer emits `:60.000`)
+- VTT: speaker roundtrip fidelity for `voice_tag` and `speaker_color` modes
+- SRT: speaker roundtrip for `speaker_color` output (parse `<font>` wrapped prefixes)
+- SRT: disable speaker dedup so every cue retains prefix for roundtrip
+- Validate hex digits in speaker color palette (`_resolve_palette` fail-fast)
+- Avid DS: fix `SpeakerTracker` import path in `nle/avid.py`
+
 ## 0.4.5 - 2026-04-12
 
 ### Features

@@ -184,7 +184,7 @@ class AvidDSWriter:
         if config is None:
             config = AvidDSConfig()
 
-        from ..formats.base import SpeakerTracker
+        from ..base import SpeakerTracker
 
         output_path = Path(output_path)
         lines = [cls.HEADER, ""]  # Header + blank line
@@ -234,7 +234,7 @@ class AvidDSWriter:
         if config is None:
             config = AvidDSConfig()
 
-        from ..formats.base import SpeakerTracker
+        from ..base import SpeakerTracker
 
         lines = [cls.HEADER, ""]
 

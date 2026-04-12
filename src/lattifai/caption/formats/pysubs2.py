@@ -24,6 +24,10 @@ class Pysubs2Format(FormatHandler):
 
     # Subclasses should set these
     pysubs2_format: str = ""
+    # Whether to deduplicate consecutive same-speaker labels in output.
+    # SRT disables this: speaker prefix is the only way to recover speaker
+    # on read-back, so every cue must retain its prefix for roundtrip fidelity.
+    _dedup_speaker: bool = True
 
     # Patterns to filter Gemini-style thinking/meta blocks
     FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
@@ -207,7 +211,7 @@ class Pysubs2Format(FormatHandler):
         subs = pysubs2.SSAFile()
 
         tf = behavior.translation_first
-        tracker = SpeakerTracker()
+        tracker = SpeakerTracker() if cls._dedup_speaker else None
         for sup in supervisions:
             text = render_bilingual_text(sup, translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker, tracker):
@@ -240,6 +244,7 @@ class SRTFormat(Pysubs2Format):
     extensions = [".srt"]
     pysubs2_format = "srt"
     description = "SubRip Subtitle format - universal compatibility"
+    _dedup_speaker = False  # SRT needs every cue's speaker prefix for roundtrip
 
     # Font-wrapped speaker: <font color="...">Name: </font>
     _FONT_SPEAKER_RE = re.compile(r'<font\s+color="[^"]*">([^<]+?):\s*</font>')
@@ -343,7 +348,7 @@ class SRTFormat(Pysubs2Format):
         subs = pysubs2.SSAFile()
         tf = behavior.translation_first
 
-        tracker = SpeakerTracker()
+        tracker = SpeakerTracker() if cls._dedup_speaker else None
         for sup in supervisions:
             text = render_bilingual_text(sup, translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker, tracker) and sup.speaker:

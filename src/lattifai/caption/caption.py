@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
-    from .config import ASSConfig, LRCConfig, RenderConfig, StandardizationConfig
+    from .config import ASSConfig, LRCConfig, SRTConfig, RenderConfig, StandardizationConfig
     from .formats.nle.audition import AuditionCSVConfig, EdiMarkerConfig
     from .formats.nle.avid import AvidDSConfig
     from .formats.nle.fcpxml import FCPXMLConfig
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from .formats.ttml import TTMLConfig
 
     FormatConfig = Union[
-        ASSConfig, LRCConfig, TTMLConfig,
+        ASSConfig, LRCConfig, SRTConfig, TTMLConfig,
         FCPXMLConfig, PremiereXMLConfig,
         AvidDSConfig, AuditionCSVConfig, EdiMarkerConfig,
     ]

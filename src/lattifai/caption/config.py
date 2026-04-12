@@ -73,6 +73,23 @@ class RenderConfig:
     translation_first: bool = False
     """Place translation text above original text in bilingual output."""
 
+    speaker_color: str = ""
+    """Speaker color spec for formats that support inline coloring.
+
+    - "": no coloring (default)
+    - "auto": use built-in SPEAKER_PALETTE
+    - "#RRGGBB": single color for all speakers
+    - "#RRGGBB,#00BFFF,...": comma-separated palette, auto-assigned per speaker
+
+    Format-specific behavior:
+    - ASS: wraps speaker with {\\c&HBBGGRR&}...{\\c} override tags
+    - SRT: wraps speaker with <font color="#RRGGBB">...</font> HTML tags
+    - VTT: wraps speaker with <c.color>...</c> or <font> tags
+
+    Format-specific config (ASSConfig.speaker_color, SRTConfig.speaker_color)
+    takes precedence over this field when set.
+    """
+
 
 @dataclass
 class ASSConfig:
@@ -256,6 +273,66 @@ class ASSConfig:
         from .kinetic import validate_kinetic_style
 
         validate_kinetic_style(self.kinetic_style)
+
+
+@dataclass
+class SRTConfig:
+    """Configuration for SRT subtitle format export.
+
+    Pass as format_config to Caption.write() for SRT output.
+    SRT supports limited HTML tags (<b>, <i>, <u>, <font color>)
+    in most modern players (VLC, PotPlayer, etc.).
+    """
+
+    speaker_color: str = ""
+    """Speaker color spec: "", "auto", "#RRGGBB", or comma-separated palette.
+    When set, wraps speaker prefix with <font color="#RRGGBB">...</font> tag."""
+
+
+@dataclass
+class VTTConfig:
+    """Configuration for WebVTT export.
+
+    Pass as format_config to Caption.write() for VTT output.
+    Controls cue positioning, voice tags, and inline formatting.
+    """
+
+    # -- Default cue settings (applied when supervision lacks vtt_* custom fields) --
+
+    default_align: Optional[str] = None
+    """Default text alignment for all cues (start/center/end/left/right)."""
+
+    default_line: Optional[str] = None
+    """Default vertical position (percentage like '90%' or integer like '-1')."""
+
+    default_position: Optional[str] = None
+    """Default horizontal position (percentage like '20%')."""
+
+    default_size: Optional[str] = None
+    """Default cue box width (percentage like '80%')."""
+
+    default_vertical: Optional[str] = None
+    """Default writing direction ('rl' or 'lr' for vertical text)."""
+
+    # -- Voice tag behavior --
+
+    voice_tag: bool = False
+    """Use <v Speaker>text</v> tags for speaker labeling.
+    When False, uses 'Speaker: text' prefix (default, backward-compatible)."""
+
+    # -- Inline formatting --
+
+    preserve_formatting: bool = True
+    """Preserve <b>, <i>, <u>, <c>, <ruby>, <lang> inline tags in output.
+    When False, strips all inline tags from text."""
+
+    def __post_init__(self) -> None:
+        valid_aligns = {None, "start", "center", "end", "left", "right"}
+        if self.default_align not in valid_aligns:
+            raise ValueError(f"default_align must be one of {valid_aligns}, got {self.default_align!r}")
+        valid_verticals = {None, "rl", "lr"}
+        if self.default_vertical not in valid_verticals:
+            raise ValueError(f"default_vertical must be one of {valid_verticals}, got {self.default_vertical!r}")
 
 
 @dataclass
@@ -484,6 +561,8 @@ def _get_format_config_map() -> Dict[str, type]:
         _FORMAT_CONFIG_MAP = {
             "ass": ASSConfig,
             "ssa": ASSConfig,
+            "srt": SRTConfig,
+            "vtt": VTTConfig,
             "lrc": LRCConfig,
             "ttml": TTMLConfig,
             "imsc1": TTMLConfig,

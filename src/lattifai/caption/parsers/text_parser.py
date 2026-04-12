@@ -30,9 +30,11 @@ _speaker_candidates: set = set()
 def normalize_text(text: str) -> str:
     """Normalize caption text by:
     - Decoding common HTML entities
-    - Removing HTML tags (e.g., <i>, <font>, <b>, <br>)
     - Collapsing multiple whitespace into a single space
     - Converting curly apostrophes to straight ones in common contractions
+
+    Note: HTML tags (<b>, <i>, <u>, <font>) are intentionally preserved
+    to allow roundtrip fidelity for formats that support them (SRT, VTT).
     """
     if not text:
         return ""

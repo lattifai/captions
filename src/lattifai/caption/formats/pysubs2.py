@@ -228,7 +228,11 @@ class Pysubs2Format(FormatHandler):
 
 @register_format("srt")
 class SRTFormat(Pysubs2Format):
-    """SRT (SubRip) format - the most widely used subtitle format."""
+    """SRT (SubRip) format - the most widely used subtitle format.
+
+    Supports limited HTML tags in most modern players:
+    <b>, <i>, <u>, <font color="#RRGGBB">
+    """
 
     extensions = [".srt"]
     pysubs2_format = "srt"
@@ -248,8 +252,29 @@ class SRTFormat(Pysubs2Format):
             supervisions: List of supervision segments
             use_bom: Whether to add BOM for Windows compatibility
             metadata: Optional metadata dict. If encoding is 'utf-8-sig', adds BOM.
+
+        Keyword Args:
+            config: SRTConfig with speaker_color for HTML <font color> tags.
+            render: RenderConfig with speaker_color fallback.
         """
-        content = super().to_bytes(supervisions, **kwargs)
+        from ..config import RenderConfig, SRTConfig
+
+        config = kwargs.pop("config", None)
+        render = kwargs.get("render", None)
+
+        # Priority: SRTConfig.speaker_color > RenderConfig.speaker_color
+        speaker_color = ""
+        if isinstance(config, SRTConfig) and config.speaker_color:
+            speaker_color = config.speaker_color
+        elif isinstance(render, RenderConfig) and render.speaker_color:
+            speaker_color = render.speaker_color
+
+        if speaker_color:
+            content = cls._to_bytes_with_speaker_color(
+                supervisions, speaker_color, **kwargs
+            )
+        else:
+            content = super().to_bytes(supervisions, **kwargs)
 
         # Add BOM if requested or if original had BOM
         add_bom = use_bom
@@ -260,6 +285,51 @@ class SRTFormat(Pysubs2Format):
             content = b"\xef\xbb\xbf" + content
 
         return content
+
+    @classmethod
+    def _to_bytes_with_speaker_color(
+        cls,
+        supervisions: List[Supervision],
+        speaker_color: str,
+        **kwargs,
+    ) -> bytes:
+        """Generate SRT with speaker names wrapped in <font color> tags."""
+        from .base import maybe_expand_to_word_supervisions, render_bilingual_text
+        from ..colors import resolve_speaker_color_rgb
+
+        behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
+        supervisions = maybe_expand_to_word_supervisions(
+            supervisions, word_level=word_level, format_id=cls.format_id
+        )
+
+        color_cache: Dict[str, str] = {}
+        subs = pysubs2.SSAFile()
+        tf = behavior.translation_first
+
+        for sup in supervisions:
+            text = render_bilingual_text(sup, translation_first=tf)
+            if cls._should_include_speaker(sup, include_speaker) and sup.speaker:
+                color = resolve_speaker_color_rgb(
+                    sup.speaker, speaker_color, color_cache
+                )
+                prefix = cls._format_speaker_prefix(sup.speaker)
+                if color:
+                    text = f'<font color="{color}">{prefix}</font>{text}'
+                else:
+                    text = f"{prefix}{text}"
+            elif cls._should_include_speaker(sup, include_speaker):
+                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
+
+            subs.append(
+                pysubs2.SSAEvent(
+                    start=int(sup.start * 1000),
+                    end=int(sup.end * 1000),
+                    text=text,
+                    name=sup.speaker or "",
+                )
+            )
+
+        return subs.to_string(format_=cls.pysubs2_format).encode("utf-8")
 
 
 @register_format("ass")

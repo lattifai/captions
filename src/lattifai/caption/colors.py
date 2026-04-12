@@ -179,6 +179,20 @@ def bgr_to_hex_rgb(bgr_color: str) -> str:
     return f"#{bgr_color[4:6]}{bgr_color[2:4]}{bgr_color[0:2]}".upper()
 
 
+def _resolve_palette(speaker_color_spec: str) -> List[str]:
+    """Parse speaker_color_spec into a list of #RRGGBB colors."""
+    if speaker_color_spec == "auto":
+        return SPEAKER_PALETTE
+    palette: List[str] = []
+    for c in speaker_color_spec.split(","):
+        c = c.strip()
+        if not c.startswith("#"):
+            c = f"#{c}"
+        if len(c) == 7:
+            palette.append(c)
+    return palette
+
+
 def resolve_speaker_color(speaker: str, speaker_color_spec: str, cache: dict) -> str:
     """Resolve ASS BBGGRR color string for a speaker.
 
@@ -199,23 +213,43 @@ def resolve_speaker_color(speaker: str, speaker_color_spec: str, cache: dict) ->
     if speaker in cache:
         return cache[speaker]
 
-    # Parse palette: "auto" uses built-in, comma-separated uses user-provided
-    # All palettes store #RRGGBB; convert to BBGGRR at assignment time.
-    if speaker_color_spec == "auto":
-        palette_rgb = SPEAKER_PALETTE
-    else:
-        palette_rgb = []
-        for c in speaker_color_spec.split(","):
-            c = c.strip()
-            if not c.startswith("#"):
-                c = f"#{c}"
-            if len(c) == 7:
-                palette_rgb.append(c)
-        if not palette_rgb:
-            return ""
+    palette_rgb = _resolve_palette(speaker_color_spec)
+    if not palette_rgb:
+        return ""
 
     # Assign next color from palette (cycle if more speakers than colors)
     rgb = palette_rgb[len(cache) % len(palette_rgb)]
     bgr = hex_rgb_to_bgr(rgb)
     cache[speaker] = bgr
     return bgr
+
+
+def resolve_speaker_color_rgb(
+    speaker: str, speaker_color_spec: str, cache: dict
+) -> str:
+    """Resolve #RRGGBB color string for a speaker (HTML/SRT format).
+
+    Same logic as resolve_speaker_color but returns web-standard #RRGGBB
+    instead of ASS BBGGRR.
+
+    Args:
+        speaker: Speaker name
+        speaker_color_spec: Color spec ("", "auto", or "#RRGGBB,..." palette)
+        cache: Mutable dict tracking assigned colors {speaker_name: "#RRGGBB"}
+
+    Returns:
+        #RRGGBB color string, or "" if no coloring
+    """
+    if not speaker_color_spec:
+        return ""
+
+    if speaker in cache:
+        return cache[speaker]
+
+    palette_rgb = _resolve_palette(speaker_color_spec)
+    if not palette_rgb:
+        return ""
+
+    rgb = palette_rgb[len(cache) % len(palette_rgb)]
+    cache[speaker] = rgb
+    return rgb

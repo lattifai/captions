@@ -92,7 +92,7 @@ class TestRenderConfigDefaults:
 
     def test_ass_config_defaults(self):
         config = ASSConfig()
-        assert config.font_size == 48
+        assert config.font_size == 64
         assert config.secondary_color == "#00FFFF"
         assert config.outline_color == "#000000"
         assert config.alignment == 2

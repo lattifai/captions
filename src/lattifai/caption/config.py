@@ -87,7 +87,7 @@ class ASSConfig:
     font_name: str = CaptionFonts.ARIAL
     """Font family name."""
 
-    font_size: int = 48
+    font_size: int = 64
     """Font size in points (relative to PlayRes)."""
 
     primary_color: str = "#FFFFFF"

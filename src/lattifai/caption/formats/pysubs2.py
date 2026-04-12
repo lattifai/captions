@@ -679,7 +679,7 @@ class ASSFormat(Pysubs2Format):
 
         return subs.to_string(format_="ass").encode("utf-8")
 
-    DEFAULT_FONTSIZE = 48.0
+    DEFAULT_FONTSIZE = 64.0
 
     @classmethod
     def _create_ass_file(

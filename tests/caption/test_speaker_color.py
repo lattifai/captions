@@ -125,11 +125,11 @@ class TestResolveSpeakerColor:
         assert colors[0] == colors[2]  # A and C get same color
         assert colors[1] == colors[3]  # B and D get same color
 
-    def test_invalid_color_returns_empty(self):
-        """An invalid color string should return empty (no valid palette entries)."""
+    def test_invalid_color_raises(self):
+        """An invalid color string should raise ValueError (fail-fast)."""
         cache = {}
-        result = ASSFormat._resolve_speaker_color("Alice", "not-a-color", cache)
-        assert result == ""
+        with pytest.raises(ValueError, match="Invalid color"):
+            ASSFormat._resolve_speaker_color("Alice", "not-a-color", cache)
 
     def test_palette_size(self):
         """Built-in palette should have exactly 10 colors."""

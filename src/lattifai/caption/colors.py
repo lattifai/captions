@@ -180,16 +180,27 @@ def bgr_to_hex_rgb(bgr_color: str) -> str:
 
 
 def _resolve_palette(speaker_color_spec: str) -> List[str]:
-    """Parse speaker_color_spec into a list of #RRGGBB colors."""
+    """Parse speaker_color_spec into a list of #RRGGBB colors.
+
+    Validates hex digits — non-hex tokens like '#GGGGGG' are rejected
+    (raises ValueError) rather than silently producing invalid markup.
+    """
     if speaker_color_spec == "auto":
         return SPEAKER_PALETTE
     palette: List[str] = []
     for c in speaker_color_spec.split(","):
         c = c.strip()
+        if not c:
+            continue
         if not c.startswith("#"):
             c = f"#{c}"
-        if len(c) == 7:
-            palette.append(c)
+        if len(c) != 7:
+            raise ValueError(f"Invalid color '{c}': must be #RRGGBB (6 hex digits)")
+        try:
+            int(c[1:], 16)
+        except ValueError:
+            raise ValueError(f"Invalid color '{c}': contains non-hex characters")
+        palette.append(c)
     return palette
 
 

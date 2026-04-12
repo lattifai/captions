@@ -320,6 +320,18 @@ class VTTConfig:
     """Use <v Speaker>text</v> tags for speaker labeling.
     When False, uses 'Speaker: text' prefix (default, backward-compatible)."""
 
+    # -- Speaker --
+
+    speaker_color: str = ""
+    """Speaker color spec for VTT output.
+    - "": no coloring (default)
+    - "auto": use built-in SPEAKER_PALETTE
+    - "#RRGGBB": single color for all speakers
+    - "#RRGGBB,#00BFFF,...": comma-separated palette, auto-assigned per speaker
+
+    Wraps speaker prefix with <font color="#RRGGBB">...</font> tags.
+    Takes precedence over RenderConfig.speaker_color when set."""
+
     # -- Inline formatting --
 
     preserve_formatting: bool = True

@@ -61,6 +61,9 @@ class VTTFormat(FormatHandler):
     _VOICE_OPEN_RE = re.compile(r"<v\s+([^>]+)>")
     _VOICE_CLOSE_RE = re.compile(r"</v>")
 
+    # Font-wrapped speaker pattern: <font color="...">Speaker: </font>text
+    _FONT_SPEAKER_RE = re.compile(r'^<font\s+color="[^"]*">([^<]+?):\s*</font>\s*(.*)', re.DOTALL)
+
     # Word-level timestamp patterns (YouTube VTT)
     _WORD_TS_RE = re.compile(r"<(\d{2}:\d{2}:\d{2}[.,]\d{3})><c>\s*([^<]+)</c>")
     _FIRST_WORD_RE = re.compile(r"^([^<\n]+?)<(\d{2}:\d{2}:\d{2}[.,]\d{3})>")
@@ -78,14 +81,18 @@ class VTTFormat(FormatHandler):
 
     @staticmethod
     def _format_timestamp(seconds: float) -> str:
-        """Format seconds into HH:MM:SS.mmm."""
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        ms = int(round((seconds % 1) * 1000))
-        if ms == 1000:
-            s += 1
-            ms = 0
+        """Format seconds into HH:MM:SS.mmm.
+
+        Rounds total milliseconds first, then decomposes with divmod
+        to correctly cascade carry across second/minute/hour boundaries.
+        """
+        total_ms = round(seconds * 1000)
+        ms = total_ms % 1000
+        total_s = total_ms // 1000
+        s = total_s % 60
+        total_m = total_s // 60
+        m = total_m % 60
+        h = total_m // 60
         return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
     @classmethod
@@ -244,7 +251,13 @@ class VTTFormat(FormatHandler):
             if voice_speaker:
                 speaker = voice_speaker
             else:
-                speaker, text = parse_speaker_text(text)
+                # Try font-wrapped speaker: <font color="...">Name: </font>text
+                font_match = cls._FONT_SPEAKER_RE.match(text)
+                if font_match:
+                    speaker = font_match.group(1).strip()
+                    text = font_match.group(2).strip()
+                else:
+                    speaker, text = parse_speaker_text(text)
 
             # Build custom fields for cue settings
             custom: Optional[Dict[str, Any]] = None
@@ -737,12 +750,20 @@ class VTTFormat(FormatHandler):
 
         cls._write_header(metadata, lines)
 
-        tracker = SpeakerTracker()
+        # Skip speaker dedup when voice_tag or speaker_color is active —
+        # each cue needs its own speaker marker for roundtrip fidelity
+        skip_dedup = vtt_config.voice_tag or bool(speaker_color)
+        tracker = None if skip_dedup else SpeakerTracker()
         for idx, sup in enumerate(supervisions, 1):
             text = render_bilingual_text(sup, translation_first=translation_first)
 
-            # Speaker: voice tag or prefix (dedup consecutive)
-            if cls._should_include_speaker(sup, include_speaker, tracker):
+            # Speaker: voice tag or prefix
+            show_speaker = (
+                cls._should_include_speaker(sup, include_speaker, tracker)
+                if tracker is not None
+                else (include_speaker and bool(getattr(sup, "speaker", None)))
+            )
+            if show_speaker:
                 if vtt_config.voice_tag:
                     text = f"<v {sup.speaker}>{text}</v>"
                 else:

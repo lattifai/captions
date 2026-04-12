@@ -241,6 +241,38 @@ class SRTFormat(Pysubs2Format):
     pysubs2_format = "srt"
     description = "SubRip Subtitle format - universal compatibility"
 
+    # Font-wrapped speaker: <font color="...">Name: </font>
+    _FONT_SPEAKER_RE = re.compile(r'<font\s+color="[^"]*">([^<]+?):\s*</font>')
+
+    @classmethod
+    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
+        """Read SRT with font-wrapped speaker color support.
+
+        Extracts speaker names from <font color>Speaker: </font> patterns
+        and adds them to the speaker candidate set so parse_speaker_text
+        can recognize them after pysubs2 strips the <font> tags.
+        """
+        # Get raw content to extract font-wrapped speakers
+        if cls.is_content(source):
+            raw = source
+        else:
+            with open(str(source), "r", encoding="utf-8") as f:
+                raw = f.read()
+
+        # Extract speaker names from <font color="...">Name: </font> patterns
+        font_speakers = set(cls._FONT_SPEAKER_RE.findall(raw))
+        if font_speakers:
+            # Inject these as speaker candidates so parse_speaker_text recognizes
+            # title-case names like "Alice:" even with fewer than 3 occurrences
+            set_speaker_candidates(font_speakers)
+
+        result = super().read(source, normalize_text=normalize_text, **kwargs)
+
+        if font_speakers:
+            set_speaker_candidates(set())
+
+        return result
+
     @classmethod
     def to_bytes(
         cls,

@@ -238,7 +238,7 @@ class TestResolveFormatConfig:
         assert resolve_format_config("ass", {}) is None
 
     def test_unknown_format_returns_none(self):
-        assert resolve_format_config("srt", {"key": "value"}) is None
+        assert resolve_format_config("txt", {"key": "value"}) is None
 
     def test_premiere_xml_config(self):
         from lattifai.caption.formats.nle.premiere import PremiereXMLConfig

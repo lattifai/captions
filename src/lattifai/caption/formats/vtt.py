@@ -1,18 +1,17 @@
-"""WebVTT format with YouTube VTT word-level timestamp support.
+"""WebVTT format with full W3C standard compliance.
 
-This module provides a unified VTT format handler that:
-- Reads both standard VTT and YouTube VTT (with word-level timestamps)
-- Writes standard VTT or YouTube VTT (when word_level=True)
-
-YouTube VTT format uses word-level tags like:
-    Word1<00:00:10.559><c> Word2</c><00:00:11.000><c> Word3</c>
+Supports:
+- Cue settings: align, line, position, size, vertical, region
+- Inline tags: <v> voice, <b> <i> <u> formatting, <c> class, <ruby>, <lang>
+- Regions: REGION blocks with scroll positioning
+- Styles: STYLE blocks with ::cue pseudo-elements
+- YouTube VTT: word-level timestamps (<timestamp><c> tags)
+- Metadata: Kind, Language, multi-line NOTE comments
 """
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
-
-import pysubs2
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text
@@ -23,22 +22,99 @@ from .base import FormatHandler
 
 @register_format("vtt")
 class VTTFormat(FormatHandler):
-    """WebVTT format with YouTube VTT word-level timestamp support.
+    """WebVTT format handler with full W3C standard compliance.
 
     Reading:
         - Auto-detects YouTube VTT format (with word-level timestamps)
-        - Falls back to standard VTT parsing via pysubs2
+        - Parses cue settings (align, line, position, size, vertical, region)
+        - Extracts <v> voice tags as speaker
+        - Preserves inline formatting tags (<b>, <i>, <u>, <c>, <ruby>, <lang>)
+        - Parses REGION blocks, STYLE blocks, multi-line NOTE comments
 
     Writing:
-        - Standard VTT by default
+        - Standard VTT by default with cue settings from Supervision.custom
         - YouTube VTT style when word_level=True
+        - Region and STYLE block roundtrip
+        - Optional <v> voice tags via VTTConfig.voice_tag
     """
 
     extensions = [".vtt"]
-    description = "Web Video Text Tracks - HTML5 standard with YouTube VTT support"
+    description = "Web Video Text Tracks - W3C standard with full feature support"
 
-    # Pattern to detect YouTube VTT word-level timestamps
+    # -- Class-level regex patterns --
+
+    # YouTube VTT word-level timestamp detection
     YOUTUBE_VTT_PATTERN = re.compile(r"<\d{2}:\d{2}:\d{2}[.,]\d{3}><c>")
+
+    # Speaker change marker in YouTube auto-generated VTTs
+    SPEAKER_CHANGE_RE = re.compile(r"^(?:>>|&gt;&gt;)\s*")
+
+    # Timestamp line: HH:MM:SS.mmm --> HH:MM:SS.mmm [settings]
+    _TIMESTAMP_RE = re.compile(
+        r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})(.*)"
+    )
+
+    # Cue setting key:value pairs
+    _CUE_SETTING_RE = re.compile(r"(vertical|line|position|size|align|region):(\S+)")
+
+    # Voice tag patterns
+    _VOICE_OPEN_RE = re.compile(r"<v\s+([^>]+)>")
+    _VOICE_CLOSE_RE = re.compile(r"</v>")
+
+    # Word-level timestamp patterns (YouTube VTT)
+    _WORD_TS_RE = re.compile(r"<(\d{2}:\d{2}:\d{2}[.,]\d{3})><c>\s*([^<]+)</c>")
+    _FIRST_WORD_RE = re.compile(r"^([^<\n]+?)<(\d{2}:\d{2}:\d{2}[.,]\d{3})>")
+
+    # =========================================================================
+    # Shared utilities
+    # =========================================================================
+
+    @staticmethod
+    def _parse_timestamp(ts: str) -> float:
+        """Convert VTT timestamp string to seconds."""
+        ts = ts.replace(",", ".")
+        parts = ts.split(":")
+        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+
+    @staticmethod
+    def _format_timestamp(seconds: float) -> str:
+        """Format seconds into HH:MM:SS.mmm."""
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        ms = int(round((seconds % 1) * 1000))
+        if ms == 1000:
+            s += 1
+            ms = 0
+        return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+    @classmethod
+    def _parse_cue_settings(cls, settings_str: str) -> Dict[str, str]:
+        """Parse cue settings from the remainder of a timestamp line."""
+        settings = {}
+        for match in cls._CUE_SETTING_RE.finditer(settings_str):
+            settings[match.group(1)] = match.group(2)
+        return settings
+
+    @classmethod
+    def _extract_voice_tag(cls, text: str) -> Tuple[Optional[str], str]:
+        """Extract <v name> voice tag from cue text.
+
+        Returns (speaker, cleaned_text). Handles both closed (<v name>text</v>)
+        and unclosed (<v name>text) forms.
+        """
+        voice_match = cls._VOICE_OPEN_RE.search(text)
+        if not voice_match:
+            return None, text
+        speaker = voice_match.group(1).strip()
+        # Remove voice tags from text, keep inner content
+        text = cls._VOICE_OPEN_RE.sub("", text)
+        text = cls._VOICE_CLOSE_RE.sub("", text)
+        return speaker, text.strip()
+
+    # =========================================================================
+    # Reader: can_read / detection
+    # =========================================================================
 
     @classmethod
     def can_read(cls, source) -> bool:
@@ -46,8 +122,7 @@ class VTTFormat(FormatHandler):
         if cls.is_content(source):
             return source.strip().startswith("WEBVTT")
         try:
-            path_str = str(source).lower()
-            return path_str.endswith(".vtt")
+            return str(source).lower().endswith(".vtt")
         except Exception:
             return False
 
@@ -56,13 +131,12 @@ class VTTFormat(FormatHandler):
         """Check if content is YouTube VTT format with word-level timestamps."""
         return bool(cls.YOUTUBE_VTT_PATTERN.search(content))
 
+    # =========================================================================
+    # Reader: main entry
+    # =========================================================================
+
     @classmethod
-    def read(
-        cls,
-        source,
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
+    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
         """Read VTT format, auto-detecting YouTube VTT word-level timestamps.
 
         Args:
@@ -78,56 +152,113 @@ class VTTFormat(FormatHandler):
             with open(source, "r", encoding="utf-8") as f:
                 content = f.read()
 
-        # Auto-detect YouTube VTT format
         if cls._is_youtube_vtt(content):
             return cls._read_youtube_vtt(content, normalize_text)
-        else:
-            return cls._read_standard_vtt(source if not cls.is_content(source) else content, normalize_text)
+        return cls._read_standard_vtt(content, normalize_text)
+
+    # =========================================================================
+    # Reader: standard VTT (custom parser, replaces pysubs2)
+    # =========================================================================
 
     @classmethod
-    def _read_standard_vtt(cls, source, normalize_text: bool = True) -> List[Supervision]:
-        """Read standard VTT using pysubs2."""
+    def _read_standard_vtt(cls, content: str, normalize_text: bool = True) -> List[Supervision]:
+        """Read standard VTT with custom parser.
+
+        Extracts cue settings, voice tags, and preserves inline formatting
+        tags (<b>, <i>, <u>, <c>, <ruby>, <lang>).
+        """
         from ..parsers.text_parser import detect_speaker_candidates, set_speaker_candidates
 
-        try:
-            if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source, format_="vtt")
-            else:
-                subs = pysubs2.load(str(source), encoding="utf-8", format_="vtt")
-        except Exception:
-            if cls.is_content(source):
-                subs = pysubs2.SSAFile.from_string(source)
-            else:
-                subs = pysubs2.load(str(source), encoding="utf-8")
+        # Split into blocks separated by blank lines
+        blocks = re.split(r"\n\s*\n", content)
+        if not blocks:
+            return []
 
-        # Auto-detect title-case speaker candidates
-        all_texts = [e.text for e in subs.events]
-        candidates = detect_speaker_candidates(all_texts)
+        # Collect cues
+        raw_texts: List[str] = []
+        cues: List[Dict[str, Any]] = []
+
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            # Skip header / REGION / STYLE / NOTE blocks
+            if block.startswith(("WEBVTT", "REGION", "STYLE", "NOTE")):
+                continue
+
+            block_lines = block.split("\n")
+
+            # Find the timestamp line within this block
+            ts_line_idx = None
+            for li, line in enumerate(block_lines):
+                if cls._TIMESTAMP_RE.search(line):
+                    ts_line_idx = li
+                    break
+            if ts_line_idx is None:
+                continue
+
+            ts_match = cls._TIMESTAMP_RE.match(block_lines[ts_line_idx].strip())
+            if not ts_match:
+                continue
+
+            cue_start = cls._parse_timestamp(ts_match.group(1))
+            cue_end = cls._parse_timestamp(ts_match.group(2))
+            cue_settings = cls._parse_cue_settings(ts_match.group(3))
+
+            # Cue ID is any line before the timestamp line
+            cue_id = block_lines[ts_line_idx - 1].strip() if ts_line_idx > 0 else None
+
+            # Cue text is everything after the timestamp line
+            text_lines = [l for l in block_lines[ts_line_idx + 1 :] if l.strip()]
+            raw_text = "\n".join(text_lines)
+
+            raw_texts.append(raw_text)
+            cues.append(
+                {
+                    "start": cue_start,
+                    "end": cue_end,
+                    "settings": cue_settings,
+                    "id": cue_id,
+                    "raw_text": raw_text,
+                }
+            )
+
+        # Auto-detect title-case speaker candidates from raw text
+        candidates = detect_speaker_candidates(raw_texts)
         if candidates:
             set_speaker_candidates(candidates)
 
         supervisions = []
-        for event in subs.events:
-            text = event.text
+        for cue in cues:
+            text = cue["raw_text"]
+
+            # Extract <v> voice tag as speaker
+            voice_speaker, text = cls._extract_voice_tag(text)
+
+            # Normalize: convert newlines to space, then apply text normalization
             if normalize_text:
+                text = text.replace("\n", " ")
                 text = normalize_text_fn(text)
 
-            speaker, text = parse_speaker_text(text)
+            # Fall back to text-based speaker detection if no voice tag
+            if voice_speaker:
+                speaker = voice_speaker
+            else:
+                speaker, text = parse_speaker_text(text)
 
-            # Strip speaker prefix from text when event.name matches
-            if not speaker and event.name:
-                for sep in (": ", "： "):
-                    prefix = event.name + sep
-                    if text.startswith(prefix):
-                        text = text[len(prefix) :]
-                        break
+            # Build custom fields for cue settings
+            custom: Optional[Dict[str, Any]] = None
+            if cue["settings"]:
+                custom = {f"vtt_{k}": v for k, v in cue["settings"].items()}
 
             supervisions.append(
                 Supervision(
-                    text=text,
-                    speaker=speaker or event.name or None,
-                    start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0 if event.end is not None else 0,
+                    text=text.strip(),
+                    speaker=speaker or None,
+                    start=cue["start"],
+                    duration=max(0.0, cue["end"] - cue["start"]),
+                    id=cue["id"] or "",
+                    custom=custom,
                 )
             )
 
@@ -136,52 +267,38 @@ class VTTFormat(FormatHandler):
 
         return supervisions
 
-    # Speaker change marker in YouTube auto-generated VTTs
-    SPEAKER_CHANGE_RE = re.compile(r"^(?:>>|&gt;&gt;)\s*")
+    # =========================================================================
+    # Reader: YouTube VTT (word-level timestamps)
+    # =========================================================================
 
     @classmethod
     def _read_youtube_vtt(cls, content: str, normalize_text: bool = True) -> List[Supervision]:
-        """Parse YouTube VTT format with word-level timestamps."""
+        """Parse YouTube VTT format with word-level timestamps.
+
+        Extended to capture cue settings from timestamp lines.
+        """
         supervisions = []
 
-        # Pattern to match timestamp lines: 00:00:14.280 --> 00:00:17.269
-        timestamp_pattern = re.compile(r"(\d{2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[.,]\d{3})")
-
-        # Pattern to match word-level timestamps: <00:00:10.559><c> word</c>
-        word_timestamp_pattern = re.compile(r"<(\d{2}:\d{2}:\d{2}[.,]\d{3})><c>\s*([^<]+)</c>")
-
-        # Pattern to match the first word (before first timestamp)
-        first_word_pattern = re.compile(r"^([^<\n]+?)<(\d{2}:\d{2}:\d{2}[.,]\d{3})>")
-
-        def parse_timestamp(ts: str) -> float:
-            """Convert timestamp string to seconds."""
-            ts = ts.replace(",", ".")
-            parts = ts.split(":")
-            hours = int(parts[0])
-            minutes = int(parts[1])
-            seconds = float(parts[2])
-            return hours * 3600 + minutes * 60 + seconds
-
         def has_word_timestamps(text: str) -> bool:
-            """Check if text contains word-level timestamps."""
-            return bool(word_timestamp_pattern.search(text) or first_word_pattern.match(text))
+            return bool(cls._WORD_TS_RE.search(text) or cls._FIRST_WORD_RE.match(text))
 
         lines = content.split("\n")
         i = 0
 
         # First pass: collect all cues with their content
-        all_cues = []
+        all_cues: List[Dict[str, Any]] = []
         while i < len(lines):
             line = lines[i]
-            ts_match = timestamp_pattern.search(line)
+            ts_match = cls._TIMESTAMP_RE.search(line)
             if ts_match:
-                cue_start = parse_timestamp(ts_match.group(1))
-                cue_end = parse_timestamp(ts_match.group(2))
+                cue_start = cls._parse_timestamp(ts_match.group(1))
+                cue_end = cls._parse_timestamp(ts_match.group(2))
+                cue_settings = cls._parse_cue_settings(ts_match.group(3))
 
-                cue_lines = []
+                cue_lines: List[str] = []
                 i += 1
                 while i < len(lines):
-                    if timestamp_pattern.search(lines[i]):
+                    if cls._TIMESTAMP_RE.search(lines[i]):
                         break
                     stripped = lines[i].strip()
                     if not stripped and cue_lines and not lines[i - 1].strip():
@@ -190,13 +307,20 @@ class VTTFormat(FormatHandler):
                         cue_lines.append(lines[i])
                     i += 1
 
-                all_cues.append({"start": cue_start, "end": cue_end, "lines": cue_lines})
+                all_cues.append(
+                    {
+                        "start": cue_start,
+                        "end": cue_end,
+                        "lines": cue_lines,
+                        "settings": cue_settings,
+                    }
+                )
                 continue
             i += 1
 
         # Second pass: identify cues to skip and merge
-        cues_to_skip = set()
-        cues_to_merge_text = {}
+        cues_to_skip: set = set()
+        cues_to_merge_text: Dict[int, str] = {}
 
         for idx in range(len(all_cues) - 1):
             cue = all_cues[idx]
@@ -230,9 +354,10 @@ class VTTFormat(FormatHandler):
             cue_start = cue["start"]
             cue_end = cue["end"]
             cue_lines = cue["lines"]
+            cue_settings = cue["settings"]
 
-            word_alignments = []
-            text_parts = []
+            word_alignments: List[AlignmentItem] = []
+            text_parts: List[str] = []
             has_speaker_change = False
 
             for cue_line in cue_lines:
@@ -256,13 +381,13 @@ class VTTFormat(FormatHandler):
                     if not cue_line:
                         continue
 
-                word_matches = word_timestamp_pattern.findall(cue_line)
-                first_match = first_word_pattern.match(cue_line)
+                word_matches = cls._WORD_TS_RE.findall(cue_line)
+                first_match = cls._FIRST_WORD_RE.match(cue_line)
 
                 if word_matches or first_match:
                     if first_match:
                         first_word = first_match.group(1).strip()
-                        first_word_next_ts = parse_timestamp(first_match.group(2))
+                        first_word_next_ts = cls._parse_timestamp(first_match.group(2))
                         if first_word:
                             text_parts.append(first_word)
                             word_alignments.append(
@@ -274,7 +399,7 @@ class VTTFormat(FormatHandler):
                             )
 
                     for word_idx, (ts, word) in enumerate(word_matches):
-                        word_start = parse_timestamp(ts)
+                        word_start = cls._parse_timestamp(ts)
                         word = word.strip()
                         if not word:
                             continue
@@ -282,7 +407,7 @@ class VTTFormat(FormatHandler):
                         text_parts.append(word)
 
                         if word_idx + 1 < len(word_matches):
-                            next_ts = parse_timestamp(word_matches[word_idx + 1][0])
+                            next_ts = cls._parse_timestamp(word_matches[word_idx + 1][0])
                             duration = next_ts - word_start
                         else:
                             duration = cue_end - word_start
@@ -312,6 +437,11 @@ class VTTFormat(FormatHandler):
                 sup_start = cue_start
                 sup_end = cue_end
 
+            # Build custom fields for cue settings
+            custom: Optional[Dict[str, Any]] = None
+            if cue_settings:
+                custom = {f"vtt_{k}": v for k, v in cue_settings.items()}
+
             supervisions.append(
                 Supervision(
                     text=full_text,
@@ -319,37 +449,95 @@ class VTTFormat(FormatHandler):
                     duration=max(0.0, sup_end - sup_start),
                     alignment={"word": word_alignments} if word_alignments else None,
                     speaker=">>" if has_speaker_change else None,
+                    custom=custom,
                 )
             )
 
         return supervisions
 
+    # =========================================================================
+    # Header / metadata parsing
+    # =========================================================================
+
     @classmethod
-    def _extract_header_metadata(cls, content: str) -> Dict[str, str]:
-        """Extract Kind/Language/NOTE metadata from VTT header lines."""
-        metadata: Dict[str, str] = {}
-        for line in content.split("\n")[:10]:
-            line = line.strip()
-            if line.startswith("Kind:"):
-                metadata["kind"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Language:"):
-                metadata["language"] = line.split(":", 1)[1].strip()
-            elif line.startswith("NOTE"):
-                match = re.search(r"NOTE\s+(\w+):\s*(.+)", line)
-                if match:
-                    key, value = match.groups()
-                    metadata[key.lower()] = value.strip()
+    def _extract_header_metadata(cls, content: str) -> Dict[str, Any]:
+        """Extract all VTT metadata: Kind, Language, NOTE, REGION, STYLE blocks."""
+        metadata: Dict[str, Any] = {}
+        regions: List[Dict[str, str]] = []
+        styles: List[str] = []
+        notes: List[str] = []
+
+        # Split into blocks separated by blank lines
+        blocks = re.split(r"\n\s*\n", content)
+
+        for block in blocks:
+            block_stripped = block.strip()
+            if not block_stripped:
+                continue
+
+            # Header block (WEBVTT line + metadata)
+            if block_stripped.startswith("WEBVTT"):
+                for line in block_stripped.split("\n"):
+                    line = line.strip()
+                    if line.startswith("Kind:"):
+                        metadata["kind"] = line.split(":", 1)[1].strip()
+                    elif line.startswith("Language:"):
+                        metadata["language"] = line.split(":", 1)[1].strip()
+                continue
+
+            # REGION block
+            if block_stripped.startswith("REGION"):
+                region: Dict[str, str] = {}
+                for line in block_stripped.split("\n"):
+                    line = line.strip()
+                    if line == "REGION":
+                        continue
+                    if ":" in line:
+                        key, _, value = line.partition(":")
+                        region[key.strip()] = value.strip()
+                if region:
+                    regions.append(region)
+                continue
+
+            # STYLE block — store everything after "STYLE\n"
+            if block_stripped.startswith("STYLE"):
+                style_content = block_stripped[len("STYLE") :].strip()
+                if style_content:
+                    styles.append(style_content)
+                continue
+
+            # NOTE block (multi-line support)
+            if block_stripped.startswith("NOTE"):
+                note_content = block_stripped[len("NOTE") :].strip()
+                if note_content:
+                    # Also extract key:value from single-line notes for backward compat
+                    kv_match = re.match(r"(\w+):\s*(.+)", note_content)
+                    if kv_match and "\n" not in note_content:
+                        metadata[kv_match.group(1).lower()] = kv_match.group(2).strip()
+                    notes.append(note_content)
+                continue
+
+            # Once we hit a cue block (contains -->), stop metadata scan
+            if "-->" in block_stripped:
+                break
+
+        if regions:
+            metadata["vtt_regions"] = regions
+        if styles:
+            metadata["vtt_styles"] = styles
+        if notes:
+            metadata["vtt_notes"] = notes
 
         return metadata
 
     @classmethod
-    def extract_metadata(cls, source, **kwargs) -> Dict[str, str]:
+    def extract_metadata(cls, source, **kwargs) -> Dict[str, Any]:
         """Extract metadata from VTT header. Deprecated: use parse() instead."""
         if cls.is_content(source):
             return cls._extract_header_metadata(source)
         try:
             with open(source, "r", encoding="utf-8") as f:
-                return cls._extract_header_metadata(f.read(4096))
+                return cls._extract_header_metadata(f.read())
         except Exception:
             return {}
 
@@ -358,16 +546,14 @@ class VTTFormat(FormatHandler):
         """Parse VTT in a single pass: supervisions + header metadata."""
         from .base import ParseResult
 
-        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
-        # Extract metadata from the same content
         if cls.is_content(source):
-            header_meta = cls._extract_header_metadata(source)
+            content = source
         else:
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    header_meta = cls._extract_header_metadata(f.read(4096))
-            except Exception:
-                header_meta = {}
+            with open(source, "r", encoding="utf-8") as f:
+                content = f.read()
+
+        supervisions = cls.read(content, normalize_text=normalize_text, **kwargs)
+        header_meta = cls._extract_header_metadata(content)
 
         return ParseResult(
             supervisions=supervisions,
@@ -376,13 +562,12 @@ class VTTFormat(FormatHandler):
             format_metadata=header_meta,
         )
 
+    # =========================================================================
+    # Writer: entry points
+    # =========================================================================
+
     @classmethod
-    def write(
-        cls,
-        supervisions: List[Supervision],
-        output_path,
-        **kwargs,
-    ) -> Path:
+    def write(cls, supervisions: List[Supervision], output_path, **kwargs) -> Path:
         """Write VTT to file."""
         output_path = Path(output_path)
         content = cls.to_bytes(supervisions, **kwargs)
@@ -394,13 +579,15 @@ class VTTFormat(FormatHandler):
         cls,
         supervisions: List[Supervision],
         metadata: Optional[Dict] = None,
+        config=None,
         **kwargs,
     ) -> bytes:
         """Convert to VTT bytes with optional word-level and metadata preservation.
 
         Args:
             supervisions: List of supervision segments
-            metadata: Optional metadata dict containing kind and language
+            metadata: Optional metadata dict (kind, language, vtt_regions, vtt_styles, etc.)
+            config: Optional VTTConfig for output control
 
         Returns:
             VTT content as bytes
@@ -408,12 +595,17 @@ class VTTFormat(FormatHandler):
         from .base import count_supervisions_with_words, resolve_word_level
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
-
         tf = behavior.translation_first
 
-        # VTT defaults to standard segment output (smart_default=False) so
-        # roundtripping a YouTube VTT into plain VTT keeps its historical
-        # behavior. word_level=True forces YouTube VTT inline timestamps.
+        # Resolve VTTConfig
+        from ..config import VTTConfig
+
+        if config is None:
+            config = kwargs.pop("config", None)
+        if config is not None and not isinstance(config, VTTConfig):
+            config = None
+        vtt_config = config or VTTConfig()
+
         n_with = count_supervisions_with_words(supervisions)
         use_word = resolve_word_level(
             word_level,
@@ -424,10 +616,210 @@ class VTTFormat(FormatHandler):
         )
 
         if use_word:
-            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf)
+            return cls._to_youtube_vtt_bytes(supervisions, include_speaker, metadata, tf, vtt_config)
+        return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata, tf, vtt_config)
 
-        # Build VTT with metadata header
-        return cls._to_vtt_bytes_with_metadata(supervisions, include_speaker, metadata, tf)
+    # =========================================================================
+    # Writer: header blocks (REGION, STYLE, NOTE)
+    # =========================================================================
+
+    @classmethod
+    def _write_header(cls, metadata: Optional[Dict], lines: List[str]) -> None:
+        """Write WEBVTT header with Kind, Language, REGION, STYLE, NOTE blocks."""
+        lines.append("WEBVTT")
+
+        if metadata:
+            if metadata.get("kind"):
+                lines.append(f"Kind: {metadata['kind']}")
+            if metadata.get("language"):
+                lines.append(f"Language: {metadata['language']}")
+
+        # REGION blocks
+        if metadata and metadata.get("vtt_regions"):
+            for region in metadata["vtt_regions"]:
+                lines.append("")
+                lines.append("REGION")
+                for key, value in region.items():
+                    lines.append(f"{key}:{value}")
+
+        # STYLE blocks (roundtrip from vtt_styles OR generate from ass_styles)
+        if metadata and metadata.get("vtt_styles"):
+            for style in metadata["vtt_styles"]:
+                lines.append("")
+                lines.append("STYLE")
+                lines.append(style)
+        elif metadata and metadata.get("ass_styles"):
+            style_lines = cls._build_vtt_style_block(metadata)
+            if style_lines:
+                lines.append("")
+                lines.extend(style_lines)
+
+        # NOTE blocks
+        if metadata and metadata.get("vtt_notes"):
+            for note in metadata["vtt_notes"]:
+                lines.append("")
+                if "\n" in note:
+                    lines.append(f"NOTE\n{note}")
+                else:
+                    lines.append(f"NOTE {note}")
+
+        lines.append("")
+
+    # =========================================================================
+    # Writer: cue settings
+    # =========================================================================
+
+    @classmethod
+    def _format_cue_settings(cls, sup: Supervision, vtt_config: Any) -> str:
+        """Build cue settings string from Supervision.custom and VTTConfig defaults.
+
+        Returns empty string or ' key:val key:val ...' (leading space included).
+        """
+        settings: Dict[str, str] = {}
+
+        # Apply defaults from VTTConfig
+        if vtt_config.default_vertical:
+            settings["vertical"] = vtt_config.default_vertical
+        if vtt_config.default_line:
+            settings["line"] = vtt_config.default_line
+        if vtt_config.default_position:
+            settings["position"] = vtt_config.default_position
+        if vtt_config.default_size:
+            settings["size"] = vtt_config.default_size
+        if vtt_config.default_align:
+            settings["align"] = vtt_config.default_align
+
+        # Override with per-supervision custom fields (vtt_align, vtt_line, etc.)
+        custom = getattr(sup, "custom", None)
+        if custom:
+            for key in ("vertical", "line", "position", "size", "align", "region"):
+                vtt_key = f"vtt_{key}"
+                if vtt_key in custom:
+                    settings[key] = custom[vtt_key]
+
+        if not settings:
+            return ""
+
+        # Assemble in W3C spec order
+        parts = []
+        for key in ("vertical", "line", "position", "size", "align", "region"):
+            if key in settings:
+                parts.append(f"{key}:{settings[key]}")
+        return " " + " ".join(parts)
+
+    # =========================================================================
+    # Writer: standard VTT (custom generator, replaces pysubs2)
+    # =========================================================================
+
+    @classmethod
+    def _to_vtt_bytes_with_metadata(
+        cls,
+        supervisions: List[Supervision],
+        include_speaker: bool = True,
+        metadata: Optional[Dict] = None,
+        translation_first: bool = False,
+        vtt_config: Any = None,
+    ) -> bytes:
+        """Generate standard VTT with full feature support."""
+        from ..config import VTTConfig
+        from .base import render_bilingual_text
+
+        vtt_config = vtt_config or VTTConfig()
+        lines: List[str] = []
+
+        cls._write_header(metadata, lines)
+
+        for idx, sup in enumerate(supervisions, 1):
+            text = render_bilingual_text(sup, translation_first=translation_first)
+
+            # Speaker: voice tag or prefix
+            if cls._should_include_speaker(sup, include_speaker):
+                if vtt_config.voice_tag:
+                    text = f"<v {sup.speaker}>{text}</v>"
+                else:
+                    text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
+
+            # Timestamp line with cue settings
+            ts_line = (
+                f"{cls._format_timestamp(sup.start)} --> "
+                f"{cls._format_timestamp(sup.end)}"
+                f"{cls._format_cue_settings(sup, vtt_config)}"
+            )
+
+            lines.append(str(idx))
+            lines.append(ts_line)
+            lines.append(text)
+            lines.append("")
+
+        return "\n".join(lines).encode("utf-8")
+
+    # =========================================================================
+    # Writer: YouTube VTT (word-level timestamps)
+    # =========================================================================
+
+    @classmethod
+    def _to_youtube_vtt_bytes(
+        cls,
+        supervisions: List[Supervision],
+        include_speaker: bool = True,
+        metadata: Optional[Dict] = None,
+        translation_first: bool = False,
+        vtt_config: Any = None,
+    ) -> bytes:
+        """Generate YouTube VTT format with word-level timestamps.
+
+        Format: <00:00:10.559><c> word</c>
+        """
+        from ..config import VTTConfig
+        from .base import render_bilingual_text
+
+        vtt_config = vtt_config or VTTConfig()
+        lines: List[str] = []
+
+        cls._write_header(metadata, lines)
+
+        for sup in sorted(supervisions, key=lambda x: x.start):
+            text = sup.text or ""
+            alignment = getattr(sup, "alignment", None)
+            words = alignment.get("word") if alignment else None
+
+            cue_settings_str = cls._format_cue_settings(sup, vtt_config)
+
+            if words:
+                cue_start = words[0].start
+                cue_end = words[-1].end
+                lines.append(
+                    f"{cls._format_timestamp(cue_start)} --> "
+                    f"{cls._format_timestamp(cue_end)}{cue_settings_str}"
+                )
+
+                text_parts: List[str] = []
+                if include_speaker and sup.speaker == ">>":
+                    text_parts.append(">> ")
+                for i, word in enumerate(words):
+                    symbol = word.symbol
+                    if i == 0 and include_speaker and sup.speaker and sup.speaker != ">>":
+                        sep = " " if sup.speaker == ">>" else ": "
+                        symbol = f"{sup.speaker}{sep}{symbol}"
+                    text_parts.append(f"<{cls._format_timestamp(word.start)}><c> {symbol}</c>")
+                lines.append("".join(text_parts))
+            else:
+                text = render_bilingual_text(sup, translation_first=translation_first)
+                lines.append(
+                    f"{cls._format_timestamp(sup.start)} --> "
+                    f"{cls._format_timestamp(sup.end)}{cue_settings_str}"
+                )
+                if include_speaker and sup.speaker:
+                    sep = " " if sup.speaker == ">>" else ": "
+                    text = f"{sup.speaker}{sep}{text}"
+                lines.append(text)
+            lines.append("")
+
+        return "\n".join(lines).encode("utf-8")
+
+    # =========================================================================
+    # Writer: ASS-to-CSS style conversion
+    # =========================================================================
 
     @staticmethod
     def _ass_color_to_css(ass_color: str) -> str:
@@ -477,121 +869,3 @@ class VTTFormat(FormatHandler):
         if not props:
             return []
         return ["STYLE", "::cue {"] + props + ["}"]
-
-    @classmethod
-    def _to_vtt_bytes_with_metadata(
-        cls,
-        supervisions: List[Supervision],
-        include_speaker: bool = True,
-        metadata: Optional[Dict] = None,
-        translation_first: bool = False,
-    ) -> bytes:
-        """Generate VTT with metadata header and optional STYLE block."""
-        lines = ["WEBVTT"]
-
-        if metadata:
-            if metadata.get("kind"):
-                lines.append(f"Kind: {metadata['kind']}")
-            if metadata.get("language"):
-                lines.append(f"Language: {metadata['language']}")
-
-        # Inject STYLE block from ass_styles metadata
-        if metadata and metadata.get("ass_styles"):
-            lines.append("")
-            lines.extend(cls._build_vtt_style_block(metadata))
-
-        lines.append("")
-
-        from .base import render_bilingual_text
-
-        subs = pysubs2.SSAFile()
-        for sup in supervisions:
-            text = render_bilingual_text(sup, translation_first=translation_first)
-            if cls._should_include_speaker(sup, include_speaker):
-                text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
-            subs.append(
-                pysubs2.SSAEvent(
-                    start=int(sup.start * 1000),
-                    end=int(sup.end * 1000),
-                    text=text,
-                    name=sup.speaker or "",
-                )
-            )
-
-        vtt_content = subs.to_string(format_="vtt")
-        vtt_lines = vtt_content.split("\n")
-        started = False
-        for line in vtt_lines[1:]:
-            if not started and not line.strip():
-                continue
-            started = True
-            lines.append(line)
-
-        return "\n".join(lines).encode("utf-8")
-
-    @classmethod
-    def _to_youtube_vtt_bytes(
-        cls,
-        supervisions: List[Supervision],
-        include_speaker: bool = True,
-        metadata: Optional[Dict] = None,
-        translation_first: bool = False,
-    ) -> bytes:
-        """Generate YouTube VTT format with word-level timestamps.
-
-        Format: <00:00:10.559><c> word</c>
-        """
-
-        def format_timestamp(seconds: float) -> str:
-            """Format seconds into HH:MM:SS.mmm."""
-            h = int(seconds // 3600)
-            m = int((seconds % 3600) // 60)
-            s = int(seconds % 60)
-            ms = int(round((seconds % 1) * 1000))
-            if ms == 1000:
-                s += 1
-                ms = 0
-            return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
-
-        lines = ["WEBVTT"]
-
-        if metadata:
-            if metadata.get("kind"):
-                lines.append(f"Kind: {metadata['kind']}")
-            if metadata.get("language"):
-                lines.append(f"Language: {metadata['language']}")
-
-        lines.append("")
-
-        for sup in sorted(supervisions, key=lambda x: x.start):
-            text = sup.text or ""
-            alignment = getattr(sup, "alignment", None)
-            words = alignment.get("word") if alignment else None
-
-            if words:
-                cue_start = words[0].start
-                cue_end = words[-1].end
-                lines.append(f"{format_timestamp(cue_start)} --> {format_timestamp(cue_end)}")
-
-                text_parts = []
-                if include_speaker and sup.speaker == ">>":
-                    text_parts.append(">> ")
-                for i, word in enumerate(words):
-                    symbol = word.symbol
-                    if i == 0 and include_speaker and sup.speaker and sup.speaker != ">>":
-                        sep = " " if sup.speaker == ">>" else ": "
-                        symbol = f"{sup.speaker}{sep}{symbol}"
-                    text_parts.append(f"<{format_timestamp(word.start)}><c> {symbol}</c>")
-                lines.append("".join(text_parts))
-            else:
-                from .base import render_bilingual_text
-
-                text = render_bilingual_text(sup, translation_first=translation_first)
-                lines.append(f"{format_timestamp(sup.start)} --> {format_timestamp(sup.end)}")
-                if include_speaker and sup.speaker:
-                    sep = " " if sup.speaker == ">>" else ": "
-                    text = f"{sup.speaker}{sep}{text}"
-                lines.append(text)
-            lines.append("")
-
-        return "\n".join(lines).encode("utf-8")

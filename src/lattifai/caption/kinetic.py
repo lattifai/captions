@@ -508,6 +508,49 @@ def resolve_kinetic(
     raise ValueError(f"kinetic preset {style!r} has no implementation")
 
 
+def rebase_kinetic_impl(
+    impl: KineticImpl,
+    scaley: float = 100.0,
+    angle: float = 0.0,
+) -> KineticImpl:
+    r"""Adjust a KineticImpl's ASS override tags to honour non-default baselines.
+
+    Presets are authored with scaley=100 and angle=0 as implicit baselines.
+    When the user sets different values, this function rewrites the tags:
+
+        \fscy{N}  -> \fscy{round(N * scaley / 100)}   (multiplicative)
+        \frz{N}   -> \frz{round(N + angle)}            (additive)
+
+    Returns a new KineticImpl (the original is frozen/immutable).
+    If both scaley==100 and angle==0, returns the original unchanged.
+    """
+    if scaley == 100.0 and angle == 0.0:
+        return impl
+
+    import re
+
+    def _rebase_tags(tags: str) -> str:
+        if scaley != 100.0:
+            tags = re.sub(
+                r"\\fscy(-?\d+(?:\.\d+)?)",
+                lambda m: f"\\fscy{round(float(m.group(1)) * scaley / 100)}",
+                tags,
+            )
+        if angle != 0.0:
+            tags = re.sub(
+                r"\\frz(-?\d+(?:\.\d+)?)",
+                lambda m: f"\\frz{round(float(m.group(1)) + angle)}",
+                tags,
+            )
+        return tags
+
+    new_initial = _rebase_tags(impl.initial)
+    new_transitions = tuple(
+        (t1, t2, _rebase_tags(tags)) for t1, t2, tags in impl.transitions
+    )
+    return KineticImpl(initial=new_initial, transitions=new_transitions)
+
+
 def build_line_override(impl: KineticImpl) -> str:
     """Render a line-scope impl as a single ASS override block body.
 

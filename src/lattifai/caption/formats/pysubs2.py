@@ -589,6 +589,8 @@ class ASSFormat(Pysubs2Format):
                     karaoke_effect,
                     original_text=sup.text,
                     kinetic_style=config.kinetic_style,
+                    scaley=config.scaley,
+                    angle=config.angle,
                 )
                 karaoke_text = karaoke_text.replace("\n", "\\N")
                 if cls._should_include_speaker(sup, include_speaker):
@@ -663,11 +665,12 @@ class ASSFormat(Pysubs2Format):
                         text = f"{prefix}{text}"
 
                 if config.kinetic_style is not None:
-                    from ..kinetic import build_line_override, resolve_kinetic
+                    from ..kinetic import build_line_override, rebase_kinetic_impl, resolve_kinetic
 
                     resolved = resolve_kinetic(config.kinetic_style, word_level=False)
                     if resolved is not None:
                         scope, impl = resolved
+                        impl = rebase_kinetic_impl(impl, scaley=config.scaley, angle=config.angle)
                         # resolve_kinetic with word_level=False only returns
                         # scope="line" or raises — so we are safe to prepend.
                         override = build_line_override(impl)
@@ -801,21 +804,41 @@ class ASSFormat(Pysubs2Format):
         """
         alignment = pysubs2.Alignment(config.alignment)
 
-        # When background_color is set, switch to borderstyle=3 (opaque box)
-        # ASS borderstyle=3 semantics:
-        #   OutlineColour = opaque box FILL color
+        # Resolve borderstyle: explicit config value takes precedence,
+        # otherwise auto-derive from background_color.
+        #
+        # ASS borderstyle=3 (opaque box) semantics:
+        #   OutlineColour = box FILL color
         #   BackColour    = box shadow color
+        #   Outline       = box padding (libass won't render box if 0)
+        _BOX_PADDING_DEFAULT = 4
+
         has_bg = bool(config.background_color)
-        if has_bg:
-            outline_clr = cls._hex_to_ass_color(config.background_color)
-            back = cls._hex_to_ass_color(config.back_color)
-            borderstyle = 3
-            shadow = 0
+
+        if config.borderstyle is not None:
+            # Explicit borderstyle — user controls low-level ASS behavior
+            borderstyle = config.borderstyle
         else:
+            # Auto-derive: borderstyle=3 when background_color is set
+            borderstyle = 3 if has_bg else 1
+
+        is_box_mode = borderstyle == 3
+
+        if is_box_mode and has_bg:
+            # High-level path: background_color drives box fill
+            outline_clr = cls._hex_to_ass_color(config.background_color)
+        else:
+            # Low-level path: outline_color maps directly to OutlineColour
             outline_clr = cls._hex_to_ass_color(config.outline_color)
-            back = cls._hex_to_ass_color(config.back_color)
-            borderstyle = 1
+
+        back = cls._hex_to_ass_color(config.back_color)
+
+        if is_box_mode:
+            shadow = 0
+            outline = config.outline_width if config.outline_width > 0 else _BOX_PADDING_DEFAULT
+        else:
             shadow = config.shadow_depth
+            outline = config.outline_width
 
         return pysubs2.SSAStyle(
             fontname=config.font_name,
@@ -826,7 +849,13 @@ class ASSFormat(Pysubs2Format):
             backcolor=back,
             bold=config.bold,
             italic=config.italic,
-            outline=config.outline_width,
+            underline=config.underline,
+            strikeout=config.strikeout,
+            scalex=config.scalex,
+            scaley=config.scaley,
+            spacing=config.spacing,
+            angle=config.angle,
+            outline=outline,
             shadow=shadow,
             borderstyle=borderstyle,
             alignment=alignment,
@@ -870,6 +899,8 @@ class ASSFormat(Pysubs2Format):
         effect: str = "sweep",
         original_text: str = "",
         kinetic_style: Optional[str] = None,
+        scaley: float = 100.0,
+        angle: float = 0.0,
     ) -> str:
         """Build karaoke tag text with gap-aware timing and optional kinetic motion.
 
@@ -899,6 +930,7 @@ class ASSFormat(Pysubs2Format):
             build_word_overrides,
             expand_stagger_word,
             is_char_level_style,
+            rebase_kinetic_impl,
             resolve_kinetic,
         )
 
@@ -931,6 +963,7 @@ class ASSFormat(Pysubs2Format):
         resolved = resolve_kinetic(kinetic_style, word_level=True)
         if resolved is not None:
             scope, impl = resolved
+            impl = rebase_kinetic_impl(impl, scaley=scaley, angle=angle)
             if scope == "line":
                 override = build_line_override(impl)
                 if override:

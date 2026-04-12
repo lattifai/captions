@@ -74,6 +74,26 @@ class TestASSBackgroundColor:
         fields = default_style[0].split(",")
         assert fields[15].strip() == "3"  # borderstyle field index 15
 
+    def test_background_auto_padding(self):
+        """borderstyle=3 with default outline_width=0 should auto-set outline > 0 for box padding."""
+        config = ASSConfig(background_color="#00000080")
+        result = self._write_ass(_make_sups(), config=config)
+        lines = result.split("\n")
+        default_style = [l for l in lines if l.startswith("Style: Default")]
+        fields = default_style[0].split(",")
+        outline = float(fields[16].strip())  # Outline field index 16
+        assert outline > 0, f"Outline should be > 0 for box padding in borderstyle=3, got {outline}"
+
+    def test_background_explicit_outline_preserved(self):
+        """User-specified outline_width should be preserved even in borderstyle=3."""
+        config = ASSConfig(background_color="#00000080", outline_width=6)
+        result = self._write_ass(_make_sups(), config=config)
+        lines = result.split("\n")
+        default_style = [l for l in lines if l.startswith("Style: Default")]
+        fields = default_style[0].split(",")
+        outline = float(fields[16].strip())
+        assert outline == 6.0
+
     def test_alpha_background_inverted(self):
         """#RRGGBBAA alpha is inverted for ASS (FF=opaque -> 00 in ASS)."""
         from lattifai.caption.formats.pysubs2 import ASSFormat
@@ -171,3 +191,47 @@ class TestNonKaraokeBackgroundColor:
         fields = default_style[0].split(",")
         borderstyle = fields[15].strip()
         assert borderstyle == "1"
+
+
+class TestBorderStyleField:
+    """Explicit borderstyle field on ASSConfig."""
+
+    def _get_style_fields(self, config):
+        from lattifai.caption.formats.pysubs2 import ASSFormat
+
+        result = ASSFormat.to_bytes(_make_sups(), config=config).decode("utf-8")
+        lines = result.split("\n")
+        default_style = [l for l in lines if l.startswith("Style: Default")][0]
+        return default_style.split(",")
+
+    def test_default_is_none(self):
+        """borderstyle defaults to None (auto-derive)."""
+        config = ASSConfig()
+        assert config.borderstyle is None
+
+    def test_auto_derive_no_bg(self):
+        """borderstyle=None without background_color -> output borderstyle=1."""
+        fields = self._get_style_fields(ASSConfig())
+        assert fields[15].strip() == "1"
+
+    def test_auto_derive_with_bg(self):
+        """borderstyle=None with background_color -> output borderstyle=3."""
+        fields = self._get_style_fields(ASSConfig(background_color="#000000"))
+        assert fields[15].strip() == "3"
+
+    def test_explicit_borderstyle_3_no_bg(self):
+        """Explicit borderstyle=3 without background_color -> low-level ASS box mode.
+
+        outlinecolor is used as box fill (from outline_color), not background_color.
+        """
+        config = ASSConfig(borderstyle=3, outline_color="#FF0000")
+        fields = self._get_style_fields(config)
+        assert fields[15].strip() == "3"
+        # OutlineColour should be from outline_color (red), not background_color
+        assert "0000FF" in fields[5]  # ASS uses BGR, red = 0000FF
+
+    def test_explicit_borderstyle_1_overrides_bg(self):
+        """Explicit borderstyle=1 takes precedence over background_color."""
+        config = ASSConfig(borderstyle=1, background_color="#000000")
+        fields = self._get_style_fields(config)
+        assert fields[15].strip() == "1"

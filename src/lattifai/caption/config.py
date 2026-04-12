@@ -108,12 +108,38 @@ class ASSConfig:
     italic: bool = False
     """Enable italic text."""
 
+    underline: bool = False
+    """Enable underline text."""
+
+    strikeout: bool = False
+    """Enable strikeout (strikethrough) text."""
+
+    scalex: float = 100.0
+    """Horizontal text scaling (%). 100=normal."""
+
+    scaley: float = 100.0
+    """Vertical text scaling (%). 100=normal.
+    Kinetic presets (zoom, rise, bounce, etc.) use this as their baseline."""
+
+    spacing: float = 0.0
+    """Extra inter-character spacing (px). 0=normal."""
+
+    angle: float = 0.0
+    """Text rotation angle (degrees, counterclockwise). 0=normal.
+    Kinetic presets (shake, swing, wave) use this as their baseline."""
+
     background_color: str = ""
     """Subtitle background box color (#RRGGBB or #RRGGBBAA).
-    When set, switches to borderstyle=3 (opaque box)."""
+    When set and borderstyle is None, auto-switches to borderstyle=3 (opaque box)."""
+
+    borderstyle: Optional[int] = None
+    """ASS BorderStyle (1=outline+shadow, 3=opaque box).
+    None=auto-derive: borderstyle=3 when background_color is set, else 1.
+    Explicit value takes precedence over background_color logic."""
 
     outline_width: float = 0
-    """Outline thickness (px). Recommended 2.0-2.5 for karaoke."""
+    """Outline thickness (px). Recommended 2.0-2.5 for karaoke.
+    In borderstyle=3 (opaque box) this controls box padding."""
 
     shadow_depth: float = 1.0
     """Shadow distance (px). Set to 0 for karaoke."""

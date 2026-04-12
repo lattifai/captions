@@ -83,3 +83,4 @@ dmypy.json
 .pyright/
 
 docs/
+.claude/

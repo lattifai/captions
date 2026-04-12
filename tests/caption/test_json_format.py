@@ -48,7 +48,7 @@ class TestJSONDocumentMetadata:
     def test_read_preserves_language(self, tmp_path):
         """Top-level 'language' field must be loaded into Caption.language."""
         json_file = tmp_path / "test.json"
-        json_file.write_text(json.dumps(V2_DOC_WITH_LANGUAGE, ensure_ascii=False))
+        json_file.write_text(json.dumps(V2_DOC_WITH_LANGUAGE, ensure_ascii=False), encoding="utf-8")
 
         caption = Caption.read(json_file)
 
@@ -59,7 +59,7 @@ class TestJSONDocumentMetadata:
     def test_read_preserves_metadata(self, tmp_path):
         """Top-level 'metadata' dict must be loaded into Caption.metadata."""
         json_file = tmp_path / "test.json"
-        json_file.write_text(json.dumps(V2_DOC_WITH_LANGUAGE, ensure_ascii=False))
+        json_file.write_text(json.dumps(V2_DOC_WITH_LANGUAGE, ensure_ascii=False), encoding="utf-8")
 
         caption = Caption.read(json_file)
 
@@ -74,7 +74,7 @@ class TestJSONDocumentMetadata:
         doc["target_lang"] = "en"
 
         json_file = tmp_path / "test.json"
-        json_file.write_text(json.dumps(doc, ensure_ascii=False))
+        json_file.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
 
         caption = Caption.read(json_file)
 
@@ -83,7 +83,7 @@ class TestJSONDocumentMetadata:
     def test_read_supervisions_still_work(self, tmp_path):
         """Regression: supervision parsing must still work alongside metadata."""
         json_file = tmp_path / "test.json"
-        json_file.write_text(json.dumps(V2_DOC_WITH_LANGUAGE, ensure_ascii=False))
+        json_file.write_text(json.dumps(V2_DOC_WITH_LANGUAGE, ensure_ascii=False), encoding="utf-8")
 
         caption = Caption.read(json_file)
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.5 - 2026-04-12
+
+### Features
+- ASS: add `borderstyle`, `scalex`, `scaley`, `spacing`, `angle`, `underline`, `strikeout` fields to `ASSConfig`
+
+### Fixes
+- Kinetic: use `\rKaraoke` to isolate word-scope animations from parent style bleed
+- Bump default ASS font size from 48 to 64
+
 ## 0.4.1 - 2026-04-07
 
 ### BREAKING CHANGES

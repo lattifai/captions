@@ -439,6 +439,21 @@ class ASSFormat(Pysubs2Format):
     description = "Advanced SubStation Alpha - rich styling support"
 
     @classmethod
+    def _should_include_speaker(cls, sup, include_speaker, tracker=None):
+        """ASS has a dedicated ``Name`` event field that already carries the
+        speaker. When the supervision was read from ASS (``ass_raw_text`` is
+        present), roundtripping ``include_speaker_in_text=True`` would
+        produce a duplicate ``Name: text`` prefix inside the text body.
+        Suppress the text-level prefix for ASS-sourced supervisions;
+        downstream callers that genuinely want an inline prefix can clear
+        ``custom['ass_raw_text']`` before writing.
+        """
+        custom = getattr(sup, "custom", None) or {}
+        if "ass_raw_text" in custom:
+            return False
+        return super()._should_include_speaker(sup, include_speaker, tracker)
+
+    @classmethod
     def read(
         cls,
         source,
@@ -631,8 +646,16 @@ class ASSFormat(Pysubs2Format):
         if candidates:
             set_speaker_candidates(set())
 
-        # Extract raw [Script Info] section for roundtrip preservation
-        ass_info_raw = cls._extract_raw_script_info(content)
+        # Extract raw section bodies for byte-faithful roundtrip preservation.
+        # pysubs2 re-serializes Script Info / Styles / Events headers and drops:
+        #   - non-standard comment lines in Script Info
+        #   - trailing ``.0`` on Style floats (100.0 → 100)
+        #   - original Format line ordering in [Events]
+        # Capturing the raw text lets writers splice it back in verbatim.
+        raw_sections = cls._extract_raw_sections(content)
+        ass_info_raw = raw_sections.get("script_info", "")
+        ass_styles_raw = raw_sections.get("styles", "")
+        ass_events_format_raw = raw_sections.get("events_format", "")
 
         # --- Extract styles/info metadata from the SAME subs object ---
         styles_dict = {}
@@ -670,6 +693,10 @@ class ASSFormat(Pysubs2Format):
         }
         if ass_info_raw:
             format_metadata["ass_info_raw"] = ass_info_raw
+        if ass_styles_raw:
+            format_metadata["ass_styles_raw"] = ass_styles_raw
+        if ass_events_format_raw:
+            format_metadata["ass_events_format_raw"] = ass_events_format_raw
         if detected_encoding:
             format_metadata["encoding"] = detected_encoding
 
@@ -679,27 +706,78 @@ class ASSFormat(Pysubs2Format):
         )
 
     @staticmethod
-    def _extract_raw_script_info(content: str) -> str:
-        """Extract raw [Script Info] section from ASS content.
+    def _extract_raw_sections(content: str) -> Dict[str, str]:
+        """Extract raw body text for each ASS section for roundtrip fidelity.
 
-        Returns everything from [Script Info] up to (not including) the next
-        section header like [V4+ Styles] or [V4 Styles] or [Events].
+        Returns a dict with up to three keys:
+          - ``script_info``: full ``[Script Info]`` block (header + body)
+          - ``styles``: full ``[V4+ Styles]`` or ``[V4 Styles]`` block
+          - ``events_format``: only the ``Format:`` line from ``[Events]``
+            (Dialogue/Comment lines are NOT captured — they will be
+            re-serialized by the writer after supervisions are mutated)
+
+        Section bodies preserve each line's trailing ``\\r`` when the source
+        uses CRLF, so callers can splice them back verbatim.
         """
+        # Split on ``\n`` only so CRLF sources keep ``\r`` at EOL. This is
+        # intentional: preserving the carriage return lets roundtrip output
+        # match byte-for-byte.
         lines = content.split("\n")
-        info_lines = []
-        in_section = False
+
+        out: Dict[str, str] = {}
+        current: Optional[str] = None
+        buf: list = []
+
+        def flush() -> None:
+            if current and buf:
+                out[current] = "\n".join(buf)
+            buf.clear()
+
         for line in lines:
             stripped = line.strip()
-            if stripped.lower() == "[script info]":
-                in_section = True
-                info_lines.append(line)
+            low = stripped.lower()
+            # Section boundaries
+            if low == "[script info]":
+                flush()
+                current = "script_info"
+                buf.append(line)
                 continue
-            if in_section:
-                # Stop at next section header
-                if stripped.startswith("[") and stripped.endswith("]"):
-                    break
-                info_lines.append(line)
-        return "\n".join(info_lines) if info_lines else ""
+            if low in ("[v4+ styles]", "[v4 styles]"):
+                flush()
+                current = "styles"
+                buf.append(line)
+                continue
+            if low == "[events]":
+                flush()
+                current = "events_header"  # collect only until Format: line
+                buf.append(line)
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                # Unknown section — stop capturing
+                flush()
+                current = None
+                continue
+
+            if current == "events_header":
+                # In [Events], only capture up to and including the Format: line.
+                # Dialogue/Comment will be re-serialized, so stop after Format.
+                buf.append(line)
+                if stripped.lower().startswith("format:"):
+                    out["events_format"] = "\n".join(buf)
+                    buf.clear()
+                    current = None
+                continue
+
+            if current:
+                buf.append(line)
+
+        flush()
+        return out
+
+    @staticmethod
+    def _extract_raw_script_info(content: str) -> str:
+        """Backward-compatible wrapper: delegate to _extract_raw_sections."""
+        return Pysubs2Format._extract_raw_sections(content).get("script_info", "")
 
     @staticmethod
     def _color_to_str(color: pysubs2.Color) -> str:
@@ -931,11 +1009,34 @@ class ASSFormat(Pysubs2Format):
 
         output = subs.to_string(format_="ass")
 
-        # Restore original [Script Info] section for roundtrip fidelity
-        if metadata and metadata.get("ass_info_raw"):
-            output = cls._replace_script_info(output, metadata["ass_info_raw"])
+        # Restore original section bodies for byte-faithful roundtrip.
+        # Order matters: splice sections first, then normalize line endings
+        # and BOM as a post-pass so every substituted region ends up with the
+        # source file's terminator style.
+        if metadata:
+            if metadata.get("ass_info_raw"):
+                output = cls._replace_script_info(output, metadata["ass_info_raw"])
+            if metadata.get("ass_styles_raw"):
+                output = cls._replace_styles_section(output, metadata["ass_styles_raw"])
+            if metadata.get("ass_events_format_raw"):
+                output = cls._replace_events_format(output, metadata["ass_events_format_raw"])
 
-        return output.encode("utf-8")
+        # Normalize to LF internally, then apply source terminator uniformly.
+        # Raw section bodies may already contain CR (when source was CRLF);
+        # strip them first so we never emit "\r\r\n" downstream.
+        output = output.replace("\r\n", "\n")
+        line_terminator = (metadata or {}).get("line_terminator", "\n")
+        if line_terminator == "\r\n":
+            output = output.replace("\n", "\r\n")
+
+        raw_bytes = output.encode("utf-8")
+
+        # Re-emit UTF-8 BOM when source file had one (``encoding='utf-8-sig'``).
+        # Other encodings are handled by the caller when writing to disk.
+        if (metadata or {}).get("encoding") == "utf-8-sig":
+            raw_bytes = b"\xef\xbb\xbf" + raw_bytes
+
+        return raw_bytes
 
     DEFAULT_FONTSIZE = 64.0
 
@@ -958,6 +1059,98 @@ class ASSFormat(Pysubs2Format):
                     in_section = False
                     result.append(line)
                 # Skip pysubs2-generated Script Info lines (replaced by raw)
+                continue
+            result.append(line)
+        return "\n".join(result) if replaced else ass_output
+
+    @staticmethod
+    def _replace_styles_section(ass_output: str, raw_styles: str) -> str:
+        """Replace pysubs2-generated [V4+ Styles] block with the original raw text.
+
+        Skips every pysubs2-emitted line from ``[V4+ Styles]`` (or ``[V4 Styles]``)
+        up to the next section header, substituting the captured raw block.
+        The raw block already carries its own section header.
+
+        If pysubs2 emits additional styles not present in the raw block (e.g.
+        a newly-added ``Karaoke`` style via ``ASSConfig.karaoke_effect``), those
+        lines are appended after the raw block to avoid silent loss.
+        """
+        lines = ass_output.split("\n")
+        result = []
+        in_section = False
+        replaced = False
+        extra_styles = []
+        raw_style_names = set()
+        # Parse style names already present in raw_styles to detect extras.
+        for ln in raw_styles.split("\n"):
+            s = ln.strip()
+            if s.lower().startswith("style:"):
+                # Style: Name,...
+                name = s[len("Style:") :].split(",", 1)[0].strip()
+                if name:
+                    raw_style_names.add(name)
+
+        for line in lines:
+            stripped = line.strip()
+            low = stripped.lower()
+            if low in ("[v4+ styles]", "[v4 styles]"):
+                in_section = True
+                result.append(raw_styles)
+                replaced = True
+                continue
+            if in_section:
+                if stripped.startswith("[") and stripped.endswith("]"):
+                    in_section = False
+                    # Flush any extra styles before the next section header.
+                    for es in extra_styles:
+                        result.append(es)
+                    extra_styles.clear()
+                    result.append(line)
+                    continue
+                # Inside the replaced block: skip pysubs2-emitted Format/Style
+                # lines, but capture any Style whose name is NOT in raw so we
+                # can append it (e.g. pysubs2 added "Karaoke" at render time).
+                if low.startswith("style:"):
+                    name = stripped[len("Style:") :].split(",", 1)[0].strip()
+                    if name and name not in raw_style_names:
+                        extra_styles.append(line)
+                continue
+            result.append(line)
+
+        # If the file ended while still inside the replaced section.
+        if in_section:
+            for es in extra_styles:
+                result.append(es)
+
+        return "\n".join(result) if replaced else ass_output
+
+    @staticmethod
+    def _replace_events_format(ass_output: str, raw_events_format: str) -> str:
+        """Replace pysubs2-generated [Events] header + Format line with raw.
+
+        Only touches the section header and its Format line — Dialogue /
+        Comment lines are left in place (they reflect mutated supervisions).
+        """
+        lines = ass_output.split("\n")
+        result = []
+        in_section = False
+        replaced = False
+        header_emitted = False
+        for line in lines:
+            stripped = line.strip()
+            low = stripped.lower()
+            if low == "[events]":
+                in_section = True
+                result.append(raw_events_format)
+                replaced = True
+                header_emitted = True
+                continue
+            if in_section and not header_emitted:
+                # Already emitted via raw block above; defensive branch.
+                header_emitted = True
+                continue
+            if in_section and low.startswith("format:"):
+                # Skip pysubs2's Format line — already in raw.
                 continue
             result.append(line)
         return "\n".join(result) if replaced else ass_output
@@ -1061,10 +1254,30 @@ class ASSFormat(Pysubs2Format):
         # Roundtrip: restore original ASS text with override tags if unchanged
         ass_raw = custom.get("ass_raw_text")
         if ass_raw:
-            # Derive plaintext from raw to compare with current text
-            # pysubs2 uses \N for line breaks; plaintext converts to \n
-            raw_plain = re.sub(r"\{[^}]*\}", "", ass_raw).replace("\\N", "\n").strip()
-            current_plain = text.replace("\\N", "\n").strip()
+            # Derive plaintext from raw to compare with current text.
+            # pysubs2 uses \N for line breaks; plaintext converts to \n.
+            # Collapse runs of inner whitespace on BOTH sides so that the
+            # reader's ``normalize_text`` pass (which folds "  " into " ")
+            # does not block the raw-text restoration path. Without this,
+            # YYeTs-style double-spaced dialogue would lose the original
+            # spacing on every roundtrip.
+            def _norm(s: str) -> str:
+                # Mirror the ASS reader's ``normalize_text`` pipeline so
+                # roundtrip comparison ignores cosmetic whitespace drift
+                # that the reader itself introduced:
+                #   1) drop override tag blocks
+                #   2) treat \N as a logical newline
+                #   3) collapse runs of non-newline whitespace to one space
+                #   4) strip whitespace around newlines
+                #   5) strip start/end whitespace
+                s = re.sub(r"\{[^}]*\}", "", s)
+                s = s.replace("\\N", "\n")
+                s = re.sub(r"[^\S\n]+", " ", s)
+                s = re.sub(r" *\n *", "\n", s)
+                return s.strip()
+
+            raw_plain = _norm(ass_raw)
+            current_plain = _norm(text)
             if raw_plain == current_plain:
                 text = ass_raw
             else:

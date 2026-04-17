@@ -276,8 +276,8 @@ class Pysubs2Format(FormatHandler):
 
             subs.append(
                 pysubs2.SSAEvent(
-                    start=int(sup.start * 1000),
-                    end=int(sup.end * 1000),
+                    start=round(sup.start * 1000),
+                    end=round(sup.end * 1000),
                     text=text,
                     name=sup.speaker or "",
                 )
@@ -306,20 +306,55 @@ class SRTFormat(Pysubs2Format):
     # Font-wrapped speaker: <font color="...">Name: </font>
     _FONT_SPEAKER_RE = re.compile(r'<font\s+color="[^"]*">([^<]+?):\s*</font>')
 
+    # SRT cue header: "<idx>\n<HH:MM:SS,mmm> --> <HH:MM:SS,mmm>"
+    _SRT_CUE_HEADER_RE = re.compile(
+        r"^\s*(\d+)\s*\r?\n"
+        r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})[^\r\n]*\r?\n",
+        re.MULTILINE,
+    )
+
+    @staticmethod
+    def _extract_srt_raw_texts(content: str) -> List[str]:
+        """Extract raw text body for each SRT cue (preserving ASS override tags).
+
+        pysubs2's SRT parser strips inline ``{\\an1}{\\pos(...)}`` override tags
+        and collapses whitespace on read. Subtitle groups rely on these tags to
+        position sign/credit/title lines. We capture the original text body per
+        cue here so the writer can splice it back verbatim on roundtrip.
+
+        Returns one raw-text string per cue, in source order. Multi-line bodies
+        keep their ``\\n`` separators.
+        """
+        # Strip BOM if present (only at file start)
+        if content.startswith("\ufeff"):
+            content = content[1:]
+
+        raw_texts: List[str] = []
+        matches = list(SRTFormat._SRT_CUE_HEADER_RE.finditer(content))
+        for i, m in enumerate(matches):
+            body_start = m.end()
+            body_end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+            body = content[body_start:body_end]
+            # Strip the trailing blank-line delimiter (one blank line between cues)
+            body = re.sub(r"(\r?\n)+\s*$", "", body)
+            # Normalize CRLF → LF within body; writer restores terminator from metadata
+            body = body.replace("\r\n", "\n")
+            raw_texts.append(body)
+        return raw_texts
+
     @classmethod
     def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read SRT with font-wrapped speaker color support.
+        """Read SRT with font-wrapped speaker color + raw-text preservation.
 
-        Extracts speaker names from <font color>Speaker: </font> patterns
-        and adds them to the speaker candidate set so parse_speaker_text
-        can recognize them after pysubs2 strips the <font> tags.
+        Preserves ``{\\an1}{\\pos(...)}`` style override tags (used by subtitle
+        groups for sign/credit/title positioning) in ``supervision.custom['srt_raw_text']``
+        so roundtrip writes can restore them verbatim.
         """
-        # Get raw content to extract font-wrapped speakers
+        # Get raw content to extract font-wrapped speakers + raw cue texts
         if cls.is_content(source):
             raw = source
         else:
-            with open(str(source), "r", encoding="utf-8") as f:
-                raw = f.read()
+            raw, _ = detect_file_encoding(Path(str(source)))
 
         # Extract speaker names from <font color="...">Name: </font> patterns
         font_speakers = set(cls._FONT_SPEAKER_RE.findall(raw))
@@ -328,10 +363,20 @@ class SRTFormat(Pysubs2Format):
             # title-case names like "Alice:" even with fewer than 3 occurrences
             set_speaker_candidates(font_speakers)
 
+        # Extract raw cue texts before pysubs2 strips override tags
+        raw_texts = cls._extract_srt_raw_texts(raw)
+
         result = super().read(source, normalize_text=normalize_text, **kwargs)
 
         if font_speakers:
             set_speaker_candidates(set())
+
+        # Attach raw_text per-cue (order-aligned with pysubs2 events)
+        if len(raw_texts) == len(result):
+            for sup, raw_text in zip(result, raw_texts):
+                if sup.custom is None:
+                    sup.custom = {}
+                sup.custom["srt_raw_text"] = raw_text
 
         return result
 
@@ -373,6 +418,15 @@ class SRTFormat(Pysubs2Format):
         else:
             content = super().to_bytes(supervisions, **kwargs)
 
+        # Splice back raw cue texts (preserves {\an1}{\pos(...)} override tags
+        # from subtitle-group SRTs). Only applied when cue count matches (i.e.
+        # word-level expansion didn't split supervisions).
+        content = cls._splice_raw_cue_texts(content, supervisions)
+
+        # Restore original line terminator if metadata requests CRLF
+        if metadata and metadata.get("line_terminator") == "\r\n":
+            content = content.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
         # Add BOM if requested or if original had BOM
         add_bom = use_bom
         if metadata and metadata.get("encoding") == "utf-8-sig":
@@ -382,6 +436,51 @@ class SRTFormat(Pysubs2Format):
             content = b"\xef\xbb\xbf" + content
 
         return content
+
+    @classmethod
+    def _splice_raw_cue_texts(
+        cls, content: bytes, supervisions: List[Supervision]
+    ) -> bytes:
+        """Restore per-cue raw text (with override tags) from supervision.custom.
+
+        pysubs2's SRT writer emits plain text (override tags stripped on read).
+        For supervisions that carry ``custom['srt_raw_text']`` (set by the SRT
+        reader), replace the pysubs2-emitted text block with the original raw
+        text. No-op when cue count mismatches (e.g., word-level expansion).
+        """
+        raw_texts = [
+            (sup.custom or {}).get("srt_raw_text") if sup.custom else None
+            for sup in supervisions
+        ]
+        if not any(raw_texts):
+            return content
+
+        text = content.decode("utf-8")
+        # pysubs2 emits LF; split cues on blank-line delimiter
+        blocks = re.split(r"\n\n+", text)
+        # Trailing empty block from trailing blank line
+        trailing = "\n\n" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "")
+
+        cue_blocks = [b for b in blocks if b.strip()]
+        if len(cue_blocks) != len(supervisions):
+            # Word-level expansion or other mismatch — skip splicing
+            return content
+
+        out_blocks = []
+        for block, raw in zip(cue_blocks, raw_texts):
+            if raw is None:
+                out_blocks.append(block)
+                continue
+            lines = block.split("\n")
+            # Expect: idx, timestamp, text..., (more text)
+            if len(lines) < 3:
+                out_blocks.append(block)
+                continue
+            # Replace everything after timestamp line with raw_text
+            new_block = lines[0] + "\n" + lines[1] + "\n" + raw
+            out_blocks.append(new_block)
+
+        return ("\n\n".join(out_blocks) + trailing).encode("utf-8")
 
     @classmethod
     def _to_bytes_with_speaker_color(
@@ -420,8 +519,8 @@ class SRTFormat(Pysubs2Format):
 
             subs.append(
                 pysubs2.SSAEvent(
-                    start=int(sup.start * 1000),
-                    end=int(sup.end * 1000),
+                    start=round(sup.start * 1000),
+                    end=round(sup.end * 1000),
                     text=text,
                     name=sup.speaker or "",
                 )
@@ -594,8 +693,15 @@ class ASSFormat(Pysubs2Format):
         if candidates:
             set_speaker_candidates(candidates)
 
+        # Capture raw Dialogue/Comment line bodies before pysubs2 normalization
+        # (see _extract_raw_event_bodies). Pair by position with subs.events.
+        raw_event_bodies = cls._extract_raw_event_bodies(content)
+        if len(raw_event_bodies) != len(subs.events):
+            # Unexpected mismatch → skip splice; pysubs2 output wins
+            raw_event_bodies = []
+
         supervisions = []
-        for event in subs.events:
+        for idx, event in enumerate(subs.events):
             # Use plaintext to keep parity with read(): strips override tags
             # and converts \N to \n so bilingual line breaks survive.
             plaintext = event.plaintext
@@ -622,6 +728,9 @@ class ASSFormat(Pysubs2Format):
                 "ass_raw_text": event.text,
                 "ass_is_comment": event.is_comment,
             }
+            if idx < len(raw_event_bodies):
+                custom["ass_raw_event_type"] = raw_event_bodies[idx][0]
+                custom["ass_raw_event_body"] = raw_event_bodies[idx][1]
 
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
@@ -700,10 +809,47 @@ class ASSFormat(Pysubs2Format):
         if detected_encoding:
             format_metadata["encoding"] = detected_encoding
 
+        # Record the exact trailing newline count so the writer matches the
+        # source file byte-for-byte. Real-world ASS files land in three states:
+        #   * 0 trailing newlines — no final EOL at all (some hand-authored files)
+        #   * 1 trailing newline  — standard "line ends with EOL"
+        #   * 2+ trailing newlines — Aegisub habit: extra blank line after last event
+        # pysubs2.to_string always emits exactly 1 trailing ``\n``; capturing
+        # the source count lets us restore either extreme.
+        if content:
+            tail = content.replace("\r\n", "\n")
+            trailing_nl = len(tail) - len(tail.rstrip("\n"))
+            format_metadata["trailing_newlines"] = trailing_nl
+
         return ParseResult(
             supervisions=supervisions,
             format_metadata=format_metadata,
         )
+
+    # Matches raw Dialogue/Comment lines in source order. Group 1 = event type
+    # ("Dialogue" or "Comment"), group 2 = the body (everything after the
+    # leading "Dialogue: " / "Comment: ", preserving trailing whitespace). CR
+    # is excluded from the body so CRLF sources still pair cleanly.
+    _ASS_EVENT_LINE_RE = re.compile(
+        r"^(Dialogue|Comment):\s?([^\r\n]*)",
+        re.MULTILINE,
+    )
+
+    @classmethod
+    def _extract_raw_event_bodies(cls, content: str) -> List[Tuple[str, str]]:
+        """Extract raw ``(event_type, body)`` pairs for every Dialogue/Comment.
+
+        pysubs2 normalizes several Dialogue-line artefacts that subtitle-group
+        files actually contain:
+          * zero-padded margin fields (``0000,0000,0000`` → ``0,0,0``)
+          * trailing whitespace inside the Text field
+        The captured raw body preserves both. Writer splices them back,
+        updating only Start/End fields from the mutated supervision.
+        """
+        return [
+            (m.group(1), m.group(2))
+            for m in cls._ASS_EVENT_LINE_RE.finditer(content)
+        ]
 
     @staticmethod
     def _extract_raw_sections(content: str) -> Dict[str, str]:
@@ -961,8 +1107,8 @@ class ASSFormat(Pysubs2Format):
                         karaoke_text = f"{trans_span}\\N{karaoke_text}"
                     else:
                         karaoke_text = f"{karaoke_text}\\N{trans_span}"
-                event_start = int(word_items[0].start * 1000)
-                event_end = int(word_items[-1].end * 1000)
+                event_start = round(word_items[0].start * 1000)
+                event_end = round(word_items[-1].end * 1000)
 
                 event = pysubs2.SSAEvent(
                     start=event_start,
@@ -1021,10 +1167,26 @@ class ASSFormat(Pysubs2Format):
             if metadata.get("ass_events_format_raw"):
                 output = cls._replace_events_format(output, metadata["ass_events_format_raw"])
 
+        # Splice raw Dialogue/Comment bodies (preserves margin padding and
+        # trailing whitespace inside the Text field). pysubs2 normalization:
+        #   * ``0000,0000,0000`` → ``0,0,0``
+        #   * ``"hello "`` → ``"hello"`` (event.text trimmed on parse)
+        # Writer takes the raw body captured at read time and only rewrites
+        # the Start/End fields from the mutated supervision.
+        output = cls._splice_raw_event_bodies(output, supervisions)
+
         # Normalize to LF internally, then apply source terminator uniformly.
         # Raw section bodies may already contain CR (when source was CRLF);
         # strip them first so we never emit "\r\r\n" downstream.
         output = output.replace("\r\n", "\n")
+
+        # Restore exact trailing newline count (0 / 1 / N) from source.
+        # Aegisub often appends an extra blank after the last event (N=2+);
+        # hand-authored files sometimes omit the final EOL entirely (N=0).
+        trailing_newlines = (metadata or {}).get("trailing_newlines")
+        if trailing_newlines is not None:
+            output = output.rstrip("\n") + "\n" * trailing_newlines
+
         line_terminator = (metadata or {}).get("line_terminator", "\n")
         if line_terminator == "\r\n":
             output = output.replace("\n", "\r\n")
@@ -1037,6 +1199,63 @@ class ASSFormat(Pysubs2Format):
             raw_bytes = b"\xef\xbb\xbf" + raw_bytes
 
         return raw_bytes
+
+    @staticmethod
+    def _splice_raw_event_bodies(
+        output: str, supervisions: List[Supervision]
+    ) -> str:
+        """Replace each pysubs2-emitted Dialogue/Comment body with its raw copy.
+
+        Only the Start/End fields (positions 1 and 2) from the pysubs2 output
+        are kept — those reflect current supervision timings. Everything else
+        (Layer, Style, Name, MarginL/R/V, Effect, Text) uses the raw body so
+        zero-padded margins and trailing whitespace inside Text survive.
+
+        Skipped when:
+          * no supervision has ``ass_raw_event_body`` (nothing to splice)
+          * output Dialogue/Comment count != supervision count (word-level
+            expansion or other reflow happened)
+        """
+        raw_pairs = [
+            (
+                (sup.custom or {}).get("ass_raw_event_type"),
+                (sup.custom or {}).get("ass_raw_event_body"),
+            )
+            for sup in supervisions
+        ]
+        if not any(body for _, body in raw_pairs):
+            return output
+
+        lines = output.split("\n")
+        event_line_indices = [
+            i for i, ln in enumerate(lines)
+            if ln.startswith("Dialogue:") or ln.startswith("Comment:")
+        ]
+        if len(event_line_indices) != len(supervisions):
+            # Mismatch — bail out rather than corrupt alignment
+            return output
+
+        for idx, line_idx in enumerate(event_line_indices):
+            raw_type, raw_body = raw_pairs[idx]
+            if raw_body is None:
+                continue
+            line = lines[line_idx]
+            # Split off the prefix ("Dialogue: " / "Comment: ")
+            prefix, _, pysubs_body = line.partition(": ")
+            if not pysubs_body:
+                continue
+            pysubs_fields = pysubs_body.split(",", 9)
+            raw_fields = raw_body.split(",", 9)
+            if len(pysubs_fields) < 10 or len(raw_fields) < 10:
+                continue
+            # Preserve pysubs2's Start/End (reflects current sup timing);
+            # everything else comes from the raw body.
+            raw_fields[1] = pysubs_fields[1]
+            raw_fields[2] = pysubs_fields[2]
+            final_prefix = raw_type or prefix
+            lines[line_idx] = f"{final_prefix}: " + ",".join(raw_fields)
+
+        return "\n".join(lines)
 
     DEFAULT_FONTSIZE = 64.0
 
@@ -1291,8 +1510,8 @@ class ASSFormat(Pysubs2Format):
             text = text.replace("\n", "\\N")
 
         event = pysubs2.SSAEvent(
-            start=int(sup.start * 1000),
-            end=int(sup.end * 1000),
+            start=round(sup.start * 1000),
+            end=round(sup.end * 1000),
             text=text,
             name=sup.speaker or "",
             style=custom.get("ass_style", "Default"),

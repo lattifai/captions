@@ -107,6 +107,98 @@ def test_style_float_format_preserved(tmp_path: Path) -> None:
     assert "3.1,1.2" in default_line  # non-whole values were never broken
 
 
+def test_zero_padded_margins_preserved(tmp_path: Path) -> None:
+    """A single Dialogue row with ``0000,0000,0000`` margins must roundtrip.
+
+    Reproduces Endeavour bilingual ASS anomaly: most rows use ``0,0,0`` but one
+    row (Aegisub artefact) uses ``0000,0000,0000``. pysubs2 normalizes to ``0``.
+    """
+    fixture = (
+        "\ufeff"
+        "[Script Info]\r\n"
+        "ScriptType: v4.00+\r\n"
+        "\r\n"
+        "[V4+ Styles]\r\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
+        "Style: Default,Arial,20,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,5,5,2,1\r\n"
+        "\r\n"
+        "[Events]\r\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0000,0000,0000,,hello\r\n"
+        "Dialogue: 0,0:00:02.00,0:00:03.00,Default,,0,0,0,,world\r\n"
+    )
+    inp = tmp_path / "in.ass"
+    inp.write_bytes(fixture.encode("utf-8"))
+    cap = Caption.read(str(inp))
+    out = tmp_path / "out.ass"
+    cap.write(str(out))
+    text = out.read_text(encoding="utf-8-sig")
+    assert "0000,0000,0000,,hello" in text, (
+        "Zero-padded margins normalized; line: "
+        + next((ln for ln in text.splitlines() if "hello" in ln), "<missing>")
+    )
+
+
+def test_dialogue_trailing_whitespace_preserved(tmp_path: Path) -> None:
+    """A Dialogue Text with trailing whitespace must keep that whitespace.
+
+    pysubs2 strips ``event.text`` trailing whitespace on parse. Real subtitle-
+    group files often have a stray trailing space; losing it causes byte-diff.
+    """
+    fixture = (
+        "\ufeff"
+        "[Script Info]\r\n"
+        "ScriptType: v4.00+\r\n"
+        "\r\n"
+        "[V4+ Styles]\r\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
+        "Style: Default,Arial,20,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,5,5,2,1\r\n"
+        "\r\n"
+        "[Events]\r\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,hello world \r\n"
+    )
+    inp = tmp_path / "in.ass"
+    inp.write_bytes(fixture.encode("utf-8"))
+    cap = Caption.read(str(inp))
+    out = tmp_path / "out.ass"
+    cap.write(str(out))
+    # Read raw bytes — we want the literal ``hello world `` (with trailing space).
+    data = out.read_bytes().decode("utf-8-sig")
+    dialogue_lines = [ln for ln in data.splitlines() if ln.startswith("Dialogue:")]
+    assert dialogue_lines, "no Dialogue lines in output"
+    assert dialogue_lines[0].endswith("hello world "), (
+        f"trailing whitespace stripped. line: {dialogue_lines[0]!r}"
+    )
+
+
+def test_trailing_blank_lines_preserved(tmp_path: Path) -> None:
+    """An ASS ending with ``\\r\\n\\r\\n`` keeps the extra trailing blank line."""
+    fixture = (
+        "\ufeff"
+        "[Script Info]\r\n"
+        "ScriptType: v4.00+\r\n"
+        "\r\n"
+        "[V4+ Styles]\r\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\r\n"
+        "Style: Default,Arial,20,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,1,2,5,5,2,1\r\n"
+        "\r\n"
+        "[Events]\r\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\r\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,final line\r\n"
+        "\r\n"  # the extra trailing blank
+    )
+    inp = tmp_path / "in.ass"
+    inp.write_bytes(fixture.encode("utf-8"))
+    cap = Caption.read(str(inp))
+    out = tmp_path / "out.ass"
+    cap.write(str(out))
+    data = out.read_bytes()
+    assert data.endswith(b"\r\n\r\n"), (
+        f"trailing blank line lost; last 10 bytes: {data[-10:]!r}"
+    )
+
+
 def test_full_byte_diff_excluding_dialogue(tmp_path: Path) -> None:
     """Everything except Dialogue lines (which may be reflowed) is byte-identical.
 

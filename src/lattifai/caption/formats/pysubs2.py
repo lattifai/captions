@@ -623,9 +623,22 @@ class ASSFormat(Pysubs2Format):
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
             else:
-                # Detect staff credits and branding (early short lines)
+                # Classify against ASS override signals + text heuristics.
+                # Passing ass_raw_text lets the classifier see \an/\fs/\bord
+                # so sign/title/banner/translator_note/karaoke can be detected
+                # anywhere in the file (not just the first 120s).
                 evt_start = event.start / 1000.0 if event.start is not None else 0
-                lt = classify_line_type(plaintext, start=evt_start)
+                evt_dur = (
+                    (event.end - event.start) / 1000.0
+                    if event.end is not None and event.start is not None
+                    else None
+                )
+                lt = classify_line_type(
+                    plaintext,
+                    start=evt_start,
+                    ass_raw_text=event.text,
+                    duration=evt_dur,
+                )
                 if lt:
                     custom["line_type"] = lt
 
@@ -735,8 +748,19 @@ class ASSFormat(Pysubs2Format):
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
             else:
+                # Classify against ASS override signals + text heuristics.
                 evt_start = event.start / 1000.0 if event.start is not None else 0
-                lt = classify_line_type(plaintext, start=evt_start)
+                evt_dur = (
+                    (event.end - event.start) / 1000.0
+                    if event.end is not None and event.start is not None
+                    else None
+                )
+                lt = classify_line_type(
+                    plaintext,
+                    start=evt_start,
+                    ass_raw_text=event.text,
+                    duration=evt_dur,
+                )
                 if lt:
                     custom["line_type"] = lt
 

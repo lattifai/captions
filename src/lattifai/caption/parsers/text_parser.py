@@ -315,8 +315,13 @@ def detect_language_from_filename(filename: str) -> Tuple[Optional[str], Optiona
 
 # Staff credit role keywords (Chinese fansub conventions)
 _STAFF_ROLES = re.compile(
-    r"^\s*(翻译|校对|时间轴|后期|总监|压制|监制|特效|听译|编辑|审核|"
-    r"片源|录制|制作|调轴|打轴)\s+(.+?)\s*$"
+    r"^\s*("
+    # Single-role markers
+    r"翻译|校对|时间轴|后期|总监|压制|监制|特效|听译|编辑|审核|"
+    r"片源|录制|制作|调轴|打轴|"
+    # Combined role markers with pipe separator (e.g. `翻|校|监`)
+    r"翻\|校\|监|翻\|校|校\|监"
+    r")\s+(.+?)\s*$"
 )
 
 # Branding / disclaimer keywords
@@ -327,30 +332,119 @@ _BRANDING_KEYWORDS = [
     "仅供学习", "请勿用于商业",
 ]
 
+# Recap / prologue keywords for banner detection
+_BANNER_KEYWORDS = ("前情提要", "前情回顾", "上集回顾", "上期回顾", "本剧纯属虚构")
 
-def classify_line_type(text: str, start: float = 0.0) -> Optional[str]:
-    """Classify a subtitle line as staff credit, branding, or normal dialogue.
+# ASS override tag extractors (compiled once)
+_ASS_AN_RE = re.compile(r"\\an(\d)")
+_ASS_FS_RE = re.compile(r"\\fs(\d+(?:\.\d+)?)")
+_ASS_BORD_RE = re.compile(r"\\bord(\d+(?:\.\d+)?)")
+_ASS_B_RE = re.compile(r"\\b([01])(?![a-zA-Z\d])")  # \b0 / \b1, not \bord
+_ASS_POS_RE = re.compile(r"\\pos\(")
+_ASS_T_FS_RE = re.compile(r"\\t\([^)]*\\fs")  # \t(...\fs... — animated font size
+_ASS_KARAOKE_RE = re.compile(r"\\k[fo]?\d+")
 
-    Staff credits and branding typically appear in the first 120 seconds
-    and are short (< 50 chars).
+
+def _extract_ass_signals(ass_raw_text: str) -> dict:
+    """Pull the override-tag signals relevant to line-type classification.
+
+    Scans all ``{...}`` override blocks in ``ass_raw_text`` and reports:
+      * ``an``: alignment (1-9) from ``\\anN``; 0 if absent
+      * ``fs``: font size from ``\\fsN``; 0.0 if absent (first occurrence wins)
+      * ``bord``: border width from ``\\bordN``; None if absent
+      * ``b``: bold flag from ``\\b0``/``\\b1`` (NOT ``\\bord``); None if absent
+      * ``has_pos``: True if any ``\\pos(...)`` present
+      * ``has_t_fs``: True if any ``\\t(...\\fs...)`` (animated font-size)
+    """
+    an_m = _ASS_AN_RE.search(ass_raw_text)
+    fs_m = _ASS_FS_RE.search(ass_raw_text)
+    bord_m = _ASS_BORD_RE.search(ass_raw_text)
+    b_m = _ASS_B_RE.search(ass_raw_text)
+    return {
+        "an": int(an_m.group(1)) if an_m else 0,
+        "fs": float(fs_m.group(1)) if fs_m else 0.0,
+        "bord": float(bord_m.group(1)) if bord_m else None,
+        "b": int(b_m.group(1)) if b_m else None,
+        "has_pos": bool(_ASS_POS_RE.search(ass_raw_text)),
+        "has_t_fs": bool(_ASS_T_FS_RE.search(ass_raw_text)),
+    }
+
+
+def classify_line_type(
+    text: str,
+    start: float = 0.0,
+    ass_raw_text: Optional[str] = None,
+    duration: Optional[float] = None,
+) -> Optional[str]:
+    """Classify a subtitle line for forced-alignment skip decisions.
+
+    Returns one of: ``staff_credit`` | ``branding`` | ``banner`` | ``title`` |
+    ``sign`` | ``translator_note`` | ``karaoke`` | ``None`` (normal dialogue).
+
+    Priority: unambiguous ASS tag signals (karaoke, sign, title, banner,
+    translator_note) are checked first; text-based heuristics (staff_credit,
+    branding) run last.
 
     Args:
-        text: Subtitle text content.
-        start: Start time in seconds (staff credits are early in the file).
-
-    Returns:
-        "staff_credit", "branding", or None (normal dialogue).
+        text: Plaintext subtitle body (override tags already stripped).
+        start: Event start time in seconds.
+        ass_raw_text: Original ASS text with override tags (optional; when
+            available, drives the ASS-specific classifiers).
+        duration: Event duration in seconds (reserved; unused currently).
     """
-    if not text or start > 120.0 or len(text) > 50:
+    if not text:
+        return None
+
+    # ---- ASS override-tag-based classification ----
+    if ass_raw_text:
+        # 1. Karaoke: any \k / \kf / \ko tag
+        if _ASS_KARAOKE_RE.search(ass_raw_text):
+            return "karaoke"
+
+        sig = _extract_ass_signals(ass_raw_text)
+
+        # 2. Sign: top/right alignment (\an8/9) + border outline + bold + small fs.
+        #    Standard subtitle-group convention for on-screen location labels.
+        if (
+            sig["an"] in (8, 9)
+            and sig["bord"] == 1
+            and sig["b"] == 1
+            and 16 <= sig["fs"] <= 22
+        ):
+            return "sign"
+
+        # 3. Title: top-center (\an8) + large animated font.
+        #    Show-name / act-marker overlays use \t(...\fs...) for size animation.
+        if sig["an"] == 8 and sig["fs"] >= 28 and sig["has_t_fs"]:
+            return "title"
+
+        # 4. Banner: \an1 + recap/prologue keyword in text.
+        stripped = text.strip()
+        if sig["an"] == 1 and any(kw in stripped for kw in _BANNER_KEYWORDS):
+            return "banner"
+
+        # 5. Translator note: \an3/9 + small fs + explicit \b0 + positioned.
+        #    字幕组 convention for commentary overlays.
+        if (
+            sig["an"] in (3, 9)
+            and 0 < sig["fs"] <= 16
+            and sig["b"] == 0
+            and sig["has_pos"]
+        ):
+            return "translator_note"
+
+    # ---- Text-based heuristics (staff_credit / branding) ----
+    # Preserve original behaviour: these only apply to short early-in-file
+    # lines to avoid matching ordinary dialogue that happens to mention a
+    # role word.
+    if start > 120.0 or len(text) > 50:
         return None
 
     stripped = text.strip()
 
-    # Staff credit: role + name pattern
     if _STAFF_ROLES.match(stripped):
         return "staff_credit"
 
-    # Branding / disclaimer
     lower = stripped.lower()
     for kw in _BRANDING_KEYWORDS:
         if kw in lower:

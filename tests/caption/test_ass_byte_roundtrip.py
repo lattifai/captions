@@ -11,8 +11,6 @@ The test uses a YYeTs-style fixture that exercises all three faults in a
 single file. The fixture is generated inline so tests remain self-contained.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 
 from lattifai.caption import Caption

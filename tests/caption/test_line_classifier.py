@@ -6,8 +6,6 @@ Covers the 7 categories a subtitle-group file mixes with dialogue:
 Fixtures come from Endeavour S09E01 bilingual ASS (real字幕组 data).
 """
 
-from __future__ import annotations
-
 import pytest
 
 from lattifai.caption.parsers.text_parser import classify_line_type

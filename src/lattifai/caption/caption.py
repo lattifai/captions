@@ -1,7 +1,5 @@
 """Caption data structure for storing subtitle information with metadata."""
 
-from __future__ import annotations
-
 import io
 from dataclasses import dataclass, field
 from pathlib import Path

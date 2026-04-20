@@ -22,8 +22,6 @@ most often translate between: English, Chinese, Japanese, Korean, Spanish,
 French, German, Russian, Portuguese, Italian. Memory ≈ 17 MB.
 """
 
-from __future__ import annotations
-
 import re
 from threading import Lock
 from typing import Optional, Sequence

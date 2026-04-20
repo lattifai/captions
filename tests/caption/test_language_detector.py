@@ -4,8 +4,6 @@ Used by the bilingual-cue splitter to decide whether two sides of a ``\\n``
 boundary belong to distinct languages.
 """
 
-from __future__ import annotations
-
 import pytest
 
 from lattifai.caption.parsers.language_detector import (

@@ -13,8 +13,6 @@ Covers three known pysubs2 serialization losses for bilingual/subtitle-group SRT
    writer uses ``int(x * 1000)`` instead of ``round(x * 1000)``.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 

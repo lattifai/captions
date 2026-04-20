@@ -44,6 +44,11 @@ _DEFAULT_CANDIDATE_LANGS = (
 # Script-level unicode block ranges. Order matters for ``detect_script``:
 # earlier entries take priority when a text has chars from multiple scripts
 # (we return whichever has the largest char count).
+#
+# Coverage target: every script present in the 75 languages ``lingua-py``
+# supports. Missing any of these caused ``_HAS_LETTER_RE`` to treat the
+# text as "letter-less" and short-circuit to ``None`` before lingua ran
+# (FLORES benchmark caught this for ta/te/gu/pa/hy/ka).
 _SCRIPT_RANGES = {
     # Latin (ASCII + Latin-1 Supplement + Extended-A/B, accented letters)
     "latin": r"A-Za-z\u00c0-\u024f",
@@ -54,9 +59,25 @@ _SCRIPT_RANGES = {
     "cyrillic": r"\u0400-\u04ff",
     "greek": r"\u0370-\u03ff",
     "arabic": r"\u0600-\u06ff",
-    "devanagari": r"\u0900-\u097f",
-    "thai": r"\u0e00-\u0e7f",
     "hebrew": r"\u0590-\u05ff",
+    "armenian": r"\u0530-\u058f",
+    "georgian": r"\u10a0-\u10ff",
+    # Indic scripts (south/southeast Asia)
+    "devanagari": r"\u0900-\u097f",  # Hindi, Marathi
+    "bengali": r"\u0980-\u09ff",
+    "gurmukhi": r"\u0a00-\u0a7f",    # Punjabi
+    "gujarati": r"\u0a80-\u0aff",
+    "oriya": r"\u0b00-\u0b7f",
+    "tamil": r"\u0b80-\u0bff",
+    "telugu": r"\u0c00-\u0c7f",
+    "kannada": r"\u0c80-\u0cff",
+    "malayalam": r"\u0d00-\u0d7f",
+    "sinhala": r"\u0d80-\u0dff",
+    "thai": r"\u0e00-\u0e7f",
+    "lao": r"\u0e80-\u0eff",
+    "tibetan": r"\u0f00-\u0fff",
+    "myanmar": r"\u1000-\u109f",
+    "khmer": r"\u1780-\u17ff",
 }
 
 # Pre-compile a counter per script.
@@ -75,46 +96,39 @@ _detector_langs: tuple = ()
 _lock = Lock()
 
 
-def _build_detector(candidate_langs: Sequence[str]):
-    """Build a lingua LanguageDetector restricted to the given ISO codes.
+def _build_iso_to_lang():
+    """Dynamically map every lingua-supported ISO 639-1 → ``Language``.
 
-    Runs in low-accuracy mode: fewer n-gram resources loaded, accuracy loss
-    is negligible on caption-length strings and saves ~60% memory.
+    Avoids maintaining a hand-curated subset; covers all 75 lingua languages.
     """
     try:
-        from lingua import Language, LanguageDetectorBuilder
+        from lingua import Language
     except ImportError:
         return None
+    return {lang.iso_code_639_1.name.lower(): lang for lang in Language.all()}
 
-    # Map ISO 639-1 → lingua Language. Kept small; extend as needed.
-    iso_to_lang = {
-        "en": Language.ENGLISH,
-        "zh": Language.CHINESE,
-        "ja": Language.JAPANESE,
-        "ko": Language.KOREAN,
-        "es": Language.SPANISH,
-        "fr": Language.FRENCH,
-        "de": Language.GERMAN,
-        "ru": Language.RUSSIAN,
-        "pt": Language.PORTUGUESE,
-        "it": Language.ITALIAN,
-        "ar": Language.ARABIC,
-        "hi": Language.HINDI,
-        "th": Language.THAI,
-        "vi": Language.VIETNAMESE,
-        "tr": Language.TURKISH,
-        "nl": Language.DUTCH,
-        "pl": Language.POLISH,
-        "sv": Language.SWEDISH,
-    }
+
+def _build_detector(candidate_langs: Sequence[str], low_accuracy: bool = True):
+    """Build a lingua ``LanguageDetector`` restricted to the given ISO codes.
+
+    ``low_accuracy=True`` (default): fewer n-gram resources, ~60 % less
+    memory; accuracy loss is negligible on caption-length strings. Set
+    ``False`` for benchmarks comparing precision at full fidelity.
+    """
+    try:
+        from lingua import LanguageDetectorBuilder
+    except ImportError:
+        return None
+    iso_to_lang = _build_iso_to_lang()
+    if iso_to_lang is None:
+        return None
     langs = [iso_to_lang[c] for c in candidate_langs if c in iso_to_lang]
     if len(langs) < 2:  # lingua requires ≥2 languages
         return None
-    return (
-        LanguageDetectorBuilder.from_languages(*langs)
-        .with_low_accuracy_mode()
-        .build()
-    )
+    builder = LanguageDetectorBuilder.from_languages(*langs)
+    if low_accuracy:
+        builder = builder.with_low_accuracy_mode()
+    return builder.build()
 
 
 def set_candidate_languages(langs: Sequence[str]) -> None:

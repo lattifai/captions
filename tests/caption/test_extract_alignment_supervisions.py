@@ -341,3 +341,201 @@ def test_ass_inline_bilingual_not_misclassified_when_sign_and_dialogue_share_def
     primary, secondary = caption.extract_alignment_supervisions()
     assert primary[0].language == "zh"
     assert secondary and secondary[0].language == "en"
+
+
+# ---------------------------------------------------------------------------
+# Corpus-discovered bugs — both surfaced by the audit in
+# ``scripts/smoke_roundtrip_corpus.py`` against yyets-subtitles.
+# ---------------------------------------------------------------------------
+
+
+def test_bilingual_pair_skipped_when_secondary_side_is_non_dialogue() -> None:
+    """Regression: both sides of an inline bilingual cue must pass
+    ``classify_line_type``, not just the primary side.
+
+    Real-world repro: the opening two cues of many subtitle-group SRTs
+    are pure-Chinese disclaimers split across ``\\n``. The first line is
+    usually benign enough to escape the classifier (returns ``None``)
+    while the second line matches the ``branding`` keyword set. The old
+    implementation probed only ``t1``, so the whole pair slipped through
+    and the ``branding`` line landed in ``secondary``.
+    """
+    caption = _cap([
+        # Subtitle-group disclaimer — t1 escapes classify_line_type,
+        # t2 ("仅供学习交流...") is caught as ``branding``.
+        {"text": "视频资料来自网络 版权归BBC所有\n仅供学习交流使用 禁止用于任何商业盈利行为",
+         "start": 0.0, "duration": 1.68},
+        # Real bilingual dialogue so language voting has a leg to stand on.
+        {"text": "今晚 一只狗狗出墙来\nTonight, a dog looks over a wall.",
+         "start": 4.68, "duration": 4.0},
+        {"text": "我们骑椅子\nWe drive some chairs.",
+         "start": 9.8, "duration": 1.76},
+        {"text": "大家好\nHello everybody.",
+         "start": 23.08, "duration": 1.32},
+    ])
+
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    # The disclaimer pair at idx 0 must be rejected in its entirety —
+    # neither primary nor secondary may carry an idx=0 entry.
+    primary_idx = [getattr(s, "align_index", None) for s in primary]
+    secondary_idx = [getattr(s, "align_index", None) for s in secondary]
+    assert 0 not in primary_idx, "disclaimer t1 leaked into primary"
+    assert 0 not in secondary_idx, "disclaimer t2 leaked into secondary"
+
+    # All remaining rows must be genuine dialogue.
+    for side_name, rows in (("primary", primary), ("secondary", secondary)):
+        for row in rows:
+            assert text_parser.classify_line_type(
+                row.text,
+                start=row.start,
+                duration=row.duration,
+            ) is None, f"non-dialogue leaked into {side_name}: {row.text!r}"
+
+
+def test_mono_with_two_sync_pairs_is_not_misdetected_as_alternating() -> None:
+    """Regression: a mostly-mono caption where only a couple of
+    same-timing pairs exist (e.g. a CJK-heavy title card stacked over a
+    Latin-heavy subtitle) must not flip the bilingual mode to
+    ``alternating``.
+
+    The old detector tripped the alternating branch as soon as
+    ``pair_count >= 2``, producing an absurd split like 1228 / 1 on
+    1000+ line Japanese captions. The fix requires the same-timing
+    pairs to cover a non-trivial fraction of the corpus, and — as a
+    belt-and-braces measure — the extractor rolls an extreme
+    primary/secondary skew back to mono.
+    """
+    sups = []
+    # 30 mono Chinese dialogue rows — the clear majority signal.
+    for i in range(30):
+        sups.append({"text": f"今天的天气真好 第{i}句对白",
+                     "start": 10.0 + i * 3.0, "duration": 2.5})
+    # Two stray CJK-vs-Latin same-timing pairs (e.g. a title card stacked
+    # over a transliterated effect line). Both have cjk_ratio diff > 0.4
+    # so they trip the old ``pair_count >= 2 and diff/pair > 0.5``
+    # alternating branch despite being a tiny minority.
+    sups.append({"text": "梅林根酒店账单",
+                 "start": 120.0, "duration": 5.0})
+    sups.append({"text": "MERINGEN HOTEL BILL",
+                 "start": 120.0, "duration": 5.0})
+    sups.append({"text": "泰晤士河谷城堡门警局",
+                 "start": 130.0, "duration": 5.0})
+    sups.append({"text": "THAMES VALLEY POLICE",
+                 "start": 130.0, "duration": 5.0})
+
+    caption = _cap(sups)
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    assert secondary == [], (
+        "Mostly-mono captions with a handful of same-timing pairs must "
+        "stay mono rather than degenerate into an extreme "
+        f"primary/secondary split (got primary={len(primary)}, "
+        f"secondary={len(secondary)})."
+    )
+    assert primary, "primary must not be empty for a mono caption"
+
+
+def test_cue_with_only_override_primary_is_dropped_entirely() -> None:
+    """Regression: a cue whose top line is pure ASS override tags (``{\\a6}``,
+    ``{\\pos(...)}``) leaves an *empty* primary after stripping. Before the
+    fix, the cue still leaked its second line into ``secondary``, producing
+    a partial align_index overlap that broke the F1/F2 topology
+    invariant. The whole cue must be dropped: if primary has nothing to
+    align, secondary has no 1:1 counterpart either.
+    """
+    caption = _cap([
+        # Override-only primary line + non-empty secondary — this is the
+        # shape of the sign/disclaimer card in many subtitle-group SRTs.
+        {"text": "{\\a6}\n声明：本字幕仅作学习交流之用",
+         "start": 1.0, "duration": 3.0},
+        # Enough genuine bilingual cues so ``_detect_bilingual_mode``
+        # locks onto line_by_line.
+        {"text": "我们都很看好你\nWe all think a lot of you",
+         "start": 5.0, "duration": 3.0},
+        {"text": "摩斯 请进来\nMorse, please come in.",
+         "start": 9.0, "duration": 3.0},
+        {"text": "只要你需要\nAs long as you need.",
+         "start": 13.0, "duration": 3.0},
+    ])
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    # idx 0 must land in neither side.
+    assert 0 not in [s.align_index for s in primary]
+    assert 0 not in [s.align_index for s in secondary]
+    # Topology invariant: F1 inline ⇒ primary/secondary align_index sets
+    # are identical (every bilingual row is represented on both sides).
+    assert {s.align_index for s in primary} == {s.align_index for s in secondary}
+
+
+def test_embedded_newlines_are_flattened_in_extracted_text() -> None:
+    """Alignment text should be single-line. When a bilingual cue's side
+    carries a soft wrap (``医生\\n先生`` kind of thing, or an alternating
+    partner that ran long and got broken across lines), the extractor
+    must flatten the embedded whitespace rather than surface raw
+    newlines that confuse the lattice tokenizer and pollute audits.
+    """
+    # Alternating bilingual where the English partner on one pair
+    # carries a hard line break inside its text.
+    sups = [
+        {"text": "今天天气真好", "start": 1.0, "duration": 3.0},
+        {"text": "What a lovely day\nit is today.", "start": 1.0, "duration": 3.0},
+        {"text": "明天我们去郊游", "start": 5.0, "duration": 3.0},
+        {"text": "Tomorrow we'll go for a picnic.", "start": 5.0, "duration": 3.0},
+        {"text": "带上你的相机", "start": 9.0, "duration": 3.0},
+        {"text": "Bring your camera along.", "start": 9.0, "duration": 3.0},
+        {"text": "希望不要下雨", "start": 13.0, "duration": 3.0},
+        {"text": "Hope it doesn't rain.", "start": 13.0, "duration": 3.0},
+    ]
+    caption = _cap(sups)
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    # Neither side may leak raw newlines.
+    for side_name, rows in (("primary", primary), ("secondary", secondary)):
+        for row in rows:
+            assert "\n" not in row.text, (
+                f"{side_name} row still contains newline: {row.text!r}"
+            )
+
+    # And the flattened text preserves the words (no tokens eaten).
+    assert any("What a lovely day it is today." == s.text for s in secondary)
+
+
+def test_mostly_mono_with_sparse_bilingual_rows_stays_mono() -> None:
+    """Regression: a mostly-mono caption where only a small fraction of
+    cues are bilingual (e.g. a live-broadcast dub that quotes a handful
+    of original English lines for flavour) must not be classified as
+    ``line_by_line``. The old detector tripped as soon as
+    ``newline_bilingual / newline_total > 0.5``, ignoring the fact that
+    the bilingual rows might be a tiny fraction of the whole caption.
+    """
+    sups = []
+    # 40 mono Chinese rows — the dominant signal.
+    for i in range(40):
+        sups.append({"text": f"这是第{i}句中文对白 没有英文对照",
+                     "start": 10.0 + i * 3.0, "duration": 2.5})
+    # 5 sparse bilingual rows tucked in the tail.
+    sups.append({"text": "欢迎来到第87届奥斯卡颁奖典礼\nWelcome to the 87th Academy Awards",
+                 "start": 200.0, "duration": 3.0})
+    sups.append({"text": "获奖者是\nAnd the winner is",
+                 "start": 210.0, "duration": 3.0})
+    sups.append({"text": "有请颁奖嘉宾\nPlease welcome our presenter",
+                 "start": 220.0, "duration": 3.0})
+    sups.append({"text": "感谢大家\nThank you everyone",
+                 "start": 230.0, "duration": 3.0})
+    sups.append({"text": "再见\nGoodbye",
+                 "start": 240.0, "duration": 3.0})
+
+    caption = _cap(sups)
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    # 5/45 = 11 % coverage — below the bilingual threshold, so we want
+    # mono. Secondary must be empty (or rolled back to empty).
+    assert secondary == [], (
+        "Sparse bilingual rows (<< 20 % of the caption) must not flip "
+        "the mode to line_by_line bilingual."
+    )
+    # Primary carries every row; bilingual rows keep their embedded
+    # newline flattened to a space.
+    assert len(primary) == 45
+    assert any("欢迎来到第87届奥斯卡颁奖典礼 Welcome to" in s.text for s in primary)

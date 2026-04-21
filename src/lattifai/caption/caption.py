@@ -305,6 +305,13 @@ class Caption:
         #    enough: a pure Chinese cue like ``1972年3月21日\n1972年3月26日``
         #    has CJK ratio < 1.0 because the digits drop it, and a
         #    permissive ``abs(r1 - r2) > 0.3`` would wrongly flag it.
+        #
+        #    We also require the bilingual rows to cover a non-trivial
+        #    share of the whole caption (≥ 20 %). Without this, a live-
+        #    broadcast dub with 2400 mono Chinese rows + 240 bilingual
+        #    quotes (seen on Oscars/sports captions) would flip to
+        #    line_by_line and leave 2400 mono rows stranded as
+        #    "untranslated primary".
         newline_bilingual = 0
         newline_total = 0
         for sup in sups:
@@ -316,10 +323,22 @@ class Caption:
                 r2 = cjk_ratio(lines[1])
                 if (r1 >= 0.6 and r2 <= 0.2) or (r2 >= 0.6 and r1 <= 0.2):
                     newline_bilingual += 1
-        if newline_total >= 2 and newline_bilingual / newline_total > 0.5:
+        bilingual_coverage = newline_bilingual / len(sups) if sups else 0.0
+        if (
+            newline_total >= 2
+            and newline_bilingual / newline_total > 0.5
+            and bilingual_coverage >= 0.2
+        ):
             return "line_by_line"
 
-        # 2. Same-timing pairs (alternating pattern)
+        # 2. Same-timing pairs (alternating pattern).
+        #    We count both how many pairs exist AND what share of the
+        #    total rows they cover. Two stray CJK-vs-Latin pairs in a
+        #    1000-row mono caption (e.g. a CJK-heavy title card stacked
+        #    over a Latin effect line) used to trip this branch at
+        #    ``pair_count >= 2``, producing absurd splits like 1228/1.
+        #    Require the pairs to cover ≥ 20 % of the rows to claim a
+        #    genuine alternating arrangement.
         pair_count = 0
         cjk_diff_count = 0
         i = 0
@@ -334,7 +353,12 @@ class Caption:
                 i += 2
             else:
                 i += 1
-        if pair_count >= 2 and cjk_diff_count / pair_count > 0.5:
+        pair_coverage = (2 * pair_count) / len(sups) if sups else 0.0
+        if (
+            pair_count >= 2
+            and cjk_diff_count / pair_count > 0.5
+            and pair_coverage >= 0.2
+        ):
             return "alternating"
 
         # 3. ASS style-based split (e.g., "中文 1080" vs "英文 1080")
@@ -408,7 +432,14 @@ class Caption:
         from .parsers.text_parser import _BRANDING_KEYWORDS, _STAFF_ROLES, classify_line_type
 
         def _strip(text: str) -> str:
-            return _ALIGNMENT_OVERRIDE_RE.sub("", text or "").strip()
+            # Strip ASS override tags, then collapse embedded whitespace
+            # (including soft-wrap newlines) to single spaces. Alignment
+            # operates on the token stream, not the rendered layout, so
+            # ``医生\n先生`` and ``What a lovely day\nit is today.`` are
+            # both just single-line inputs with a stray break that
+            # should not reach the lattice tokenizer.
+            cleaned = _ALIGNMENT_OVERRIDE_RE.sub("", text or "")
+            return " ".join(cleaned.split())
 
         def _is_alignable(sup: Supervision, plain: str) -> bool:
             if not plain or sup.duration is None or sup.duration <= 0.01:
@@ -443,7 +474,7 @@ class Caption:
             return _ALIGNMENT_SCRIPT_BUCKETS.get(a, "latin") == _ALIGNMENT_SCRIPT_BUCKETS.get(b, "latin")
 
         def _can_fast_extract_mono() -> bool:
-            if self.source_format in {"ass", "ssa"}:
+            if self.source_format in {"ass", "ssa", "vtt", "srt"}:
                 return False
 
             prev_start = None
@@ -523,19 +554,32 @@ class Caption:
 
             t1 = _strip(raw_primary)
             t2 = _strip(raw_secondary)
-            probe = t1 or t2
-            if _is_alignable(sup, probe):
-                base_custom = dict(sup.custom or {})
-                if t1:
-                    side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
-                    side.align_index = i
-                    primary.append(side)
-                    primary_texts.append(t1)
-                if t2:
-                    side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
-                    side.align_index = secondary_index
-                    secondary.append(side)
-                    secondary_texts.append(t2)
+            # Primary must be present and alignable — a cue whose top
+            # line boils down to pure override tags (``{\a6}``) has no
+            # content to align and its "secondary" half has no 1:1
+            # counterpart either, so the whole cue is dropped. Secondary
+            # is optional (mono rows legitimately have no t2), but when
+            # present it must also pass the dialogue classifier. Pre-fix
+            # we only probed ``probe = t1 or t2``, which let disclaimer
+            # pairs like ``视频资料来自网络 版权归BBC所有\n仅供学习交流使用…``
+            # slip through (t1 escapes classify_line_type; t2 is caught
+            # as branding).
+            if not t1 or not _is_alignable(sup, t1):
+                i += step
+                continue
+            if t2 and not _is_alignable(sup, t2):
+                i += step
+                continue
+            base_custom = dict(sup.custom or {})
+            side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
+            side.align_index = i
+            primary.append(side)
+            primary_texts.append(t1)
+            if t2:
+                side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
+                side.align_index = secondary_index
+                secondary.append(side)
+                secondary_texts.append(t2)
             i += step
 
         # ---- Layer 1: aggregate voting ----
@@ -546,6 +590,28 @@ class Caption:
         if s_lang and _same_alignment_script(p_lang, s_lang):
             primary.extend(secondary)
             primary_texts.extend(secondary_texts)
+            secondary, secondary_texts = [], []
+            p_lang = _vote_lang(primary_texts)
+            s_lang = None
+
+        # ---- Layer 3: skew rollback (tiny secondary → mode misdetection) ----
+        # A genuine bilingual caption produces two sides of comparable size.
+        # A primary/secondary split where secondary is ≤ 5 % of the union
+        # almost always means ``_detect_bilingual_mode`` latched onto a
+        # handful of stray same-timing pairs in an otherwise-mono caption
+        # (seen in the wild on 1000+ row mono JP/ZH ASS files). How we
+        # undo the split depends on the topology:
+        #   - F1 inline: primary/secondary share align_index per cue; the
+        #     stray secondary entries are just a second half of rows that
+        #     already live in primary, so we drop them.
+        #   - F2 alternating: primary/secondary use disjoint indexes;
+        #     merge secondary back into primary as mono remainders.
+        if secondary and len(secondary) / (len(primary) + len(secondary)) < 0.05:
+            primary_indexes = {s.align_index for s in primary}
+            is_f1 = all(s.align_index in primary_indexes for s in secondary)
+            if not is_f1:
+                primary.extend(secondary)
+                primary_texts.extend(secondary_texts)
             secondary, secondary_texts = [], []
             p_lang = _vote_lang(primary_texts)
             s_lang = None

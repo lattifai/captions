@@ -1,6 +1,7 @@
 """Caption data structure for storing subtitle information with metadata."""
 
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -211,9 +212,13 @@ class Caption:
         elif mode == "alternating":
             new_sups = self._merge_alternating(primary_language, secondary_language)
         elif mode == "none":
-            # Monolingual: no merge needed
-            new_sups = [fastcopy(sup, language=primary_language or sup.language)
-                        for sup in self.supervisions]
+            # Monolingual: no merge needed, but stamp align_index so
+            # extract_alignment_supervisions can still drive write-back.
+            new_sups = []
+            for i, sup in enumerate(self.supervisions):
+                copy = fastcopy(sup, language=primary_language or sup.language)
+                copy.align_index = i
+                new_sups.append(copy)
         else:
             raise ValueError(f"Unknown mode: {mode}. Use 'auto', 'line_by_line', 'alternating', or 'none'.")
 
@@ -309,180 +314,172 @@ class Caption:
 
         return "none"
 
-    def extract_for_alignment(
+    def extract_alignment_supervisions(
         self,
-    ) -> "Tuple[str, List[Supervision], List[Supervision]]":
-        """Identify caption structure and extract per-language alignable rows.
+    ) -> "Tuple[List[Supervision], List[Supervision]]":
+        """Extract per-language alignable supervisions from a (possibly
+        bilingual) caption.
 
         Returns
         -------
-        (caption_type, primary_sups, secondary_sups)
-          - ``caption_type``: ``"mono"`` | ``"bilingual_inline"`` |
-            ``"bilingual_dual_row"``.
-          - ``primary_sups``: ``Supervision`` list in the priority language
-            (most total characters across dialogue rows; ISO-639-1 lex order
-            breaks ties).
-          - ``secondary_sups``: ``Supervision`` list in the other language
-            (``[]`` for mono).
+        (primary_sups, secondary_sups)
+            ``primary_sups`` holds the detected primary-language rows, in
+            source order. ``secondary_sups`` holds the other language for
+            bilingual captions; ``[]`` for mono.
 
-        Each returned Supervision is a ``fastcopy`` carrying enough state for
-        ``apply_alignment`` to write results back:
-          - ``align_index`` (set on ``sup.custom``): 0-based index into the
-            *original* ``self.supervisions`` for write-back. Inline bilingual
-            shares one index across both sides (F1); dual-row keeps two.
-          - ``text``: plaintext in that language, ASS override tags removed.
-          - ``language``: ISO-639-1 / script name detected on the extracted
-            text.
+        Each returned ``Supervision`` is a ``fastcopy`` carrying:
+          - ``text``: plaintext in that language (ASS override tags stripped)
+          - ``language``: ISO-639-1 decided by *group-level aggregated
+            voting*: all plaintext strings in the group are joined and fed
+            to lingua once. Long aggregated text scores ~98.5 % accuracy on
+            FLORES (vs. 95.4 % for per-row lookups), so this is markedly
+            more robust than running lingua on each short dialogue line.
+          - ``align_index`` (on ``sup.custom``): 0-based index back into
+            ``self.supervisions`` for ``apply_alignment`` to write results.
+            F1 inline shares one index across both sides; F2 dual-row
+            independently uses each row's original position.
           - ``start`` / ``duration``: original timestamps (unchanged).
 
         Excluded from both lists:
           - non-dialogue rows (``classify_line_type`` ≠ ``None``: staff_credit,
             karaoke, sign, title, banner, translator_note, branding, drawing)
-          - zero/near-zero-duration rows (``duration ≤ 0.01s``) — these must
-            be re-timed via interpolation inside ``apply_alignment``.
+          - zero/near-zero-duration rows (``duration ≤ 0.01s``) — these get
+            re-timed by neighbour interpolation inside ``apply_alignment``.
+
+        Safety layers (prevent misclassification from slipping through):
+          1. Aggregated voting (this function).
+          2. Same-script rollback: if the "secondary" group is detected to
+             share the alignment script with the primary (e.g. short-text
+             Latin→de/fr/nl outliers, or a mono CJK file erroneously split
+             by an F1 heuristic on number-heavy cues), merge secondary
+             back into primary and treat as mono. CJK siblings (zh/ja/ko)
+             are exempt — lingua disambiguates them reliably on full-caption
+             aggregates, so anime-style zh+ja/zh+ko/ja+ko captions stay
+             bilingual.
 
         ``self`` is not mutated.
         """
-        import re as _re
-
         from .parsers.language_detector import detect_language, detect_script
         from .parsers.text_parser import classify_line_type
 
-        _OVERRIDE_RE = _re.compile(r"\{\\[^}]*\}")
+        _OVERRIDE_RE = re.compile(r"\{\\[^}]*\}")
+        _CJK_DISTINCT = {"zh", "ja", "ko"}
+        # Map from lingua ISO-639-1 codes (and the script-bucket fallbacks
+        # ``detect_script`` returns) to a coarse "alignment script" bucket.
+        # Used solely by the Layer-2 same-script rollback; pairs that fall
+        # into the same bucket are considered confusable.
+        _LANG_SCRIPT_BUCKET = {
+            # East Asian
+            "zh": "east_asian", "ja": "east_asian", "ko": "east_asian",
+            "east_asian": "east_asian",
+            # Cyrillic
+            "ru": "cyrillic", "uk": "cyrillic", "bg": "cyrillic",
+            "be": "cyrillic", "mk": "cyrillic", "sr": "cyrillic",
+            "kk": "cyrillic", "mn": "cyrillic", "cyrillic": "cyrillic",
+            # Arabic-script
+            "ar": "arabic", "fa": "arabic", "ur": "arabic", "arabic": "arabic",
+            # Others that don't share Unicode space with Latin
+            "he": "hebrew", "hebrew": "hebrew",
+            "el": "greek", "greek": "greek",
+            "hi": "devanagari", "mr": "devanagari", "devanagari": "devanagari",
+            "th": "thai", "thai": "thai",
+            "hy": "armenian", "armenian": "armenian",
+            "ka": "georgian", "georgian": "georgian",
+            "bn": "bengali", "bengali": "bengali",
+            "ta": "tamil", "tamil": "tamil",
+            "te": "telugu", "telugu": "telugu",
+            "gu": "gujarati", "gujarati": "gujarati",
+            "pa": "gurmukhi", "gurmukhi": "gurmukhi",
+            # Everything else (en, fr, de, es, pt, it, nl, sv, tr, vi, ...)
+            # defaults to "latin" via .get(..., "latin").
+        }
 
-        def _strip_override(text: str) -> str:
+        def _strip(text: str) -> str:
             if not text:
                 return ""
             return _OVERRIDE_RE.sub("", text).strip()
 
-        def _detect_lang(text: str) -> str:
-            """Best-effort ISO-639-1; fall back to script bucket then 'unknown'."""
-            return detect_language(text) or detect_script(text) or "unknown"
-
         def _is_alignable(sup: Supervision, plain: str) -> bool:
-            # 1. Must have real duration.
             if sup.duration is None or sup.duration <= 0.01:
                 return False
-            # 2. ASS pre-tagged drawings are never dialogue.
             if (sup.custom or {}).get("line_type") == "drawing":
                 return False
-            # 3. classify_line_type sees plaintext + ASS override signals.
             ass_raw = (sup.custom or {}).get("ass_raw_text")
             return classify_line_type(
-                plain,
-                start=sup.start,
-                ass_raw_text=ass_raw,
-                duration=sup.duration,
+                plain, start=sup.start,
+                ass_raw_text=ass_raw, duration=sup.duration,
             ) is None
 
-        # ---- Determine topology via the existing bilingual-mode heuristic ----
-        mode = self._detect_bilingual_mode()
-        _TYPE_MAP = {
-            "none": "mono",
-            "line_by_line": "bilingual_inline",
-            "alternating": "bilingual_dual_row",
-        }
-        caption_type = _TYPE_MAP.get(mode, "mono")
+        def _vote_lang(texts: List[str]) -> "Optional[str]":
+            """Aggregate-voting language detection for a group of texts."""
+            if not texts:
+                return None
+            joined = " ".join(texts)
+            return detect_language(joined) or detect_script(joined)
 
-        # ---- Build the flat list of candidate supervisions ----
-        candidates: List[Supervision] = []
+        def _same_alignment_script(a: "Optional[str]", b: "Optional[str]") -> bool:
+            """Are two lang labels confusable for alignment purposes?
 
-        if mode == "line_by_line":
-            # F1: each cue holds <primary>\n<secondary>. Reuse the existing
-            # merger so we don't re-implement line splitting. The merged
-            # Caption preserves 1:1 row order with ``self.supervisions``, so
-            # the original index is simply the enumerate index.
-            merged = self.merge_bilingual(mode="line_by_line")
-            for orig_idx, sup in enumerate(merged.supervisions):
-                text_plain = _strip_override(sup.text or "")
-                trans_plain = _strip_override(sup.translation or "")
-                if not _is_alignable(sup, text_plain or trans_plain):
-                    continue
-                if text_plain:
-                    side = fastcopy(
-                        sup, text=text_plain, translation=None,
-                        language=_detect_lang(text_plain),
-                    )
-                    side.align_index = orig_idx
-                    candidates.append(side)
-                if trans_plain:
-                    side = fastcopy(
-                        sup, text=trans_plain, translation=None,
-                        language=_detect_lang(trans_plain),
-                    )
-                    side.align_index = orig_idx
-                    candidates.append(side)
-        else:
-            # mono + dual-row: each original Supervision contributes one row.
-            for orig_idx, sup in enumerate(self.supervisions):
-                plain = _strip_override(sup.text or "")
-                if not plain or not _is_alignable(sup, plain):
-                    continue
+            True when they map to the same coarse script bucket AND they
+            aren't distinct CJK siblings (zh/ja/ko disambiguate cleanly on
+            full-caption aggregates).
+            """
+            if not a or not b:
+                return False
+            if a in _CJK_DISTINCT and b in _CJK_DISTINCT and a != b:
+                return False
+            return (_LANG_SCRIPT_BUCKET.get(a, "latin")
+                    == _LANG_SCRIPT_BUCKET.get(b, "latin"))
+
+        # ---- Delegate F1/F2 splitting to merge_bilingual ----
+        merged = self.merge_bilingual(mode="auto")
+
+        primary, secondary = [], []
+        primary_texts, secondary_texts = [], []
+
+        for sup in merged.supervisions:
+            t1 = _strip(sup.text or "")
+            t2 = _strip(sup.translation or "")
+            probe = t1 or t2
+            if not probe or not _is_alignable(sup, probe):
+                continue
+            # fastcopy shares the custom dict by reference; we need each side
+            # to have its own copy so Supervision.__setattr__ (which mutates
+            # custom in place) doesn't pollute the sibling's align_index.
+            base_custom = dict(sup.custom or {})
+            if t1:
+                primary.append(fastcopy(
+                    sup, text=t1, translation=None, custom=dict(base_custom),
+                ))
+                primary_texts.append(t1)
+            if t2:
+                idx = (base_custom.get("translation_align_index")
+                       or base_custom.get("align_index"))
                 side = fastcopy(
-                    sup, text=plain, translation=None,
-                    language=_detect_lang(plain),
+                    sup, text=t2, translation=None, custom=dict(base_custom),
                 )
-                side.align_index = orig_idx
-                candidates.append(side)
+                side.align_index = idx
+                secondary.append(side)
+                secondary_texts.append(t2)
 
-        # ---- Group by language and rank to pick the priority language ----
-        #
-        # Subtitle-group convention: the translated language (typically CJK
-        # for 字幕组 work) is the "primary" display language — it's written
-        # on top, styled more prominently, and is what the viewer reads. We
-        # encode that convention directly instead of comparing raw character
-        # counts (1 CJK glyph ≈ 2-3 Latin chars, so naïve counts would flip
-        # the ranking). Falls back to row count for ties / non-CJK pairs.
-        _CJK_LANGS = {"zh", "ja", "ko", "east_asian"}
-        _SCRIPT_OF = {
-            "zh": "east_asian", "ja": "east_asian", "ko": "east_asian",
-            "east_asian": "east_asian",
-            # Default: treat every other ISO code as Latin-script for the
-            # outlier-merge heuristic. The few non-Latin exceptions (ar, he,
-            # ru, hi, th…) aren't typically subject to short-text lingua
-            # confusion with Latin languages anyway.
-        }
+        # ---- Layer 1: aggregate voting ----
+        p_lang = _vote_lang(primary_texts)
+        s_lang = _vote_lang(secondary_texts) if secondary_texts else None
 
-        by_lang: Dict[str, List[Supervision]] = {}
-        for sup in candidates:
-            by_lang.setdefault(sup.language or "unknown", []).append(sup)
+        # ---- Layer 2: same-script rollback (mono mis-split as bilingual) ----
+        if s_lang and _same_alignment_script(p_lang, s_lang):
+            primary.extend(secondary)
+            primary_texts.extend(secondary_texts)
+            secondary, secondary_texts = [], []
+            p_lang = _vote_lang(primary_texts)
+            s_lang = None
 
-        # -- Collapse short-text outliers within the same script --
-        # lingua mis-labels short English lines as "de" / "nl" / "af" / etc.
-        # (seen in the FLORES benchmark and on real subtitle files). When a
-        # minor language shares script with the dominant one and contributes
-        # < 20 % of that script's rows, re-label its rows as the dominant
-        # language so extract doesn't fragment a single-language track into
-        # fake primary/secondary halves.
-        if caption_type == "mono" and len(by_lang) >= 2:
-            # group languages by script bucket
-            script_groups: Dict[str, List[str]] = {}
-            for lang in by_lang:
-                script = _SCRIPT_OF.get(lang, "latin")
-                script_groups.setdefault(script, []).append(lang)
-            for script, langs in script_groups.items():
-                if len(langs) < 2:
-                    continue
-                langs_by_size = sorted(langs, key=lambda l: -len(by_lang[l]))
-                dominant = langs_by_size[0]
-                dominant_n = len(by_lang[dominant])
-                for minor in langs_by_size[1:]:
-                    if len(by_lang[minor]) < 0.2 * dominant_n:
-                        for sup in by_lang[minor]:
-                            sup.language = dominant
-                        by_lang[dominant].extend(by_lang[minor])
-                        by_lang.pop(minor)
+        for sup in primary:
+            sup.language = p_lang
+        for sup in secondary:
+            sup.language = s_lang
 
-        def _rank_key(item):
-            lang, sups = item
-            is_cjk = lang in _CJK_LANGS
-            # Sort: CJK first, then most rows, then ISO lex for stability.
-            return (0 if is_cjk else 1, -len(sups), lang)
-
-        ranked = sorted(by_lang.items(), key=_rank_key)
-        primary = ranked[0][1] if ranked else []
-        secondary = ranked[1][1] if len(ranked) >= 2 else []
-        return caption_type, primary, secondary
+        return primary, secondary
 
     def apply_alignment(self, aligned: List[Supervision]) -> None:
         """Write aligned timestamps back into ``self.supervisions`` in place.
@@ -604,9 +601,15 @@ class Caption:
     def _merge_line_by_line(
         self, primary_language: Optional[str], secondary_language: Optional[str]
     ) -> List[Supervision]:
-        """Split each supervision's text by newline into text + translation."""
+        """Split each supervision's text by newline into text + translation.
+
+        Stamps ``sup.custom["align_index"]`` with the original row index so
+        ``extract_alignment_supervisions`` / ``apply_alignment`` can write
+        results back by position (F1 inline — both sides share the same
+        source row, so one index serves both).
+        """
         new_sups = []
-        for sup in self.supervisions:
+        for orig_idx, sup in enumerate(self.supervisions):
             text = sup.text or ""
             lines = text.split("\n")
             if len(lines) >= 2:
@@ -619,13 +622,21 @@ class Caption:
                 )
             else:
                 new_sup = fastcopy(sup, language=primary_language or sup.language)
+            new_sup.align_index = orig_idx
             new_sups.append(new_sup)
         return new_sups
 
     def _merge_alternating(
         self, primary_language: Optional[str], secondary_language: Optional[str]
     ) -> List[Supervision]:
-        """Merge consecutive same-timing supervisions into text + translation."""
+        """Merge consecutive same-timing supervisions into text + translation.
+
+        Stamps ``sup.custom["align_index"]`` with the row index of the merged
+        primary side; when two rows are fused (F2 dual-row), the secondary
+        side's original row index is stamped on
+        ``sup.custom["translation_align_index"]`` so write-back can target
+        each language's original row independently.
+        """
         new_sups = []
         i = 0
         while i < len(self.supervisions):
@@ -640,10 +651,14 @@ class Caption:
                         language=primary_language or sup.language,
                         target_lang=secondary_language,
                     )
+                    new_sup.align_index = i
+                    new_sup.translation_align_index = i + 1
                     new_sups.append(new_sup)
                     i += 2
                     continue
-            new_sups.append(fastcopy(sup, language=primary_language or sup.language))
+            new_sup = fastcopy(sup, language=primary_language or sup.language)
+            new_sup.align_index = i
+            new_sups.append(new_sup)
             i += 1
         return new_sups
 

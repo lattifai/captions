@@ -48,7 +48,11 @@ def detect_file_encoding(path: Path) -> Tuple[str, str]:
         import chardet
 
         detected = chardet.detect(raw)
-        if detected and detected.get("encoding") and detected.get("confidence", 0) > 0.5:
+        if (
+            detected
+            and detected.get("encoding")
+            and detected.get("confidence", 0) > 0.5
+        ):
             enc = detected["encoding"].lower()
             # Normalize chardet names
             if enc in ("gb2312", "gbk", "gb18030"):
@@ -165,7 +169,7 @@ class Pysubs2Format(FormatHandler):
                 for sep in (": ", "： "):
                     prefix = event.name + sep
                     if text.startswith(prefix):
-                        text = text[len(prefix):]
+                        text = text[len(prefix) :]
                         break
 
             supervisions.append(
@@ -173,9 +177,11 @@ class Pysubs2Format(FormatHandler):
                     text=text,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0
-                    if event.end is not None
-                    else 0,
+                    duration=(
+                        (event.end - event.start) / 1000.0
+                        if event.end is not None
+                        else 0
+                    ),
                 )
             )
 
@@ -189,6 +195,7 @@ class Pysubs2Format(FormatHandler):
             kind=metadata.pop("kind", None),
             format_metadata=metadata,
         )
+
     @classmethod
     def write(
         cls,
@@ -228,9 +235,7 @@ class Pysubs2Format(FormatHandler):
             supervisions, word_level=word_level, format_id=cls.format_id
         )
 
-        from .base import render_bilingual_text
-
-        from .base import SpeakerTracker
+        from .base import SpeakerTracker, render_bilingual_text
 
         subs = pysubs2.SSAFile()
 
@@ -423,7 +428,9 @@ class SRTFormat(Pysubs2Format):
         # pysubs2 emits LF; split cues on blank-line delimiter
         blocks = re.split(r"\n\n+", text)
         # Trailing empty block from trailing blank line
-        trailing = "\n\n" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "")
+        trailing = (
+            "\n\n" if text.endswith("\n\n") else ("\n" if text.endswith("\n") else "")
+        )
 
         cue_blocks = [b for b in blocks if b.strip()]
         if len(cue_blocks) != len(supervisions):
@@ -454,8 +461,8 @@ class SRTFormat(Pysubs2Format):
         **kwargs,
     ) -> bytes:
         """Generate SRT with speaker names wrapped in <font color> tags."""
-        from .base import maybe_expand_to_word_supervisions, render_bilingual_text
         from ..colors import resolve_speaker_color_rgb
+        from .base import maybe_expand_to_word_supervisions, render_bilingual_text
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         supervisions = maybe_expand_to_word_supervisions(
@@ -471,7 +478,10 @@ class SRTFormat(Pysubs2Format):
         tracker = SpeakerTracker() if cls._dedup_speaker else None
         for sup in supervisions:
             text = render_bilingual_text(sup, translation_first=tf)
-            if cls._should_include_speaker(sup, include_speaker, tracker) and sup.speaker:
+            if (
+                cls._should_include_speaker(sup, include_speaker, tracker)
+                and sup.speaker
+            ):
                 color = resolve_speaker_color_rgb(
                     sup.speaker, speaker_color, color_cache
                 )
@@ -500,6 +510,11 @@ class ASSFormat(Pysubs2Format):
     extensions = [".ass"]
     pysubs2_format = "ass"
     description = "Advanced SubStation Alpha - rich styling support"
+    _ASS_EVENT_SPLIT_MAX = 9
+    _ASS_STYLE_COLOR_FIELD_INDEXES = (3, 4, 5, 6)
+    _ASS_COMPONENT_NEGATIVE_TIMESTAMP_RE = re.compile(
+        r"^\s*(?P<h>\d+):(?P<m>-?\d+):(?P<s>-?\d+(?:\.\d+)?)\s*$"
+    )
 
     @classmethod
     def _should_include_speaker(cls, sup, include_speaker, tracker=None):
@@ -517,6 +532,125 @@ class ASSFormat(Pysubs2Format):
         return super()._should_include_speaker(sup, include_speaker, tracker)
 
     @classmethod
+    def _sanitize_ass_timestamp_field(cls, value: str) -> Tuple[str, bool]:
+        """Clamp malformed component-negative ASS timestamps to zero.
+
+        pysubs2 already supports a leading sign (``-0:00:01.00``), but some
+        field data in the wild encodes the minus sign on the minute/second
+        component instead (``0:00:-1.00``), which the parser rejects.
+        """
+        stripped = value.strip()
+        if "-" not in stripped[1:]:
+            return value, False
+
+        match = cls._ASS_COMPONENT_NEGATIVE_TIMESTAMP_RE.match(stripped)
+        if match is None:
+            return value, False
+
+        if int(match.group("m")) >= 0 and float(match.group("s")) >= 0:
+            return value, False
+
+        return "0:00:00.00", True
+
+    @staticmethod
+    def _sanitize_ass_color_field(value: str) -> Tuple[str, bool]:
+        """Drop stray ``H`` markers from ASS style color fields.
+
+        Broken group releases sometimes emit tokens like ``&H00H202020``.
+        Interpreting those as ``&H00202020`` matches the intended 8-digit
+        ASS color encoding and lets parsing continue.
+        """
+        stripped = value.strip()
+        if not stripped.startswith(("&H", "&h")):
+            return value, False
+
+        body = stripped[2:]
+        if "H" not in body and "h" not in body:
+            return value, False
+
+        normalized = body.replace("H", "").replace("h", "")
+        if (
+            len(normalized) not in (6, 8)
+            or re.fullmatch(r"[0-9A-Fa-f]+", normalized) is None
+        ):
+            return value, False
+
+        return "&H" + normalized.upper(), True
+
+    @classmethod
+    def _sanitize_ass_event_line(cls, line: str) -> Tuple[str, int]:
+        """Repair malformed ASS event timestamps on a single line."""
+        line_body = line.rstrip("\r\n")
+        eol = line[len(line_body) :]
+        prefix, sep, rest = line_body.partition(":")
+        if not sep:
+            return line, 0
+
+        spacing = rest[: len(rest) - len(rest.lstrip())]
+        fields = rest.lstrip().split(",", cls._ASS_EVENT_SPLIT_MAX)
+        if len(fields) < 3:
+            return line, 0
+
+        fix_count = 0
+        for idx in (1, 2):
+            fixed, changed = cls._sanitize_ass_timestamp_field(fields[idx])
+            if changed:
+                fields[idx] = fixed
+                fix_count += 1
+
+        if not fix_count:
+            return line, 0
+
+        return f"{prefix}:{spacing}{','.join(fields)}{eol}", fix_count
+
+    @classmethod
+    def _sanitize_ass_style_line(cls, line: str) -> Tuple[str, int]:
+        """Repair malformed ASS style color fields on a single line."""
+        line_body = line.rstrip("\r\n")
+        eol = line[len(line_body) :]
+        prefix, sep, rest = line_body.partition(":")
+        if not sep:
+            return line, 0
+
+        spacing = rest[: len(rest) - len(rest.lstrip())]
+        fields = rest.lstrip().split(",")
+        if len(fields) <= max(cls._ASS_STYLE_COLOR_FIELD_INDEXES):
+            return line, 0
+
+        fix_count = 0
+        for idx in cls._ASS_STYLE_COLOR_FIELD_INDEXES:
+            fixed, changed = cls._sanitize_ass_color_field(fields[idx])
+            if changed:
+                fields[idx] = fixed
+                fix_count += 1
+
+        if not fix_count:
+            return line, 0
+
+        return f"{prefix}:{spacing}{','.join(fields)}{eol}", fix_count
+
+    @classmethod
+    def _sanitize_ass_content(cls, content: str) -> Tuple[str, Dict[str, int]]:
+        """Apply narrow ASS parser repairs before a fallback parse retry."""
+        timestamp_fixes = 0
+        color_fixes = 0
+        sanitized_lines = []
+
+        for line in content.splitlines(keepends=True):
+            if line.startswith(("Dialogue:", "Comment:")):
+                line, fixed = cls._sanitize_ass_event_line(line)
+                timestamp_fixes += fixed
+            elif line.startswith("Style:"):
+                line, fixed = cls._sanitize_ass_style_line(line)
+                color_fixes += fixed
+            sanitized_lines.append(line)
+
+        return "".join(sanitized_lines), {
+            "timestamp_fields": timestamp_fixes,
+            "style_color_fields": color_fixes,
+        }
+
+    @classmethod
     def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
         """Parse ASS in a single pass: supervisions + styles/info metadata.
 
@@ -530,25 +664,43 @@ class ASSFormat(Pysubs2Format):
         - encoding: Detected file encoding (present when loaded from file)
         """
         detected_encoding = None
-        try:
-            if cls.is_content(source):
-                content = source
-            else:
-                content, detected_encoding = detect_file_encoding(Path(source))
-            subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
-        except Exception:
-            if cls.is_content(source):
-                content = source
-                subs = pysubs2.SSAFile.from_string(source)
-            else:
-                # Last-resort fallback when strict format parse fails; re-read
-                # bytes with utf-8 so content is still available for raw
-                # [Script Info] extraction below.
-                subs = pysubs2.load(str(source), encoding="utf-8")
-                try:
-                    content = Path(source).read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    content = ""
+        if cls.is_content(source):
+            content = source
+        else:
+            content, detected_encoding = detect_file_encoding(Path(source))
+
+        sanitized_content, sanitize_counts = cls._sanitize_ass_content(content)
+        parse_attempts = [(content, cls.pysubs2_format, False)]
+        if sanitized_content != content:
+            parse_attempts.append((sanitized_content, cls.pysubs2_format, True))
+        fallback_content = (
+            sanitized_content if sanitized_content != content else content
+        )
+        parse_attempts.append((fallback_content, None, sanitized_content != content))
+
+        subs = None
+        parsed_content = content
+        last_exc = None
+        for attempt_content, fmt, used_sanitized in parse_attempts:
+            try:
+                if fmt is None:
+                    subs = pysubs2.SSAFile.from_string(attempt_content)
+                else:
+                    subs = pysubs2.SSAFile.from_string(attempt_content, format_=fmt)
+                parsed_content = attempt_content
+                if used_sanitized:
+                    logger.warning(
+                        "ass: sanitized %d malformed timestamp field(s) and %d malformed style color field(s) "
+                        "before parsing",
+                        sanitize_counts["timestamp_fields"],
+                        sanitize_counts["style_color_fields"],
+                    )
+                break
+            except Exception as exc:
+                last_exc = exc
+
+        if subs is None:
+            raise last_exc
 
         # --- Extract supervisions from events ---
         all_texts = [e.text for e in subs.events]
@@ -558,7 +710,7 @@ class ASSFormat(Pysubs2Format):
 
         # Capture raw Dialogue/Comment line bodies before pysubs2 normalization
         # (see _extract_raw_event_bodies). Pair by position with subs.events.
-        raw_event_bodies = cls._extract_raw_event_bodies(content)
+        raw_event_bodies = cls._extract_raw_event_bodies(parsed_content)
         if len(raw_event_bodies) != len(subs.events):
             # Unexpected mismatch → skip splice; pysubs2 output wins
             raw_event_bodies = []
@@ -603,9 +755,11 @@ class ASSFormat(Pysubs2Format):
                     text=plaintext,
                     speaker=speaker or event.name or None,
                     start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0
-                    if event.end is not None
-                    else 0,
+                    duration=(
+                        (event.end - event.start) / 1000.0
+                        if event.end is not None
+                        else 0
+                    ),
                     custom=custom,
                 )
             )
@@ -619,7 +773,7 @@ class ASSFormat(Pysubs2Format):
         #   - trailing ``.0`` on Style floats (100.0 → 100)
         #   - original Format line ordering in [Events]
         # Capturing the raw text lets writers splice it back in verbatim.
-        raw_sections = cls._extract_raw_sections(content)
+        raw_sections = cls._extract_raw_sections(parsed_content)
         ass_info_raw = raw_sections.get("script_info", "")
         ass_styles_raw = raw_sections.get("styles", "")
         ass_events_format_raw = raw_sections.get("events_format", "")
@@ -705,8 +859,7 @@ class ASSFormat(Pysubs2Format):
         updating only Start/End fields from the mutated supervision.
         """
         return [
-            (m.group(1), m.group(2))
-            for m in cls._ASS_EVENT_LINE_RE.finditer(content)
+            (m.group(1), m.group(2)) for m in cls._ASS_EVENT_LINE_RE.finditer(content)
         ]
 
     @staticmethod
@@ -830,7 +983,10 @@ class ASSFormat(Pysubs2Format):
         """
         import logging
 
-        from .base import count_supervisions_with_words, maybe_expand_to_word_supervisions
+        from .base import (
+            count_supervisions_with_words,
+            maybe_expand_to_word_supervisions,
+        )
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         config = config if isinstance(config, ASSConfig) else ASSConfig()
@@ -958,9 +1114,7 @@ class ASSFormat(Pysubs2Format):
                 if sup.translation:
                     trans_bgr = cls._resolve_translation_bgr(config)
                     trans_body = sup.translation.replace("\n", "\\N")
-                    trans_span = (
-                        f"{{\\rKaraoke\\1c&H{trans_bgr}&\\2c&H{trans_bgr}&}}{trans_body}"
-                    )
+                    trans_span = f"{{\\rKaraoke\\1c&H{trans_bgr}&\\2c&H{trans_bgr}&}}{trans_body}"
                     if behavior.translation_first:
                         karaoke_text = f"{trans_span}\\N{karaoke_text}"
                     else:
@@ -996,12 +1150,18 @@ class ASSFormat(Pysubs2Format):
                         text = f"{prefix}{text}"
 
                 if config.kinetic_style is not None:
-                    from ..kinetic import build_line_override, rebase_kinetic_impl, resolve_kinetic
+                    from ..kinetic import (
+                        build_line_override,
+                        rebase_kinetic_impl,
+                        resolve_kinetic,
+                    )
 
                     resolved = resolve_kinetic(config.kinetic_style, word_level=False)
                     if resolved is not None:
                         scope, impl = resolved
-                        impl = rebase_kinetic_impl(impl, scaley=config.scaley, angle=config.angle)
+                        impl = rebase_kinetic_impl(
+                            impl, scaley=config.scaley, angle=config.angle
+                        )
                         # resolve_kinetic with word_level=False only returns
                         # scope="line" or raises — so we are safe to prepend.
                         override = build_line_override(impl)
@@ -1023,7 +1183,9 @@ class ASSFormat(Pysubs2Format):
             if metadata.get("ass_styles_raw"):
                 output = cls._replace_styles_section(output, metadata["ass_styles_raw"])
             if metadata.get("ass_events_format_raw"):
-                output = cls._replace_events_format(output, metadata["ass_events_format_raw"])
+                output = cls._replace_events_format(
+                    output, metadata["ass_events_format_raw"]
+                )
 
         # Splice raw Dialogue/Comment bodies (preserves margin padding and
         # trailing whitespace inside the Text field). pysubs2 normalization:
@@ -1059,9 +1221,7 @@ class ASSFormat(Pysubs2Format):
         return raw_bytes
 
     @staticmethod
-    def _splice_raw_event_bodies(
-        output: str, supervisions: List[Supervision]
-    ) -> str:
+    def _splice_raw_event_bodies(output: str, supervisions: List[Supervision]) -> str:
         """Replace each pysubs2-emitted Dialogue/Comment body with its raw copy.
 
         Only the Start/End fields (positions 1 and 2) from the pysubs2 output
@@ -1086,7 +1246,8 @@ class ASSFormat(Pysubs2Format):
 
         lines = output.split("\n")
         event_line_indices = [
-            i for i, ln in enumerate(lines)
+            i
+            for i, ln in enumerate(lines)
             if ln.startswith("Dialogue:") or ln.startswith("Comment:")
         ]
         if len(event_line_indices) != len(supervisions):
@@ -1436,7 +1597,11 @@ class ASSFormat(Pysubs2Format):
 
         if is_box_mode:
             shadow = 0
-            outline = config.outline_width if config.outline_width > 0 else _BOX_PADDING_DEFAULT
+            outline = (
+                config.outline_width
+                if config.outline_width > 0
+                else _BOX_PADDING_DEFAULT
+            )
         else:
             shadow = config.shadow_depth
             outline = config.outline_width

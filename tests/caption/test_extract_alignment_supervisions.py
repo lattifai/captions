@@ -539,3 +539,41 @@ def test_mostly_mono_with_sparse_bilingual_rows_stays_mono() -> None:
     # newline flattened to a space.
     assert len(primary) == 45
     assert any("欢迎来到第87届奥斯卡颁奖典礼 Welcome to" in s.text for s in primary)
+
+
+def test_small_n_secondary_noise_collapses_even_when_ratio_is_25_percent() -> None:
+    """Regression: Layer-3 skew rollback must trip on small-N absolute
+    counts, not only on the 5 % ratio threshold.
+
+    A 4-mono + 2-sync-pair caption passes the current ``pair_coverage
+    >= 0.2`` test (pair coverage = 4/8 = 50 %) so ``_detect_bilingual_mode``
+    returns ``"alternating"``. The resulting split is primary=6 / secondary=2,
+    ratio = 2/8 = 25 % — well above 5 %. Pre-fix the ratio test let this
+    through as a genuine bilingual; in reality it's a noisy mono caption
+    that must collapse back.
+
+    Gemini's original counter-example: 4 rows + 1 noise = 25 % absolute
+    ratio, but statistical significance requires an absolute-count floor
+    (``len(secondary) < 10``) too.
+    """
+    sups = [
+        # 4 mono Chinese dialogue rows
+        {"text": "这是第一句中文", "start": 10.0, "duration": 2.0},
+        {"text": "这是第二句中文", "start": 13.0, "duration": 2.0},
+        {"text": "这是第三句中文", "start": 16.0, "duration": 2.0},
+        {"text": "这是第四句中文", "start": 19.0, "duration": 2.0},
+        # Two CJK-vs-Latin same-timing pairs (the "stray sync" noise).
+        {"text": "梅林根酒店账单", "start": 30.0, "duration": 3.0},
+        {"text": "MERINGEN HOTEL BILL", "start": 30.0, "duration": 3.0},
+        {"text": "泰晤士河谷城堡门警局", "start": 35.0, "duration": 3.0},
+        {"text": "THAMES VALLEY POLICE", "start": 35.0, "duration": 3.0},
+    ]
+
+    caption = _cap(sups)
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    assert secondary == [], (
+        "Small-N secondary (ratio 25 % but len < 10) must still trigger "
+        "skew rollback — 25 % of 8 is not statistically meaningful."
+    )
+    assert primary, "primary must not be empty after rollback"

@@ -203,3 +203,80 @@ def test_apply_does_not_touch_zero_duration_non_dialogue_rows() -> None:
     credit = caption.supervisions[1]
     assert credit.start == 0.0
     assert credit.duration == 0.0
+
+
+# ---------------------------------------------------------------------------
+# alignment_break_before — the bit stamped by extract_alignment_supervisions
+# so that apply_alignment's no-timing interpolation respects segment
+# boundaries instead of borrowing timestamps across a large gap.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_does_not_use_right_anchor_across_alignment_break_before() -> None:
+    """Regression: when the aligner returns a row tagged with
+    ``alignment_break_before=True``, the no-timing interpolation on the
+    preceding zero-duration dialogue run must NOT use that row as a
+    right anchor — the boundary is semantic (post-gap, new scene), not
+    a timing neighbour.
+    """
+    caption = _cap([
+        {"text": "A", "start": 0.0, "duration": 1.0},      # idx 0 timed, end=1.0
+        {"text": "B", "start": 1.0, "duration": 0.0},      # idx 1 zero-dur dialogue
+        {"text": "C", "start": 50.0, "duration": 1.0},     # idx 2 timed, post-gap
+    ])
+
+    aligned_c = _aligned(2, start=50.0, duration=1.0)
+    aligned_c.alignment_break_before = True  # boundary between idx 1 and idx 2
+
+    caption.apply_alignment([
+        _aligned(0, 0.0, 1.0),
+        aligned_c,
+    ])
+
+    # Without the boundary bit, idx 1 would borrow idx 2's start (50.0)
+    # as its right anchor and stretch its duration to ~49s. With the
+    # bit, the right anchor is blocked; idx 1 falls back to one-sided
+    # extend-from-left, which leaves its duration at 0.0.
+    assert caption.supervisions[1].start == 1.0
+    assert caption.supervisions[1].duration == 0.0
+    # idx 2's own timing must still be written (the bit only blocks
+    # cross-boundary interpolation, not direct write-back).
+    assert caption.supervisions[2].start == 50.0
+    assert caption.supervisions[2].duration == 1.0
+
+
+def test_apply_splits_zero_duration_dialogue_run_at_alignment_break_before() -> None:
+    """A zero-duration dialogue run that straddles a break boundary must
+    be processed as two independent runs — pre-break uses the left-side
+    anchor only, post-break uses the right-side anchor only.
+    """
+    caption = _cap([
+        {"text": "A", "start": 0.0, "duration": 1.0},       # idx 0 timed, end=1.0
+        {"text": "B1", "start": 1.0, "duration": 0.0},      # idx 1 zero-dur (pre-break)
+        {"text": "B2", "start": 1.5, "duration": 0.0},      # idx 2 zero-dur (pre-break)
+        {"text": "C", "start": 50.0, "duration": 1.0},      # idx 3 timed, post-gap
+        {"text": "D1", "start": 51.0, "duration": 0.0},     # idx 4 zero-dur (post-break)
+        {"text": "D2", "start": 51.5, "duration": 0.0},     # idx 5 zero-dur (post-break)
+        {"text": "E", "start": 60.0, "duration": 1.0},      # idx 6 timed
+    ])
+
+    aligned_c = _aligned(3, start=50.0, duration=1.0)
+    aligned_c.alignment_break_before = True
+
+    caption.apply_alignment([
+        _aligned(0, 0.0, 1.0),
+        aligned_c,
+        _aligned(6, 60.0, 1.0),
+    ])
+
+    # Pre-break run (idx 1, 2): must fall back to one-sided left anchor,
+    # so both get duration 0.0 (not stretched across the 49-second gap).
+    assert caption.supervisions[1].duration == 0.0
+    assert caption.supervisions[2].duration == 0.0
+    # Post-break run (idx 4, 5): has left=idx 3 (end=51.0) and right=idx 6
+    # (start=60.0), no break on idx 6, so both get interpolated across
+    # the 9-second span (duration ≈ 4.5s each).
+    assert caption.supervisions[4].duration > 0.0
+    assert caption.supervisions[5].duration > 0.0
+    assert abs(caption.supervisions[4].duration - 4.5) < 1e-3
+    assert abs(caption.supervisions[5].duration - 4.5) < 1e-3

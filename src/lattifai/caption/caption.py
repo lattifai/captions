@@ -515,6 +515,45 @@ class Caption:
 
             return True
 
+        def _compute_break_before() -> List[bool]:
+            """Mark source rows whose preceding gap exceeds the adaptive threshold.
+
+            The adaptive threshold is ``max(2.0, min(5.0, 3 × median_positive_gap))``,
+            clamped to the 2-5 s window that accommodates both tight dialogue
+            and typical scene/commercial cuts. Same-timing neighbours (F2
+            candidates) are never marked as boundaries — their gap is ~0 by
+            definition and F2 must stay contiguous. The output is per-source-row
+            and later stamped onto each extracted side via
+            ``Supervision.custom["alignment_break_before"]`` so that
+            ``apply_alignment`` can refuse to interpolate across the boundary.
+            """
+            sups = self.supervisions
+            n = len(sups)
+            if n < 2:
+                return [False] * n
+            gaps: List[float] = []
+            for j in range(1, n):
+                prev_end = (sups[j - 1].start or 0.0) + (sups[j - 1].duration or 0.0)
+                g = (sups[j].start or 0.0) - prev_end
+                if g > 0:
+                    gaps.append(g)
+            if not gaps:
+                return [False] * n
+            med = sorted(gaps)[len(gaps) // 2]
+            threshold = max(2.0, min(5.0, 3.0 * med))
+            out = [False] * n
+            for j in range(1, n):
+                # Same-timing pairs are the F2 atomic unit; never split them.
+                if abs((sups[j].start or 0.0) - (sups[j - 1].start or 0.0)) < 0.01:
+                    continue
+                prev_end = (sups[j - 1].start or 0.0) + (sups[j - 1].duration or 0.0)
+                g = (sups[j].start or 0.0) - prev_end
+                if g >= threshold:
+                    out[j] = True
+            return out
+
+        break_before = _compute_break_before()
+
         primary, secondary = [], []
         primary_texts, secondary_texts = [], []
 
@@ -523,6 +562,7 @@ class Caption:
                 text = _strip(sup.text)
                 side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))
                 side.align_index = i
+                side.alignment_break_before = break_before[i]
                 primary.append(side)
                 primary_texts.append(text)
             p_lang = _vote_lang(primary_texts)
@@ -573,11 +613,13 @@ class Caption:
             base_custom = dict(sup.custom or {})
             side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
             side.align_index = i
+            side.alignment_break_before = break_before[i]
             primary.append(side)
             primary_texts.append(t1)
             if t2:
                 side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
                 side.align_index = secondary_index
+                side.alignment_break_before = break_before[secondary_index]
                 secondary.append(side)
                 secondary_texts.append(t2)
             i += step
@@ -596,25 +638,39 @@ class Caption:
 
         # ---- Layer 3: skew rollback (tiny secondary → mode misdetection) ----
         # A genuine bilingual caption produces two sides of comparable size.
-        # A primary/secondary split where secondary is ≤ 5 % of the union
-        # almost always means ``_detect_bilingual_mode`` latched onto a
-        # handful of stray same-timing pairs in an otherwise-mono caption
-        # (seen in the wild on 1000+ row mono JP/ZH ASS files). How we
-        # undo the split depends on the topology:
-        #   - F1 inline: primary/secondary share align_index per cue; the
-        #     stray secondary entries are just a second half of rows that
-        #     already live in primary, so we drop them.
-        #   - F2 alternating: primary/secondary use disjoint indexes;
-        #     merge secondary back into primary as mono remainders.
-        if secondary and len(secondary) / (len(primary) + len(secondary)) < 0.05:
+        # Which threshold triggers rollback depends on topology:
+        #   - F1 inline (s_idx ⊆ p_idx): a perfect bilingual has s_idx ==
+        #     p_idx with ratio ≈ 0.5; a degenerate F1 has ratio < 5 % and
+        #     should drop the stray secondary entries. Use the ratio test
+        #     only — absolute count is meaningless here because 3+3 F1 is
+        #     still real bilingual content.
+        #   - F2 alternating (s_idx disjoint p_idx): use both absolute
+        #     count AND ratio. This covers Gemini's 4-row + 1-noise
+        #     counter-example (25 % ratio but N < 10, statistically
+        #     insignificant) as well as the 1000-row ASS files with a
+        #     dozen stray sync pairs.
+        if secondary:
+            total = len(primary) + len(secondary)
             primary_indexes = {s.align_index for s in primary}
             is_f1 = all(s.align_index in primary_indexes for s in secondary)
-            if not is_f1:
-                primary.extend(secondary)
-                primary_texts.extend(secondary_texts)
-            secondary, secondary_texts = [], []
-            p_lang = _vote_lang(primary_texts)
-            s_lang = None
+            ratio = len(secondary) / total
+
+            if is_f1:
+                should_rollback = ratio < 0.05
+            else:
+                # F2 real bilingual has ratio ≈ 0.5 (each pair contributes
+                # to both sides). A small-N split where ratio drops below
+                # ~1/3 is almost always a couple of stray same-timing
+                # rows in an otherwise-mono caption, not a real F2.
+                should_rollback = ratio < 0.05 or (len(secondary) < 10 and ratio < 0.33)
+
+            if should_rollback:
+                if not is_f1:
+                    primary.extend(secondary)
+                    primary_texts.extend(secondary_texts)
+                secondary, secondary_texts = [], []
+                p_lang = _vote_lang(primary_texts)
+                s_lang = None
 
         for sup in primary:
             sup.language = p_lang
@@ -684,12 +740,17 @@ class Caption:
 
         # ---- Step 1: index-matched timestamp copy ----
         written = [False] * n
+        break_before = [False] * n
         for aligned_sup in aligned:
             idx = (aligned_sup.custom or {}).get("align_index")
             if idx is None or idx < 0 or idx >= n:
                 continue
             _write_back(sups[idx], aligned_sup)
             written[idx] = True
+            # Segment boundary signal stamped by extract_alignment_supervisions.
+            # Blocks cross-boundary interpolation in Step 2 below.
+            if (aligned_sup.custom or {}).get("alignment_break_before"):
+                break_before[idx] = True
 
         # ---- Step 2: interpolate no-timing dialogue rows ----
         timed = [False] * n
@@ -699,6 +760,10 @@ class Caption:
 
         last_timed = -1
         for i, sup in enumerate(sups):
+            # Break boundary: rows before row ``i`` cannot borrow a right
+            # anchor past this point, so reset the running left anchor.
+            if break_before[i]:
+                last_timed = -1
             prev_timed[i] = last_timed
             has_timing = sup.duration is not None and sup.duration > 0.01
             timed[i] = has_timing
@@ -722,6 +787,11 @@ class Caption:
             next_timed[i] = last_timed
             if timed[i]:
                 last_timed = i
+            # Same signal from the right-scan side: post-boundary timed
+            # rows must not serve as a left anchor for the pre-boundary
+            # zero-duration run.
+            if break_before[i]:
+                last_timed = -1
 
         i = 0
         while i < n:
@@ -730,7 +800,8 @@ class Caption:
                 continue
 
             j = i + 1
-            while j < n and dialogue[j]:
+            # Dialogue runs cannot extend across a break boundary either.
+            while j < n and dialogue[j] and not break_before[j]:
                 j += 1
 
             left_idx = prev_timed[i]

@@ -474,7 +474,7 @@ class Caption:
             return _ALIGNMENT_SCRIPT_BUCKETS.get(a, "latin") == _ALIGNMENT_SCRIPT_BUCKETS.get(b, "latin")
 
         def _can_fast_extract_mono() -> bool:
-            if self.source_format in {"ass", "ssa", "vtt", "srt"}:
+            if self.source_format in {"ass", "ssa"}:
                 return False
 
             prev_start = None

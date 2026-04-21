@@ -630,8 +630,15 @@ class Caption:
 
         # ---- Layer 2: same-script rollback (mono mis-split as bilingual) ----
         if s_lang and _same_alignment_script(p_lang, s_lang):
-            primary.extend(secondary)
-            primary_texts.extend(secondary_texts)
+            # Merge by align_index (not naive extend) so F2-style splits
+            # that happen to share the same script (e.g. pure-JP captions
+            # with stray same-timing pairs) recover in source order.
+            merged = sorted(
+                zip(primary + secondary, primary_texts + secondary_texts),
+                key=lambda pt: pt[0].align_index,
+            )
+            primary = [p for p, _ in merged]
+            primary_texts = [t for _, t in merged]
             secondary, secondary_texts = [], []
             p_lang = _vote_lang(primary_texts)
             s_lang = None
@@ -666,8 +673,21 @@ class Caption:
 
             if should_rollback:
                 if not is_f1:
-                    primary.extend(secondary)
-                    primary_texts.extend(secondary_texts)
+                    # F2 uses disjoint indexes: primary holds even-ish
+                    # source rows and secondary holds their odd-ish
+                    # partners. A naive extend() would append all
+                    # secondary rows after primary, producing a sequence
+                    # like [0, 2, 4, …, 1, 3, 5, …] that violates the
+                    # "rows emitted in source order" contract. Merge by
+                    # align_index instead so downstream consumers
+                    # (apply_alignment, audits) see a clean non-
+                    # decreasing index sequence.
+                    merged = sorted(
+                        zip(primary + secondary, primary_texts + secondary_texts),
+                        key=lambda pt: pt[0].align_index,
+                    )
+                    primary = [p for p, _ in merged]
+                    primary_texts = [t for _, t in merged]
                 secondary, secondary_texts = [], []
                 p_lang = _vote_lang(primary_texts)
                 s_lang = None

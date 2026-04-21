@@ -577,3 +577,49 @@ def test_small_n_secondary_noise_collapses_even_when_ratio_is_25_percent() -> No
         "skew rollback — 25 % of 8 is not statistically meaningful."
     )
     assert primary, "primary must not be empty after rollback"
+
+
+def test_skew_rollback_merges_f2_secondary_in_source_order() -> None:
+    """Regression: F2 skew rollback must preserve source order after the
+    merge.
+
+    The pre-fix implementation did ``primary.extend(secondary)`` which
+    appended all odd-index secondary rows after the even-index primary
+    rows, producing sequences like ``[0, 2, 4, …, N-2, 1, 3, 5, …, N-1]``
+    — a gross violation of the "rows are emitted in source order"
+    contract. The corpus audit's "rows not in source order" rule
+    surfaced 18 real yyets files with this defect.
+
+    Setup: enough same-timing pairs to trip alternating mode (pair
+    coverage ≥ 20 %) AND enough CJK-vs-Latin evidence to pass the
+    diff-ratio gate, but a heavily skewed primary / secondary split so
+    that skew rollback fires.
+    """
+    sups = []
+    # 9 real bilingual same-timing pairs (CJK + Latin). Pair coverage is
+    # 18 / 48 = 37.5 %, well past the 20 % alternating threshold, and
+    # every pair has a strong CJK-vs-Latin delta (all 9 count as
+    # "evidence"), so _detect_bilingual_mode locks onto "alternating".
+    for i in range(9):
+        sups.append({"text": f"第{i}集标题", "start": 100.0 + i * 10.0, "duration": 3.0})
+        sups.append({"text": f"EPISODE TITLE {i}", "start": 100.0 + i * 10.0, "duration": 3.0})
+    # 30 mono Chinese dialogue rows — primary-only remainders under
+    # alternating mode. With secondary = 9 (< 10) and ratio = 9/48
+    # = 18.75 % (< 0.33), the F2 small-N skew rollback triggers.
+    for i in range(30):
+        sups.append({"text": f"这是纯中文对白 第{i}句", "start": 500.0 + i * 3.0, "duration": 2.5})
+
+    caption = _cap(sups)
+    # Sanity: mode must actually trip alternating for this test to bite.
+    assert caption._detect_bilingual_mode() == "alternating", (
+        "test setup should produce alternating mode"
+    )
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    # Pre-fix: primary tail would look like [even…, odd…], violating
+    # source order. Post-fix: merge-by-align_index preserves order.
+    idxs = [getattr(s, "align_index", None) for s in primary]
+    assert idxs == sorted(idxs), (
+        f"primary align_index must be non-decreasing after skew rollback; "
+        f"got {idxs}"
+    )

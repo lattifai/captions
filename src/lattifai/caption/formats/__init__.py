@@ -6,9 +6,9 @@ Formats are registered using decorators and can be looked up by format ID.
 Example:
     >>> from lattifai.caption.formats import get_reader, get_writer
     >>> reader = get_reader("srt")
-    >>> supervisions = reader.read("input.srt")
+    >>> result = reader.parse("input.srt")
     >>> writer = get_writer("vtt")
-    >>> writer.write(supervisions, "output.vtt")
+    >>> writer.write(result.supervisions, "output.vtt")
 """
 
 from typing import TYPE_CHECKING, Dict, List, Optional, Type

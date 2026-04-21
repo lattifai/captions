@@ -18,7 +18,7 @@ from xml.dom import minidom
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter, render_bilingual_text, strip_standard_kwargs
+from ..base import FormatReader, FormatWriter, ParseResult, render_bilingual_text, strip_standard_kwargs
 
 
 @dataclass
@@ -523,7 +523,7 @@ class FCPXMLReaderHandler(FormatReader):
     extensions = [".fcpxml", ".fcpxmld"]
 
     @classmethod
-    def read(cls, source: Union[Pathlike, str], normalize_text: bool = True, **kwargs) -> List[Supervision]:
+    def parse(cls, source: Union[Pathlike, str], normalize_text: bool = True, **kwargs) -> ParseResult:
         if isinstance(source, (str, Path)) and not cls.is_content(source):
             # Check if it's a bundle directory
             p = Path(source)
@@ -537,4 +537,4 @@ class FCPXMLReaderHandler(FormatReader):
         else:
             content = str(source)
 
-        return FCPXMLReader.read(content, normalize_text=normalize_text)
+        return ParseResult(supervisions=FCPXMLReader.read(content, normalize_text=normalize_text))

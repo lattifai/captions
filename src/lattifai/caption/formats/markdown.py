@@ -8,14 +8,13 @@ but can represent any markdown-based transcript with timestamp annotations.
 
 import io
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from ..supervision import Pathlike, Supervision
 from . import _READERS, _WRITERS, register_format
-from .base import FormatHandler, FormatReader
+from .base import FormatHandler, FormatReader, ParseResult
 
 
 @dataclass
@@ -1194,35 +1193,15 @@ class MarkdownFormat(FormatHandler):
         return False
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str]) -> Dict[str, Any]:
-        """Extract metadata from YAML frontmatter. Deprecated: use parse() instead."""
-        if FormatReader.is_content(source):
-            content = str(source)
-        else:
-            p = Path(source).expanduser().resolve()
-            if p.exists() and p.is_file():
-                content = p.read_text(encoding="utf-8")
-            else:
-                return {}
-        return MarkdownReader.extract_frontmatter(content)
-
-    @classmethod
-    def read(cls, path: Pathlike, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read markdown transcript file."""
-        supervisions = MarkdownReader.extract_for_alignment(path, **kwargs)
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse markdown transcript in a single pass (supervisions + frontmatter)."""
+        supervisions = MarkdownReader.extract_for_alignment(source, **kwargs)
         if normalize_text:
             from ..parsers.text_parser import normalize_text as normalize_text_fn
 
             for sup in supervisions:
                 sup.text = normalize_text_fn(sup.text)
-        return supervisions
 
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
-        """Parse markdown transcript in a single pass."""
-        from .base import ParseResult
-
-        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
         if FormatReader.is_content(source):
             content = str(source)
         else:

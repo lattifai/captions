@@ -12,7 +12,7 @@ from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text, parse_timestamp_text
 from ..supervision import Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 @register_format("csv")
@@ -27,13 +27,13 @@ class CSVFormat(FormatHandler):
     description = "CSV - tabular subtitle format"
 
     @classmethod
-    def read(
+    def parse(
         cls,
         source,
         normalize_text: bool = True,
         **kwargs,
-    ) -> List[Supervision]:
-        """Read CSV format."""
+    ) -> ParseResult:
+        """Parse CSV format."""
         if cls.is_content(source):
             lines = list(csv.reader(StringIO(source)))
         else:
@@ -41,7 +41,7 @@ class CSVFormat(FormatHandler):
                 lines = list(csv.reader(f))
 
         if not lines:
-            return []
+            return ParseResult(supervisions=[])
 
         # Check for header
         first_line = [col.strip().lower() for col in lines[0]]
@@ -74,7 +74,7 @@ class CSVFormat(FormatHandler):
             except (ValueError, IndexError):
                 continue
 
-        return supervisions
+        return ParseResult(supervisions=supervisions)
 
     @classmethod
     def write(cls, supervisions: List[Supervision], output_path, **kwargs) -> Path:
@@ -132,8 +132,8 @@ class TSVFormat(FormatHandler):
     description = "TSV - tab-separated subtitle format"
 
     @classmethod
-    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read TSV format."""
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse TSV format."""
         if cls.is_content(source):
             lines = source.strip().split("\n")
         else:
@@ -141,7 +141,7 @@ class TSVFormat(FormatHandler):
                 lines = f.readlines()
 
         if not lines:
-            return []
+            return ParseResult(supervisions=[])
 
         first_line = lines[0].strip().lower()
         has_header = "start" in first_line and "end" in first_line and "text" in first_line
@@ -179,7 +179,7 @@ class TSVFormat(FormatHandler):
             except (ValueError, IndexError):
                 continue
 
-        return supervisions
+        return ParseResult(supervisions=supervisions)
 
     @classmethod
     def write(cls, supervisions: List[Supervision], output_path, **kwargs) -> Path:
@@ -239,8 +239,8 @@ class AUDFormat(FormatHandler):
         return str(path).lower().endswith(".aud")
 
     @classmethod
-    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read AUD format."""
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse AUD format."""
         import re
 
         from ..parsers.text_parser import detect_speaker_candidates, set_speaker_candidates
@@ -300,7 +300,7 @@ class AUDFormat(FormatHandler):
         if candidates:
             set_speaker_candidates(set())
 
-        return supervisions
+        return ParseResult(supervisions=supervisions)
 
     @classmethod
     def write(cls, supervisions: List[Supervision], output_path, **kwargs) -> Path:
@@ -338,8 +338,8 @@ class TXTFormat(FormatHandler):
     description = "Plain text with optional timestamps"
 
     @classmethod
-    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read TXT format."""
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse TXT format."""
         from ..parsers.text_parser import detect_speaker_candidates, set_speaker_candidates
 
         if cls.is_content(source):
@@ -379,7 +379,7 @@ class TXTFormat(FormatHandler):
         if candidates:
             set_speaker_candidates(set())
 
-        return supervisions
+        return ParseResult(supervisions=supervisions)
 
     @classmethod
     def write(cls, supervisions: List[Supervision], output_path, **kwargs) -> Path:

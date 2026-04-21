@@ -421,7 +421,7 @@ meta: data
 00:00:01,000 --> 00:00:02,000
 Test line
 """
-        supervisions = SRTFormat.read(srt_content)
+        supervisions = SRTFormat.parse(srt_content).supervisions
         assert len(supervisions) == 1
         assert supervisions[0].text == "Test line"
         print("✓ SRT content string with front matter parsed correctly")

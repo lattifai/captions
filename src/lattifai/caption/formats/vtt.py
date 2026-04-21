@@ -17,7 +17,7 @@ from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text
 from ..supervision import AlignmentItem, Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 @register_format("vtt")
@@ -139,26 +139,12 @@ class VTTFormat(FormatHandler):
         return bool(cls.YOUTUBE_VTT_PATTERN.search(content))
 
     # =========================================================================
-    # Reader: main entry
+    # Reader helpers
     # =========================================================================
 
     @classmethod
-    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read VTT format, auto-detecting YouTube VTT word-level timestamps.
-
-        Args:
-            source: File path or content string
-            normalize_text: Whether to normalize text
-
-        Returns:
-            List of Supervision objects
-        """
-        if cls.is_content(source):
-            content = source
-        else:
-            with open(source, "r", encoding="utf-8") as f:
-                content = f.read()
-
+    def _parse_supervisions(cls, content: str, normalize_text: bool) -> List[Supervision]:
+        """Dispatch to the YouTube or standard VTT supervision extractor."""
         if cls._is_youtube_vtt(content):
             return cls._read_youtube_vtt(content, normalize_text)
         return cls._read_standard_vtt(content, normalize_text)
@@ -544,28 +530,20 @@ class VTTFormat(FormatHandler):
         return metadata
 
     @classmethod
-    def extract_metadata(cls, source, **kwargs) -> Dict[str, Any]:
-        """Extract metadata from VTT header. Deprecated: use parse() instead."""
-        if cls.is_content(source):
-            return cls._extract_header_metadata(source)
-        try:
-            with open(source, "r", encoding="utf-8") as f:
-                return cls._extract_header_metadata(f.read())
-        except Exception:
-            return {}
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse VTT (YouTube or standard) in a single pass.
 
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
-        """Parse VTT in a single pass: supervisions + header metadata."""
-        from .base import ParseResult
-
+        Auto-detects YouTube VTT word-level timestamps vs standard VTT and
+        returns a :class:`ParseResult` with supervisions plus header-level
+        ``language`` / ``kind`` / format metadata.
+        """
         if cls.is_content(source):
             content = source
         else:
             with open(source, "r", encoding="utf-8") as f:
                 content = f.read()
 
-        supervisions = cls.read(content, normalize_text=normalize_text, **kwargs)
+        supervisions = cls._parse_supervisions(content, normalize_text=normalize_text)
         header_meta = cls._extract_header_metadata(content)
 
         return ParseResult(

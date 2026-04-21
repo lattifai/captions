@@ -28,7 +28,7 @@ class TestASSRawTextPreservation:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
             r"Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,{\an8}Hello World" + "\n"
         )
-        sups = ASSFormat.read(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
         assert len(sups) == 1
         # custom should contain ass_raw_text with override tags
         assert "ass_raw_text" in sups[0].custom
@@ -51,7 +51,7 @@ class TestASSRawTextPreservation:
             r"Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,他决不会放弃塔伯特\NHe would never give up on Talbot"
             + "\n"
         )
-        sups = ASSFormat.read(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
         assert len(sups) == 1
         # plaintext should have \n instead of \N
         assert "\n" in sups[0].text
@@ -73,8 +73,8 @@ class TestASSRawTextPreservation:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
             r"Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,{\an8\fad(0,500)}Hello World" + "\n"
         )
-        sups = ASSFormat.read(ass_content)
-        metadata = ASSFormat.extract_metadata(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
+        metadata = ASSFormat.parse(ass_content).format_metadata
 
         # Write back
         output = ASSFormat.to_bytes(sups, metadata=metadata, render=RenderConfig(include_speaker_in_text=False))
@@ -97,7 +97,7 @@ class TestASSRawTextPreservation:
             r"Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,{\p1}m 20 0 l 209 0 b 218 0" + "\n"
             "Dialogue: 0,0:00:05.00,0:00:10.00,Default,,0,0,0,,Normal dialogue\n"
         )
-        sups = ASSFormat.read(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
         assert len(sups) == 2
         assert sups[0].custom.get("line_type") == "drawing"
         assert sups[1].custom.get("line_type") is None  # normal dialogue, no line_type
@@ -116,7 +116,7 @@ class TestASSRawTextPreservation:
             "Comment: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,This is a comment\n"
             "Dialogue: 0,0:00:05.00,0:00:10.00,Default,,0,0,0,,This is dialogue\n"
         )
-        sups = ASSFormat.read(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
         assert len(sups) == 2
         assert sups[0].custom.get("ass_is_comment") is True
         assert sups[1].custom.get("ass_is_comment") is False
@@ -135,8 +135,8 @@ class TestASSRawTextPreservation:
             "Comment: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,Hidden comment\n"
             "Dialogue: 0,0:00:05.00,0:00:10.00,Default,,0,0,0,,Visible dialogue\n"
         )
-        sups = ASSFormat.read(ass_content)
-        metadata = ASSFormat.extract_metadata(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
+        metadata = ASSFormat.parse(ass_content).format_metadata
         output = ASSFormat.to_bytes(sups, metadata=metadata, render=RenderConfig(include_speaker_in_text=False))
         output_text = output.decode("utf-8")
         assert "Comment:" in output_text
@@ -163,8 +163,8 @@ class TestASSRawTextPreservation:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
             "Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,Hello World\n"
         )
-        sups = ASSFormat.read(ass_content)
-        metadata = ASSFormat.extract_metadata(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
+        metadata = ASSFormat.parse(ass_content).format_metadata
         output = ASSFormat.to_bytes(sups, metadata=metadata, render=RenderConfig(include_speaker_in_text=False))
         output_text = output.decode("utf-8")
 
@@ -189,8 +189,8 @@ class TestASSRawTextPreservation:
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
             r"Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,你好世界\NHello World" + "\n"
         )
-        sups = ASSFormat.read(ass_content)
-        metadata = ASSFormat.extract_metadata(ass_content)
+        sups = ASSFormat.parse(ass_content).supervisions
+        metadata = ASSFormat.parse(ass_content).format_metadata
 
         output = ASSFormat.to_bytes(sups, metadata=metadata, render=RenderConfig(include_speaker_in_text=False))
         output_text = output.decode("utf-8")

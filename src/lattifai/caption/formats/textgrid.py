@@ -5,11 +5,11 @@ TextGrid is Praat's native annotation format, commonly used in phonetics researc
 
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from ..supervision import Pathlike, Supervision
+from ..supervision import Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 def _is_event(sup: Supervision) -> bool:
@@ -61,22 +61,11 @@ class TextGridFormat(FormatHandler):
     description = "Praat TextGrid - phonetics research format"
 
     @classmethod
-    def read(
-        cls,
-        source,
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
-        """Read TextGrid format using tgt library.
-
-        Preserves tier information in Supervision.custom:
-        - textgrid_tier: Original tier name
-        - textgrid_tier_index: Original tier index (for ordering)
-        """
+    def _read_intervals(cls, source) -> List[Supervision]:
+        """Read interval tiers from *source* (content string or path)."""
         from tgt import read_textgrid
 
         if cls.is_content(source):
-            # Write to temp file for tgt library
             with tempfile.NamedTemporaryFile(suffix=".textgrid", delete=False, mode="w") as f:
                 f.write(source)
                 temp_path = f.name
@@ -87,7 +76,7 @@ class TextGridFormat(FormatHandler):
         else:
             tgt = read_textgrid(str(source))
 
-        supervisions = []
+        supervisions: List[Supervision] = []
         for tier_idx, tier in enumerate(tgt.tiers):
             for interval in tier.intervals:
                 supervisions.append(
@@ -102,7 +91,6 @@ class TextGridFormat(FormatHandler):
                         },
                     )
                 )
-
         return sorted(supervisions, key=lambda x: x.start)
 
     @classmethod
@@ -247,22 +235,10 @@ class TextGridFormat(FormatHandler):
         return metadata
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict[str, Any]:
-        """Extract TextGrid metadata. Deprecated: use parse() instead."""
-        if cls.is_content(source):
-            return cls._extract_textgrid_metadata(source)
-        try:
-            with open(source, "r", encoding="utf-8") as f:
-                return cls._extract_textgrid_metadata(f.read())
-        except Exception:
-            return {}
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse TextGrid in a single pass (intervals + xmin/xmax/tiers)."""
+        supervisions = cls._read_intervals(source)
 
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
-        """Parse TextGrid in a single pass."""
-        from .base import ParseResult
-
-        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
         if cls.is_content(source):
             content = source
         else:
@@ -271,6 +247,7 @@ class TextGridFormat(FormatHandler):
                     content = f.read()
             except Exception:
                 return ParseResult(supervisions=supervisions)
+
         return ParseResult(
             supervisions=supervisions,
             format_metadata=cls._extract_textgrid_metadata(content),

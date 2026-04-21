@@ -35,7 +35,7 @@ class TestCueSettings:
 00:00:01.000 --> 00:00:03.000 align:center
 Centered text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert len(sups) == 1
         assert sups[0].custom["vtt_align"] == "center"
         assert sups[0].text == "Centered text"
@@ -46,7 +46,7 @@ Centered text
 00:00:01.000 --> 00:00:03.000 align:center line:90% size:80%
 Styled text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom["vtt_align"] == "center"
         assert sups[0].custom["vtt_line"] == "90%"
         assert sups[0].custom["vtt_size"] == "80%"
@@ -57,7 +57,7 @@ Styled text
 00:00:01.000 --> 00:00:03.000 vertical:rl
 Vertical text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom["vtt_vertical"] == "rl"
 
     def test_read_position(self):
@@ -66,7 +66,7 @@ Vertical text
 00:00:01.000 --> 00:00:03.000 position:20%
 Positioned text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom["vtt_position"] == "20%"
 
     def test_read_region_ref(self):
@@ -75,7 +75,7 @@ Positioned text
 00:00:01.000 --> 00:00:03.000 region:scroll_area
 Region text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom["vtt_region"] == "scroll_area"
 
     def test_read_line_integer(self):
@@ -84,7 +84,7 @@ Region text
 00:00:01.000 --> 00:00:03.000 line:-1
 Bottom text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom["vtt_line"] == "-1"
 
     def test_no_settings_means_no_custom(self):
@@ -93,7 +93,7 @@ Bottom text
 00:00:01.000 --> 00:00:03.000
 Plain text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom is None
 
     def test_write_cue_settings_roundtrip(self):
@@ -103,7 +103,7 @@ Plain text
 00:00:01.000 --> 00:00:03.000 align:center line:90% size:80%
 Styled text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         output = VTTFormat.to_bytes(sups).decode("utf-8")
 
         assert "align:center" in output
@@ -111,7 +111,7 @@ Styled text
         assert "size:80%" in output
 
         # Re-read and verify
-        sups2 = VTTFormat.read(output)
+        sups2 = VTTFormat.parse(output).supervisions
         assert sups2[0].custom["vtt_align"] == "center"
         assert sups2[0].custom["vtt_line"] == "90%"
         assert sups2[0].custom["vtt_size"] == "80%"
@@ -166,7 +166,7 @@ WEBVTT
 00:00:00.080 --> 00:00:02.550 align:start position:0%
 The<00:00:00.320><c> diffusion</c>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert len(sups) == 1
         assert sups[0].custom["vtt_align"] == "start"
         assert sups[0].custom["vtt_position"] == "0%"
@@ -186,7 +186,7 @@ class TestVoiceTags:
 00:00:01.000 --> 00:00:03.000
 <v Alice>Hello world</v>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].speaker == "Alice"
         assert sups[0].text == "Hello world"
 
@@ -196,7 +196,7 @@ class TestVoiceTags:
 00:00:01.000 --> 00:00:03.000
 <v Bob>Hi there
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].speaker == "Bob"
         assert sups[0].text == "Hi there"
 
@@ -206,7 +206,7 @@ class TestVoiceTags:
 00:00:01.000 --> 00:00:03.000
 <v Alice>Hello <b>world</b></v>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].speaker == "Alice"
         assert "<b>world</b>" in sups[0].text
 
@@ -233,13 +233,13 @@ class TestVoiceTags:
 00:00:01.000 --> 00:00:03.000
 <v Alice>Hello world</v>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].speaker == "Alice"
 
         output = VTTFormat.to_bytes(sups, config=VTTConfig(voice_tag=True)).decode("utf-8")
         assert "<v Alice>" in output
 
-        sups2 = VTTFormat.read(output)
+        sups2 = VTTFormat.parse(output).supervisions
         assert sups2[0].speaker == "Alice"
         assert sups2[0].text == "Hello world"
 
@@ -266,7 +266,7 @@ class TestInlineFormatting:
 00:00:01.000 --> 00:00:03.000
 Hello <b>world</b>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert "<b>world</b>" in sups[0].text
 
     def test_italic_preserved(self):
@@ -275,7 +275,7 @@ Hello <b>world</b>
 00:00:01.000 --> 00:00:03.000
 <i>italic text</i>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert "<i>italic text</i>" in sups[0].text
 
     def test_underline_preserved(self):
@@ -284,7 +284,7 @@ Hello <b>world</b>
 00:00:01.000 --> 00:00:03.000
 <u>underlined</u>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert "<u>underlined</u>" in sups[0].text
 
     def test_class_tag_preserved(self):
@@ -293,7 +293,7 @@ Hello <b>world</b>
 00:00:01.000 --> 00:00:03.000
 Welcome to <c.brand-text>LattifAI</c>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert "<c.brand-text>LattifAI</c>" in sups[0].text
 
     def test_ruby_preserved(self):
@@ -302,7 +302,7 @@ Welcome to <c.brand-text>LattifAI</c>
 00:00:01.000 --> 00:00:03.000
 <ruby>漢字<rt>かんじ</rt></ruby>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert "<ruby>" in sups[0].text
         assert "<rt>かんじ</rt>" in sups[0].text
 
@@ -312,7 +312,7 @@ Welcome to <c.brand-text>LattifAI</c>
 00:00:01.000 --> 00:00:03.000
 He said <lang zh>你好世界</lang> to everyone
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert "<lang zh>你好世界</lang>" in sups[0].text
 
     def test_nested_tags_preserved(self):
@@ -321,7 +321,7 @@ He said <lang zh>你好世界</lang> to everyone
 00:00:01.000 --> 00:00:03.000
 <v Alice><b>Bold</b> and <i>italic</i></v>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].speaker == "Alice"
         assert "<b>Bold</b>" in sups[0].text
         assert "<i>italic</i>" in sups[0].text
@@ -333,12 +333,12 @@ He said <lang zh>你好世界</lang> to everyone
 00:00:01.000 --> 00:00:03.000
 Hello <b>bold</b> and <i>italic</i>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         output = VTTFormat.to_bytes(sups).decode("utf-8")
         assert "<b>bold</b>" in output
         assert "<i>italic</i>" in output
 
-        sups2 = VTTFormat.read(output)
+        sups2 = VTTFormat.parse(output).supervisions
         assert "<b>bold</b>" in sups2[0].text
         assert "<i>italic</i>" in sups2[0].text
 
@@ -379,7 +379,7 @@ Normal text
         assert regions[0]["scroll"] == "up"
 
     def test_read_region_cue_ref(self):
-        sups = VTTFormat.read(self.REGION_VTT)
+        sups = VTTFormat.parse(self.REGION_VTT).supervisions
         assert sups[0].custom["vtt_region"] == "scroll_area"
         assert sups[1].custom is None
 
@@ -732,7 +732,7 @@ intro
 00:00:03.000 --> 00:00:05.000
 Second cue
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert len(sups) == 2
         assert sups[0].id == "1"
         assert sups[1].id == "intro"
@@ -740,7 +740,7 @@ Second cue
     def test_empty_vtt(self):
         content = """WEBVTT
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert len(sups) == 0
 
     def test_multiline_cue_text(self):
@@ -751,7 +751,7 @@ Second cue
 Line one
 Line two
 """
-        sups = VTTFormat.read(content, normalize_text=True)
+        sups = VTTFormat.parse(content, normalize_text=True).supervisions
         assert sups[0].text == "Line one Line two"
 
     def test_voice_tag_with_full_name(self):
@@ -761,7 +761,7 @@ Line two
 00:00:01.000 --> 00:00:03.000
 <v John Doe>Hello world</v>
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].speaker == "John Doe"
 
     def test_mixed_cues_with_and_without_settings(self):
@@ -773,7 +773,7 @@ Plain text
 00:00:03.000 --> 00:00:05.000 align:center
 Centered text
 """
-        sups = VTTFormat.read(content)
+        sups = VTTFormat.parse(content).supervisions
         assert sups[0].custom is None
         assert sups[1].custom["vtt_align"] == "center"
 

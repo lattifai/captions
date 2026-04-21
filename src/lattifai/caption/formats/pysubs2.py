@@ -17,7 +17,7 @@ from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
 from ..supervision import Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -98,58 +98,74 @@ class Pysubs2Format(FormatHandler):
         return content
 
     @classmethod
-    def read(
-        cls,
-        source,
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
-        """Read caption using pysubs2.
-
-        Preprocesses content to remove Gemini-style thinking/meta blocks
-        before parsing with pysubs2.
-        """
-        # Preprocess content to remove thinking/meta blocks
+    def _load_content(cls, source) -> str:
+        """Return the (preprocessed) source string, from path or inline."""
         if cls.is_content(source):
-            content = cls._preprocess_content(source)
-        else:
-            path = Path(source)
-            content, _ = detect_file_encoding(path)
-            content = cls._preprocess_content(content)
+            return cls._preprocess_content(source)
+        path = Path(source)
+        content, _ = detect_file_encoding(path)
+        return cls._preprocess_content(content)
+
+    @classmethod
+    def _extract_header_metadata(cls, content: str) -> Dict[str, str]:
+        """Extract VTT/SRT header metadata from the top of *content*."""
+        metadata: Dict[str, str] = {}
+        head = content[:4096]
+
+        if cls.pysubs2_format == "vtt" or head.startswith("WEBVTT"):
+            for line in head.split("\n")[:10]:
+                line = line.strip()
+                if line.startswith("Kind:"):
+                    metadata["kind"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Language:"):
+                    metadata["language"] = line.split(":", 1)[1].strip()
+                elif line.startswith("NOTE"):
+                    match = re.search(r"NOTE\s+(\w+):\s*(.+)", line)
+                    if match:
+                        key, value = match.groups()
+                        metadata[key.lower()] = value.strip()
+        elif cls.pysubs2_format == "srt" and head.startswith("\ufeff"):
+            metadata["encoding"] = "utf-8-sig"
+
+        return metadata
+
+    @classmethod
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse a pysubs2-based format in a single pass.
+
+        Strips Gemini-style thinking/meta blocks, parses via pysubs2, and
+        surfaces VTT/SRT header metadata on the returned ``ParseResult``.
+        """
+        content = cls._load_content(source)
 
         try:
             subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
         except Exception:
-            # Fallback: auto-detect format
             subs = pysubs2.SSAFile.from_string(content)
 
-        # Auto-detect title-case speaker candidates from all lines
         all_texts = [e.text for e in subs.events]
         candidates = detect_speaker_candidates(all_texts)
         if candidates:
             set_speaker_candidates(candidates)
 
-        supervisions = []
+        supervisions: List[Supervision] = []
         for event in subs.events:
             text = event.text
-            # pysubs2 uses \N internally for line breaks (even in SRT/VTT).
-            # Convert to \n to preserve multiline structure; normalize_text
-            # keeps those \n separators intact (preserve_newlines=True) so
-            # bilingual F1 cues (<zh>\n<en>) survive the read path and can
-            # be detected by the downstream bilingual-mode heuristic.
+            # pysubs2 stores line breaks as \N internally (including for SRT/VTT).
+            # Convert to \n to preserve multiline structure; normalize_text keeps
+            # \n separators intact (preserve_newlines=True) so bilingual F1 cues
+            # survive and are detectable by the downstream bilingual heuristic.
             text = text.replace("\\N", "\n")
             if normalize_text:
                 text = normalize_text_fn(text, preserve_newlines=True)
 
             speaker, text = parse_speaker_text(text)
 
-            # Strip speaker prefix from text when event.name matches but
-            # parse_speaker_text couldn't extract it (title-case with <3 occurrences)
             if not speaker and event.name:
                 for sep in (": ", "： "):
                     prefix = event.name + sep
                     if text.startswith(prefix):
-                        text = text[len(prefix) :]
+                        text = text[len(prefix):]
                         break
 
             supervisions.append(
@@ -163,66 +179,16 @@ class Pysubs2Format(FormatHandler):
                 )
             )
 
-        # Clear candidates to avoid leaking into subsequent reads
         if candidates:
             set_speaker_candidates(set())
 
-        return supervisions
-
-    @classmethod
-    def extract_metadata(cls, source, **kwargs) -> Dict[str, str]:
-        """Extract metadata from VTT or SRT."""
-        metadata = {}
-        if cls.is_content(source):
-            content = source[:4096]
-        else:
-            path = Path(str(source))
-            if not path.exists():
-                return {}
-            try:
-                content, _ = detect_file_encoding(path)
-                content = content[:4096]
-            except Exception:
-                return {}
-
-        # WebVTT metadata extraction
-        if cls.pysubs2_format == "vtt" or (
-            isinstance(source, str) and source.startswith("WEBVTT")
-        ):
-            lines = content.split("\n")
-            for line in lines[:10]:
-                line = line.strip()
-                if line.startswith("Kind:"):
-                    metadata["kind"] = line.split(":", 1)[1].strip()
-                elif line.startswith("Language:"):
-                    metadata["language"] = line.split(":", 1)[1].strip()
-                elif line.startswith("NOTE"):
-                    match = re.search(r"NOTE\s+(\w+):\s*(.+)", line)
-                    if match:
-                        key, value = match.groups()
-                        metadata[key.lower()] = value.strip()
-
-        # SRT doesn't have standard metadata, but check for BOM
-        elif cls.pysubs2_format == "srt":
-            if content.startswith("\ufeff"):
-                metadata["encoding"] = "utf-8-sig"
-
-        return metadata
-
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
-        """Parse pysubs2-based format in a single pass."""
-        from .base import ParseResult
-
-        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
-        metadata = cls.extract_metadata(source)
+        metadata = cls._extract_header_metadata(content)
         return ParseResult(
             supervisions=supervisions,
             language=metadata.pop("language", None),
             kind=metadata.pop("kind", None),
             format_metadata=metadata,
         )
-
     @classmethod
     def write(
         cls,
@@ -344,37 +310,34 @@ class SRTFormat(Pysubs2Format):
         return raw_texts
 
     @classmethod
-    def read(cls, source, normalize_text: bool = True, **kwargs) -> List[Supervision]:
-        """Read SRT with font-wrapped speaker color + raw-text preservation.
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse SRT with font-wrapped speaker color + raw-text preservation.
 
-        Preserves ``{\\an1}{\\pos(...)}`` style override tags (used by subtitle
-        groups for sign/credit/title positioning) in ``supervision.custom['srt_raw_text']``
-        so roundtrip writes can restore them verbatim.
+        Preserves ``{\\an1}{\\pos(...)}`` style override tags (used by
+        subtitle groups for sign/credit/title positioning) in
+        ``supervision.custom['srt_raw_text']`` so roundtrip writes can restore
+        them verbatim. Injects speakers found in
+        ``<font color="...">Name:</font>`` as parse_speaker_text candidates so
+        title-case names with fewer than 3 occurrences still resolve.
         """
-        # Get raw content to extract font-wrapped speakers + raw cue texts
         if cls.is_content(source):
             raw = source
         else:
             raw, _ = detect_file_encoding(Path(str(source)))
 
-        # Extract speaker names from <font color="...">Name: </font> patterns
         font_speakers = set(cls._FONT_SPEAKER_RE.findall(raw))
         if font_speakers:
-            # Inject these as speaker candidates so parse_speaker_text recognizes
-            # title-case names like "Alice:" even with fewer than 3 occurrences
             set_speaker_candidates(font_speakers)
 
-        # Extract raw cue texts before pysubs2 strips override tags
         raw_texts = cls._extract_srt_raw_texts(raw)
 
-        result = super().read(source, normalize_text=normalize_text, **kwargs)
+        result = super().parse(raw, normalize_text=normalize_text, **kwargs)
 
         if font_speakers:
             set_speaker_candidates(set())
 
-        # Attach raw_text per-cue (order-aligned with pysubs2 events)
-        if len(raw_texts) == len(result):
-            for sup, raw_text in zip(result, raw_texts):
+        if len(raw_texts) == len(result.supervisions):
+            for sup, raw_text in zip(result.supervisions, raw_texts):
                 if sup.custom is None:
                     sup.custom = {}
                 sup.custom["srt_raw_text"] = raw_text
@@ -554,102 +517,7 @@ class ASSFormat(Pysubs2Format):
         return super()._should_include_speaker(sup, include_speaker, tracker)
 
     @classmethod
-    def read(
-        cls,
-        source,
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
-        """Read ASS format with style and event metadata preservation.
-
-        Preserves ASS-specific event attributes in Supervision.custom:
-        - ass_style: Style name reference
-        - ass_layer: Layer number
-        - ass_margin_l/r/v: Margin overrides
-        - ass_effect: Effect string
-        """
-        if cls.is_content(source):
-            content = source
-        else:
-            content, _ = detect_file_encoding(Path(source))
-
-        try:
-            subs = pysubs2.SSAFile.from_string(content, format_=cls.pysubs2_format)
-        except Exception:
-            subs = pysubs2.SSAFile.from_string(content)
-
-        # Auto-detect title-case speaker candidates from text content
-        all_texts = [e.text for e in subs.events]
-        candidates = detect_speaker_candidates(all_texts)
-        if candidates:
-            set_speaker_candidates(candidates)
-
-        supervisions = []
-        for event in subs.events:
-            # Use plaintext for sup.text (strips override tags, converts \N to \n)
-            plaintext = event.plaintext
-            if normalize_text:
-                # Light normalization: collapse non-newline whitespace only.
-                # Generic normalize_text() collapses \n to space, destroying
-                # bilingual line breaks. ASS plaintext is already clean.
-                plaintext = re.sub(r"[^\S\n]+", " ", plaintext)
-                plaintext = re.sub(r" *\n *", "\n", plaintext)
-                plaintext = plaintext.strip()
-
-            speaker, plaintext = parse_speaker_text(plaintext)
-
-            # When parse_speaker_text can't extract speaker from text but
-            # the Name field has one, strip the matching prefix from text
-            # so roundtripping include_speaker_in_text=True doesn't duplicate.
-            if not speaker and event.name:
-                for sep in (": ", "： "):
-                    prefix = event.name + sep
-                    if plaintext.startswith(prefix):
-                        plaintext = plaintext[len(prefix) :]
-                        break
-
-            # Preserve ASS-specific event attributes + raw text for roundtrip
-            custom = {
-                "ass_style": event.style,
-                "ass_layer": event.layer,
-                "ass_margin_l": event.marginl,
-                "ass_margin_r": event.marginr,
-                "ass_margin_v": event.marginv,
-                "ass_effect": event.effect,
-                "ass_raw_text": event.text,
-                "ass_is_comment": event.is_comment,
-            }
-
-            # Detect drawing commands (\p1 in override tags or "m X Y" start).
-            # Drawing is an ASS-specific construct unrelated to textual
-            # classification and is cheap to detect at read time.
-            if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
-                custom["line_type"] = "drawing"
-
-            supervisions.append(
-                Supervision(
-                    text=plaintext,
-                    speaker=speaker or event.name or None,
-                    start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(event.end - event.start) / 1000.0
-                    if event.end is not None
-                    else 0,
-                    custom=custom,
-                )
-            )
-
-        if candidates:
-            set_speaker_candidates(set())
-
-        return supervisions
-
-    @classmethod
-    def extract_metadata(cls, source, **kwargs) -> Dict:
-        """Extract ASS metadata. Deprecated: use parse() instead."""
-        return cls.parse(source, normalize_text=False).format_metadata
-
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
         """Parse ASS in a single pass: supervisions + styles/info metadata.
 
         Previously read() and extract_metadata() each parsed the file with
@@ -661,8 +529,6 @@ class ASSFormat(Pysubs2Format):
         - ass_info_raw: Raw [Script Info] lines for roundtrip preservation
         - encoding: Detected file encoding (present when loaded from file)
         """
-        from .base import ParseResult
-
         detected_encoding = None
         try:
             if cls.is_content(source):

@@ -18,7 +18,7 @@ from xml.dom import minidom
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter, strip_standard_kwargs
+from ..base import FormatReader, FormatWriter, ParseResult, strip_standard_kwargs
 
 
 @dataclass
@@ -638,11 +638,11 @@ class PremiereXMLReaderHandler(FormatReader):
         return "<xmeml" in content.lower()
 
     @classmethod
-    def read(cls, source: Union[Pathlike, str], normalize_text: bool = True, **kwargs) -> List[Supervision]:
+    def parse(cls, source: Union[Pathlike, str], normalize_text: bool = True, **kwargs) -> ParseResult:
         if isinstance(source, (str, Path)) and not cls.is_content(source):
             with open(source, "r", encoding="utf-8") as f:
                 content = f.read()
         else:
             content = str(source)
 
-        return PremiereXMLReader.read(content, normalize_text=normalize_text)
+        return ParseResult(supervisions=PremiereXMLReader.read(content, normalize_text=normalize_text))

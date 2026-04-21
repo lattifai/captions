@@ -52,18 +52,18 @@ class TestJSON3Reader:
 
     def test_read_from_file(self):
         """Read from the real YouTube JSON3 sample file."""
-        sups = JSON3Format.read(SAMPLE_JSON3)
+        sups = JSON3Format.parse(SAMPLE_JSON3).supervisions
         # Sample has window event + 11 content events + 10 append events
         assert len(sups) == 11
 
     def test_read_from_content(self):
         """Read from inline JSON string."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
         assert len(sups) == 2
 
     def test_word_level_alignment(self):
         """Each supervision has word-level alignment with correct timing."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
 
         first = sups[0]
         assert first.alignment is not None
@@ -76,7 +76,7 @@ class TestJSON3Reader:
 
     def test_word_duration_calculation(self):
         """Word durations are calculated from inter-word gaps."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
         words = sups[0].alignment["word"]
 
         # First word duration = next_word_start - this_word_start
@@ -86,18 +86,18 @@ class TestJSON3Reader:
 
     def test_append_events_skipped(self):
         """Append/continuation events (aAppend=1) are skipped."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
         # Only 2 content events, append events filtered out
         assert len(sups) == 2
 
     def test_window_events_skipped(self):
         """Window/config events (no segs) are skipped."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
         assert len(sups) == 2
 
     def test_speaker_change_marker(self):
         """>> prefix is stripped from text and set as speaker marker."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
 
         # First segment: no speaker change
         assert sups[0].speaker is None
@@ -110,7 +110,7 @@ class TestJSON3Reader:
 
     def test_speaker_change_word_alignment_clean(self):
         """>> is stripped from word alignment symbols too."""
-        sups = JSON3Format.read(MINIMAL_JSON3)
+        sups = JSON3Format.parse(MINIMAL_JSON3).supervisions
         speaker_sup = sups[1]
         words = speaker_sup.alignment["word"]
         assert words[0].symbol == "Goodbye"
@@ -118,7 +118,7 @@ class TestJSON3Reader:
 
     def test_real_sample_first_segment(self):
         """Verify first content segment from real YouTube data."""
-        sups = JSON3Format.read(SAMPLE_JSON3)
+        sups = JSON3Format.parse(SAMPLE_JSON3).supervisions
         first = sups[0]
         assert first.start == pytest.approx(0.08)
         assert first.text == "The diffusion of AI capability is going"
@@ -133,7 +133,7 @@ class TestJSON3Reader:
 
     def test_real_sample_speaker_change(self):
         """Verify >> speaker change in real YouTube data (event index 7)."""
-        sups = JSON3Format.read(SAMPLE_JSON3)
+        sups = JSON3Format.parse(SAMPLE_JSON3).supervisions
         # Event at tStartMs=4640 has ">> It's"
         speaker_sup = next(s for s in sups if s.speaker == ">>")
         assert "It's" in speaker_sup.text
@@ -141,7 +141,7 @@ class TestJSON3Reader:
 
     def test_real_sample_segment_count(self):
         """Verify segment count from real sample (11 content events)."""
-        sups = JSON3Format.read(SAMPLE_JSON3)
+        sups = JSON3Format.parse(SAMPLE_JSON3).supervisions
         assert len(sups) == 11
 
         # Check speaker distribution
@@ -159,7 +159,7 @@ class TestJSON3Reader:
                 "segs": [{"utf8": "it&#39;s", "acAsrConf": 0}],
             }],
         })
-        sups = JSON3Format.read(content)
+        sups = JSON3Format.parse(content).supervisions
         assert sups[0].text == "it's"
 
     def test_normalize_text_disabled(self):
@@ -172,7 +172,7 @@ class TestJSON3Reader:
                 "segs": [{"utf8": "it&#39;s", "acAsrConf": 0}],
             }],
         })
-        sups = JSON3Format.read(content, normalize_text=False)
+        sups = JSON3Format.parse(content, normalize_text=False).supervisions
         assert "&#39;" in sups[0].text
 
     def test_zero_duration_events_skipped(self):
@@ -184,7 +184,7 @@ class TestJSON3Reader:
                 {"tStartMs": 100, "dDurationMs": 500, "segs": [{"utf8": "keep"}]},
             ],
         })
-        sups = JSON3Format.read(content)
+        sups = JSON3Format.parse(content).supervisions
         assert len(sups) == 1
         assert sups[0].text == "keep"
 
@@ -257,9 +257,9 @@ class TestJSON3Writer:
 
     def test_roundtrip_text(self):
         """Read → write → read preserves text content."""
-        sups_in = JSON3Format.read(MINIMAL_JSON3)
+        sups_in = JSON3Format.parse(MINIMAL_JSON3).supervisions
         output = JSON3Format.to_bytes(sups_in)
-        sups_out = JSON3Format.read(output.decode("utf-8"))
+        sups_out = JSON3Format.parse(output.decode("utf-8")).supervisions
 
         assert len(sups_out) == len(sups_in)
         for a, b in zip(sups_in, sups_out):
@@ -307,13 +307,13 @@ class TestJSON3Metadata:
 
     def test_extract_metadata(self):
         """Extract window style and position counts."""
-        meta = JSON3Format.extract_metadata(MINIMAL_JSON3)
+        meta = JSON3Format.parse(MINIMAL_JSON3).format_metadata
         assert meta["source_format"] == "json3"
         assert meta["json3_wire_magic"] == "pb3"
 
     def test_extract_metadata_from_file(self):
         """Extract metadata from real file."""
-        meta = JSON3Format.extract_metadata(SAMPLE_JSON3)
+        meta = JSON3Format.parse(SAMPLE_JSON3).format_metadata
         assert meta["source_format"] == "json3"
         assert meta["json3_window_styles"] == 2
         assert meta["json3_window_positions"] == 2

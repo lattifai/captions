@@ -45,7 +45,7 @@ class TestFormatRegistry:
         """Test getting reader by format ID."""
         srt_reader = get_reader("srt")
         assert srt_reader is not None
-        assert hasattr(srt_reader, "read")
+        assert hasattr(srt_reader, "parse")
 
     def test_get_writer(self):
         """Test getting writer by format ID."""

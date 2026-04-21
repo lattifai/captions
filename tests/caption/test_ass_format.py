@@ -103,7 +103,7 @@ Dialogue: 0,0:00:04.00,0:00:06.00,Default,Bob,0,0,0,,How are you?
 
     def test_read_basic_ass(self):
         """Read ASS content and verify supervisions."""
-        sups = ASSFormat.read(self.ASS_CONTENT)
+        sups = ASSFormat.parse(self.ASS_CONTENT).supervisions
         assert len(sups) == 2
         assert sups[0].text == "Hello world"
         assert sups[0].speaker == "Alice"
@@ -500,7 +500,7 @@ Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello
 """
-        metadata = ASSFormat.extract_metadata(content)
+        metadata = ASSFormat.parse(content).format_metadata
         assert metadata["ass_info"]["Title"] == "Test"
         assert metadata["ass_info"]["PlayResX"] == "1920"
 
@@ -519,7 +519,7 @@ Style: Custom,Impact,30,&H00FF0000,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 1,0:00:01.00,0:00:03.00,Custom,,10,10,20,FadeIn,Styled text
 """
-        sups = ASSFormat.read(content)
+        sups = ASSFormat.parse(content).supervisions
         assert len(sups) == 1
         assert sups[0].custom["ass_style"] == "Custom"
         assert sups[0].custom["ass_layer"] == 1

@@ -39,7 +39,7 @@ Also reads legacy v1 flat arrays for backward compatibility:
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..supervision import Supervision
@@ -251,20 +251,6 @@ class JSONFormat(FormatHandler):
         return doc
 
     # ── Public API ───────────────────────────────────────────────────
-
-    @classmethod
-    def read(cls, source, normalize_text: bool = True, **kwargs) -> list[Supervision]:
-        """Read JSON format (v1 flat array or v2 document, auto-detected).
-
-        Args:
-            source: File path or JSON string content
-            normalize_text: Whether to normalize text content
-
-        Returns:
-            List of Supervision objects with alignment data if present
-        """
-        supervisions, _ = cls.read_document(source, normalize_text=normalize_text, **kwargs)
-        return supervisions
 
     @classmethod
     def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:

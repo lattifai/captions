@@ -39,7 +39,7 @@ class TestTTMLReader:
   </body>
 </tt>"""
 
-        sups = TTMLFormat.read(content)
+        sups = TTMLFormat.parse(content).supervisions
         assert len(sups) == 2
 
         assert sups[0].text == "Hello world"
@@ -64,7 +64,7 @@ class TestTTMLReader:
   </body>
 </tt>"""
 
-        sups = TTMLFormat.read(content)
+        sups = TTMLFormat.parse(content).supervisions
         assert len(sups) == 1
 
         sup = sups[0]
@@ -98,7 +98,7 @@ class TestTTMLReader:
   </body>
 </tt>"""
 
-        sups = TTMLFormat.read(content)
+        sups = TTMLFormat.parse(content).supervisions
         assert len(sups) == 1
         assert sups[0].text == "Just some text"
         assert sups[0].start == 10.0

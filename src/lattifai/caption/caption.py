@@ -25,6 +25,51 @@ from .exceptions import CaptionParseError, FormatDetectionError, FormatNotSuppor
 from .formats import detect_format, detect_format_from_content, get_reader, get_writer
 from .supervision import AlignmentItem, Pathlike, Supervision, fastcopy
 
+_ALIGNMENT_OVERRIDE_RE = re.compile(r"\{\\[^}]*\}")
+_ALIGNMENT_CJK_DISTINCT = {"zh", "ja", "ko"}
+_ALIGNMENT_SCRIPT_BUCKETS = {
+    "zh": "east_asian",
+    "ja": "east_asian",
+    "ko": "east_asian",
+    "east_asian": "east_asian",
+    "ru": "cyrillic",
+    "uk": "cyrillic",
+    "bg": "cyrillic",
+    "be": "cyrillic",
+    "mk": "cyrillic",
+    "sr": "cyrillic",
+    "kk": "cyrillic",
+    "mn": "cyrillic",
+    "cyrillic": "cyrillic",
+    "ar": "arabic",
+    "fa": "arabic",
+    "ur": "arabic",
+    "arabic": "arabic",
+    "he": "hebrew",
+    "hebrew": "hebrew",
+    "el": "greek",
+    "greek": "greek",
+    "hi": "devanagari",
+    "mr": "devanagari",
+    "devanagari": "devanagari",
+    "th": "thai",
+    "thai": "thai",
+    "hy": "armenian",
+    "armenian": "armenian",
+    "ka": "georgian",
+    "georgian": "georgian",
+    "bn": "bengali",
+    "bengali": "bengali",
+    "ta": "tamil",
+    "tamil": "tamil",
+    "te": "telugu",
+    "telugu": "telugu",
+    "gu": "gujarati",
+    "gujarati": "gujarati",
+    "pa": "gurmukhi",
+    "gurmukhi": "gurmukhi",
+}
+
 
 @dataclass
 class Caption:
@@ -316,7 +361,7 @@ class Caption:
 
     def extract_alignment_supervisions(
         self,
-    ) -> "Tuple[List[Supervision], List[Supervision]]":
+    ) -> "tuple[list[Supervision], list[Supervision]]":
         """Extract per-language alignable supervisions from a (possibly
         bilingual) caption.
 
@@ -360,51 +405,18 @@ class Caption:
         ``self`` is not mutated.
         """
         from .parsers.language_detector import detect_language, detect_script
-        from .parsers.text_parser import classify_line_type
-
-        _OVERRIDE_RE = re.compile(r"\{\\[^}]*\}")
-        _CJK_DISTINCT = {"zh", "ja", "ko"}
-        # Map from lingua ISO-639-1 codes (and the script-bucket fallbacks
-        # ``detect_script`` returns) to a coarse "alignment script" bucket.
-        # Used solely by the Layer-2 same-script rollback; pairs that fall
-        # into the same bucket are considered confusable.
-        _LANG_SCRIPT_BUCKET = {
-            # East Asian
-            "zh": "east_asian", "ja": "east_asian", "ko": "east_asian",
-            "east_asian": "east_asian",
-            # Cyrillic
-            "ru": "cyrillic", "uk": "cyrillic", "bg": "cyrillic",
-            "be": "cyrillic", "mk": "cyrillic", "sr": "cyrillic",
-            "kk": "cyrillic", "mn": "cyrillic", "cyrillic": "cyrillic",
-            # Arabic-script
-            "ar": "arabic", "fa": "arabic", "ur": "arabic", "arabic": "arabic",
-            # Others that don't share Unicode space with Latin
-            "he": "hebrew", "hebrew": "hebrew",
-            "el": "greek", "greek": "greek",
-            "hi": "devanagari", "mr": "devanagari", "devanagari": "devanagari",
-            "th": "thai", "thai": "thai",
-            "hy": "armenian", "armenian": "armenian",
-            "ka": "georgian", "georgian": "georgian",
-            "bn": "bengali", "bengali": "bengali",
-            "ta": "tamil", "tamil": "tamil",
-            "te": "telugu", "telugu": "telugu",
-            "gu": "gujarati", "gujarati": "gujarati",
-            "pa": "gurmukhi", "gurmukhi": "gurmukhi",
-            # Everything else (en, fr, de, es, pt, it, nl, sv, tr, vi, ...)
-            # defaults to "latin" via .get(..., "latin").
-        }
+        from .parsers.text_parser import _BRANDING_KEYWORDS, _STAFF_ROLES, classify_line_type
 
         def _strip(text: str) -> str:
-            if not text:
-                return ""
-            return _OVERRIDE_RE.sub("", text).strip()
+            return _ALIGNMENT_OVERRIDE_RE.sub("", text or "").strip()
 
         def _is_alignable(sup: Supervision, plain: str) -> bool:
-            if sup.duration is None or sup.duration <= 0.01:
+            if not plain or sup.duration is None or sup.duration <= 0.01:
                 return False
-            if (sup.custom or {}).get("line_type") == "drawing":
+            custom = sup.custom or {}
+            if custom.get("line_type") == "drawing":
                 return False
-            ass_raw = (sup.custom or {}).get("ass_raw_text")
+            ass_raw = custom.get("ass_raw_text")
             return classify_line_type(
                 plain, start=sup.start,
                 ass_raw_text=ass_raw, duration=sup.duration,
@@ -426,41 +438,105 @@ class Caption:
             """
             if not a or not b:
                 return False
-            if a in _CJK_DISTINCT and b in _CJK_DISTINCT and a != b:
+            if a in _ALIGNMENT_CJK_DISTINCT and b in _ALIGNMENT_CJK_DISTINCT and a != b:
                 return False
-            return (_LANG_SCRIPT_BUCKET.get(a, "latin")
-                    == _LANG_SCRIPT_BUCKET.get(b, "latin"))
+            return _ALIGNMENT_SCRIPT_BUCKETS.get(a, "latin") == _ALIGNMENT_SCRIPT_BUCKETS.get(b, "latin")
 
-        # ---- Delegate F1/F2 splitting to merge_bilingual ----
-        merged = self.merge_bilingual(mode="auto")
+        def _can_fast_extract_mono() -> bool:
+            if self.source_format in {"ass", "ssa"}:
+                return False
+
+            prev_start = None
+            prev_duration = None
+            for sup in self.supervisions:
+                text = sup.text or ""
+                if not text or "\n" in text or sup.duration is None or sup.duration <= 0.01:
+                    return False
+
+                custom = sup.custom or {}
+                if custom and (
+                    custom.get("line_type") is not None
+                    or custom.get("ass_raw_text")
+                    or custom.get("ass_style")
+                ):
+                    return False
+
+                same_timing_pair = (
+                    prev_start is not None
+                    and abs(sup.start - prev_start) < 0.01
+                    and abs(sup.duration - prev_duration) < 0.01
+                )
+                if same_timing_pair:
+                    return False
+
+                stripped = text.strip()
+                if not stripped:
+                    return False
+                if sup.start <= 120.0 and len(stripped) <= 50:
+                    if _STAFF_ROLES.match(stripped):
+                        return False
+                    lower = stripped.lower()
+                    if any(keyword in lower for keyword in _BRANDING_KEYWORDS):
+                        return False
+
+                prev_start = sup.start
+                prev_duration = sup.duration
+
+            return True
 
         primary, secondary = [], []
         primary_texts, secondary_texts = [], []
 
-        for sup in merged.supervisions:
-            t1 = _strip(sup.text or "")
-            t2 = _strip(sup.translation or "")
+        if _can_fast_extract_mono():
+            for i, sup in enumerate(self.supervisions):
+                text = _strip(sup.text)
+                side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))
+                side.align_index = i
+                primary.append(side)
+                primary_texts.append(text)
+            p_lang = _vote_lang(primary_texts)
+            for sup in primary:
+                sup.language = p_lang
+            return primary, []
+
+        mode = self._detect_bilingual_mode()
+        i = 0
+
+        while i < len(self.supervisions):
+            sup = self.supervisions[i]
+            step = 1
+            raw_primary = sup.text or ""
+            raw_secondary = ""
+            secondary_index = i
+
+            if mode == "line_by_line":
+                lines = raw_primary.split("\n")
+                if len(lines) >= 2:
+                    raw_primary = lines[0]
+                    raw_secondary = lines[1]
+            elif mode == "alternating" and i + 1 < len(self.supervisions):
+                next_sup = self.supervisions[i + 1]
+                if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
+                    raw_secondary = next_sup.text or ""
+                    secondary_index = i + 1
+                    step = 2
+
+            t1 = _strip(raw_primary)
+            t2 = _strip(raw_secondary)
             probe = t1 or t2
-            if not probe or not _is_alignable(sup, probe):
-                continue
-            # fastcopy shares the custom dict by reference; we need each side
-            # to have its own copy so Supervision.__setattr__ (which mutates
-            # custom in place) doesn't pollute the sibling's align_index.
-            base_custom = dict(sup.custom or {})
-            if t1:
-                primary.append(fastcopy(
-                    sup, text=t1, translation=None, custom=dict(base_custom),
-                ))
-                primary_texts.append(t1)
-            if t2:
-                idx = (base_custom.get("translation_align_index")
-                       or base_custom.get("align_index"))
-                side = fastcopy(
-                    sup, text=t2, translation=None, custom=dict(base_custom),
-                )
-                side.align_index = idx
-                secondary.append(side)
-                secondary_texts.append(t2)
+            if _is_alignable(sup, probe):
+                base_custom = dict(sup.custom or {})
+                if t1:
+                    side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
+                    side.align_index = i
+                    primary.append(side)
+                    primary_texts.append(t1)
+                if t2:
+                    side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
+                    side.align_index = secondary_index
+                    secondary.append(side)
+                    secondary_texts.append(t2)
+            i += step
 
         # ---- Layer 1: aggregate voting ----
         p_lang = _vote_lang(primary_texts)
@@ -511,89 +587,106 @@ class Caption:
            Rows in the middle of a run of zero-duration dialogue are
            distributed uniformly across the available gap.
         """
-        from .parsers.text_parser import classify_line_type
+        sups = self.supervisions
+        n = len(sups)
+        if n == 0:
+            return
 
-        n = len(self.supervisions)
-
-        # ---- Step 1: index-matched timestamp copy ----
-        indices_written: set = set()
-        for aligned_sup in aligned:
-            idx = (aligned_sup.custom or {}).get("align_index")
-            if idx is None or not (0 <= idx < n):
-                continue  # defensive: malformed / stale indices are skipped
-            target = self.supervisions[idx]
+        def _write_back(target: Supervision, aligned_sup: Supervision) -> None:
             target.start = aligned_sup.start
             target.duration = aligned_sup.duration
             if aligned_sup.alignment is not None:
                 target.alignment = {"word": aligned_sup.alignment.get("word")}
-            indices_written.add(idx)
+
+        # Fast path: every row already has usable timing and alignment covers
+        # the whole caption one-to-one, so simple index-matched write-back is enough.
+        fast_path = len(aligned) == n and all(sup.duration is not None and sup.duration > 0.01 for sup in sups)
+        if fast_path:
+            seen = [False] * n
+            for aligned_sup in aligned:
+                idx = (aligned_sup.custom or {}).get("align_index")
+                if idx is None or idx < 0 or idx >= n or seen[idx]:
+                    fast_path = False
+                    break
+                seen[idx] = True
+            if fast_path:
+                for aligned_sup in aligned:
+                    _write_back(sups[aligned_sup.align_index], aligned_sup)
+                return
+
+        from .parsers.text_parser import classify_line_type
+
+        # ---- Step 1: index-matched timestamp copy ----
+        written = [False] * n
+        for aligned_sup in aligned:
+            idx = (aligned_sup.custom or {}).get("align_index")
+            if idx is None or idx < 0 or idx >= n:
+                continue
+            _write_back(sups[idx], aligned_sup)
+            written[idx] = True
 
         # ---- Step 2: interpolate no-timing dialogue rows ----
+        timed = [False] * n
+        dialogue = [False] * n
+        prev_timed = [-1] * n
+        next_timed = [-1] * n
 
-        def _is_dialogue(sup: Supervision) -> bool:
-            if (sup.custom or {}).get("line_type") == "drawing":
-                return False
-            ass_raw = (sup.custom or {}).get("ass_raw_text")
-            return classify_line_type(
+        last_timed = -1
+        for i, sup in enumerate(sups):
+            prev_timed[i] = last_timed
+            has_timing = sup.duration is not None and sup.duration > 0.01
+            timed[i] = has_timing
+            if has_timing:
+                last_timed = i
+                continue
+            if written[i]:
+                continue
+            custom = sup.custom or {}
+            if custom.get("line_type") == "drawing":
+                continue
+            dialogue[i] = classify_line_type(
                 sup.text or "",
                 start=sup.start,
-                ass_raw_text=ass_raw,
+                ass_raw_text=custom.get("ass_raw_text"),
                 duration=sup.duration,
             ) is None
 
-        def _has_timing(sup: Supervision) -> bool:
-            return sup.duration is not None and sup.duration > 0.01
+        last_timed = -1
+        for i in range(n - 1, -1, -1):
+            next_timed[i] = last_timed
+            if timed[i]:
+                last_timed = i
 
-        sups = self.supervisions
         i = 0
         while i < n:
-            sup = sups[i]
-            needs_interp = (
-                not _has_timing(sup)
-                and _is_dialogue(sup)
-                and i not in indices_written
-            )
-            if not needs_interp:
+            if not dialogue[i]:
                 i += 1
                 continue
 
-            # Find the run [i, j) of contiguous no-timing dialogue rows.
-            j = i
-            while (
-                j < n
-                and not _has_timing(sups[j])
-                and _is_dialogue(sups[j])
-            ):
+            j = i + 1
+            while j < n and dialogue[j]:
                 j += 1
 
-            # Anchors: nearest aligned rows on each side.
-            left = next(
-                (sups[k] for k in range(i - 1, -1, -1) if _has_timing(sups[k])),
-                None,
-            )
-            right = next(
-                (sups[k] for k in range(j, n) if _has_timing(sups[k])),
-                None,
-            )
-
+            left_idx = prev_timed[i]
+            right_idx = next_timed[j - 1]
             run_len = j - i
-            if left is not None and right is not None:
-                gap_start = left.start + left.duration
-                gap_end = right.start
-                span = max(gap_end - gap_start, 0.0)
-                slot = span / run_len
-                for k, idx in enumerate(range(i, j)):
-                    sups[idx].start = round(gap_start + k * slot, 4)
-                    sups[idx].duration = round(slot, 4)
-            elif left is not None:  # only left anchor — pack after it
-                cursor = left.start + left.duration
+
+            if left_idx != -1 and right_idx != -1:
+                gap_start = round(sups[left_idx].start + sups[left_idx].duration, 4)
+                span = round(max(sups[right_idx].start - gap_start, 0.0), 4)
+                slot = round(span / run_len, 4)
+                for offset, idx in enumerate(range(i, j)):
+                    sups[idx].start = round(gap_start + offset * slot, 4)
+                    sups[idx].duration = slot
+            elif left_idx != -1:
+                start = round(sups[left_idx].start + sups[left_idx].duration, 4)
                 for idx in range(i, j):
-                    sups[idx].start = round(cursor, 4)
-                    sups[idx].duration = 0.0  # unknown tail duration
-            elif right is not None:  # only right anchor — stack before it
-                cursor = right.start
-                for idx in range(j - 1, i - 1, -1):
-                    sups[idx].start = round(cursor, 4)
+                    sups[idx].start = start
+                    sups[idx].duration = 0.0
+            elif right_idx != -1:
+                start = round(sups[right_idx].start, 4)
+                for idx in range(i, j):
+                    sups[idx].start = start
                     sups[idx].duration = 0.0
 
             i = j

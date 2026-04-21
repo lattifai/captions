@@ -27,6 +27,8 @@ Contract:
 
 import pytest
 
+import lattifai.caption.parsers.text_parser as text_parser
+
 from lattifai.caption import Caption
 from lattifai.caption.supervision import Supervision
 
@@ -74,6 +76,29 @@ def test_mono_chinese_returns_all_rows_as_primary() -> None:
     assert secondary == []
 
 
+def test_mono_fast_path_skips_bilingual_detection_and_line_classification(monkeypatch) -> None:
+    """Simple mono captions should bypass the heavy bilingual/classification path."""
+
+    def fail_detect_mode(*args, **kwargs):
+        raise AssertionError("fast path should not call _detect_bilingual_mode")
+
+    def fail_classify(*args, **kwargs):
+        raise AssertionError("fast path should not call classify_line_type")
+
+    monkeypatch.setattr(Caption, "_detect_bilingual_mode", fail_detect_mode)
+    monkeypatch.setattr(text_parser, "classify_line_type", fail_classify)
+
+    caption = _cap([
+        {"text": "We all think a lot of you, you know?", "start": 1.0, "duration": 3.0},
+        {"text": "Morse, please come in.", "start": 5.0, "duration": 3.0},
+    ])
+    primary, secondary = caption.extract_alignment_supervisions()
+
+    assert [s.align_index for s in primary] == [0, 1]
+    assert primary[0].language == "en"
+    assert secondary == []
+
+
 def test_does_not_mutate_original_caption() -> None:
     caption = _cap([
         {"text": "Hello world.", "start": 0.0, "duration": 2.0},
@@ -83,6 +108,23 @@ def test_does_not_mutate_original_caption() -> None:
     caption.extract_alignment_supervisions()
     assert [s.text for s in caption.supervisions] == before_texts
     assert [s.start for s in caption.supervisions] == before_starts
+
+
+def test_does_not_mutate_original_custom_fields() -> None:
+    caption = _cap(
+        [
+            {
+                "text": "我们都很看好你\nWe all think a lot of you",
+                "start": 1.0,
+                "duration": 3.0,
+                "custom": {"ass_style": "*Default"},
+            },
+        ],
+        source_format="ass",
+    )
+    before_custom = dict(caption.supervisions[0].custom)
+    caption.extract_alignment_supervisions()
+    assert caption.supervisions[0].custom == before_custom
 
 
 # ---------------------------------------------------------------------------

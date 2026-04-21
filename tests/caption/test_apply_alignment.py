@@ -18,6 +18,8 @@ Contract:
        aligned neighbours.
 """
 
+import lattifai.caption.parsers.text_parser as text_parser
+
 from lattifai.caption import Caption
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
@@ -111,6 +113,29 @@ def test_apply_mutates_in_place_and_returns_none() -> None:
     result = caption.apply_alignment([_aligned(0, 1.0, 1.0)])
     assert result is None
     assert caption.supervisions[0].start == 1.0
+
+
+def test_apply_fast_path_skips_dialogue_classification(monkeypatch) -> None:
+    """Fully covered, already-timed captions should take the simple write-back path."""
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("fast path should not call classify_line_type")
+
+    monkeypatch.setattr(text_parser, "classify_line_type", fail_if_called)
+
+    caption = _cap([
+        {"text": "Hello", "start": 1.0, "duration": 3.0},
+        {"text": "World", "start": 5.0, "duration": 2.0},
+    ])
+    caption.apply_alignment([
+        _aligned(0, 1.234, 2.876),
+        _aligned(1, 5.678, 1.111),
+    ])
+
+    assert caption.supervisions[0].start == 1.234
+    assert caption.supervisions[0].duration == 2.876
+    assert caption.supervisions[1].start == 5.678
+    assert caption.supervisions[1].duration == 1.111
 
 
 # ---------------------------------------------------------------------------

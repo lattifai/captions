@@ -230,11 +230,17 @@ class Caption:
     def _detect_bilingual_mode(self) -> str:
         """Auto-detect bilingual arrangement pattern.
 
-        Priority:
-        1. ASS style names contain language indicators -> alternating
-        2. Same-timing pairs with different CJK ratios -> alternating
-        3. Text contains newlines with CJK/Latin split -> line_by_line
-        4. Otherwise -> none (monolingual)
+        Priority (most specific → most ambiguous):
+        1. Text contains ``\\n`` with CJK/Latin split -> line_by_line.
+           This is the strongest signal: an explicit within-cue break with
+           different scripts on each side. Checked first so that ASS files
+           whose dialogue uses inline ``\\N`` (F1) aren't misclassified as
+           dual-row just because a handful of sign/title rows happen to
+           share a Style name with dialogue (e.g. ``Default`` vs
+           ``*Default``).
+        2. Same-timing pairs with different CJK ratios -> alternating.
+        3. ASS style names correlate with different languages -> alternating.
+        4. Otherwise -> none (monolingual).
         """
         from .parsers.text_parser import cjk_ratio
 
@@ -242,28 +248,28 @@ class Caption:
         if not sups:
             return "none"
 
-        # 1. Check ASS style-based split (e.g., "Default" vs "English")
-        styles = set()
+        # 1. line_by_line via explicit \n split.
+        #    Count a cue as "bilingual" only when the two halves are CLEARLY
+        #    different scripts — one side CJK-dominant, the other Latin-
+        #    dominant (or vice versa). Merely "different ratios" isn't
+        #    enough: a pure Chinese cue like ``1972年3月21日\n1972年3月26日``
+        #    has CJK ratio < 1.0 because the digits drop it, and a
+        #    permissive ``abs(r1 - r2) > 0.3`` would wrongly flag it.
+        newline_bilingual = 0
+        newline_total = 0
         for sup in sups:
-            custom = getattr(sup, "custom", None) or {}
-            style = custom.get("ass_style")
-            if style:
-                styles.add(style)
-        if len(styles) >= 2:
-            # Check if different styles correlate with different languages
-            style_cjk = {}
-            for sup in sups:
-                custom = getattr(sup, "custom", None) or {}
-                style = custom.get("ass_style", "")
-                if style and sup.text:
-                    style_cjk.setdefault(style, []).append(cjk_ratio(sup.text))
-            if len(style_cjk) >= 2:
-                avg_ratios = {s: sum(r) / len(r) for s, r in style_cjk.items() if r}
-                ratios = list(avg_ratios.values())
-                if max(ratios) - min(ratios) > 0.4:
-                    return "alternating"
+            text = sup.text or ""
+            if "\n" in text:
+                newline_total += 1
+                lines = text.split("\n", 1)
+                r1 = cjk_ratio(lines[0])
+                r2 = cjk_ratio(lines[1])
+                if (r1 >= 0.6 and r2 <= 0.2) or (r2 >= 0.6 and r1 <= 0.2):
+                    newline_bilingual += 1
+        if newline_total >= 2 and newline_bilingual / newline_total > 0.5:
+            return "line_by_line"
 
-        # 2. Check same-timing pairs (alternating pattern)
+        # 2. Same-timing pairs (alternating pattern)
         pair_count = 0
         cjk_diff_count = 0
         i = 0
@@ -281,20 +287,25 @@ class Caption:
         if pair_count >= 2 and cjk_diff_count / pair_count > 0.5:
             return "alternating"
 
-        # 3. Check line_by_line (text contains \n with CJK/Latin split)
-        newline_bilingual = 0
-        newline_total = 0
+        # 3. ASS style-based split (e.g., "中文 1080" vs "英文 1080")
+        styles = set()
         for sup in sups:
-            text = sup.text or ""
-            if "\n" in text:
-                newline_total += 1
-                lines = text.split("\n", 1)
-                r1 = cjk_ratio(lines[0])
-                r2 = cjk_ratio(lines[1])
-                if abs(r1 - r2) > 0.3:
-                    newline_bilingual += 1
-        if newline_total >= 2 and newline_bilingual / newline_total > 0.5:
-            return "line_by_line"
+            custom = getattr(sup, "custom", None) or {}
+            style = custom.get("ass_style")
+            if style:
+                styles.add(style)
+        if len(styles) >= 2:
+            style_cjk = {}
+            for sup in sups:
+                custom = getattr(sup, "custom", None) or {}
+                style = custom.get("ass_style", "")
+                if style and sup.text:
+                    style_cjk.setdefault(style, []).append(cjk_ratio(sup.text))
+            if len(style_cjk) >= 2:
+                avg_ratios = {s: sum(r) / len(r) for s, r in style_cjk.items() if r}
+                ratios = list(avg_ratios.values())
+                if max(ratios) - min(ratios) > 0.4:
+                    return "alternating"
 
         return "none"
 
@@ -423,10 +434,44 @@ class Caption:
         # counts (1 CJK glyph ≈ 2-3 Latin chars, so naïve counts would flip
         # the ranking). Falls back to row count for ties / non-CJK pairs.
         _CJK_LANGS = {"zh", "ja", "ko", "east_asian"}
+        _SCRIPT_OF = {
+            "zh": "east_asian", "ja": "east_asian", "ko": "east_asian",
+            "east_asian": "east_asian",
+            # Default: treat every other ISO code as Latin-script for the
+            # outlier-merge heuristic. The few non-Latin exceptions (ar, he,
+            # ru, hi, th…) aren't typically subject to short-text lingua
+            # confusion with Latin languages anyway.
+        }
 
         by_lang: Dict[str, List[Supervision]] = {}
         for sup in candidates:
             by_lang.setdefault(sup.language or "unknown", []).append(sup)
+
+        # -- Collapse short-text outliers within the same script --
+        # lingua mis-labels short English lines as "de" / "nl" / "af" / etc.
+        # (seen in the FLORES benchmark and on real subtitle files). When a
+        # minor language shares script with the dominant one and contributes
+        # < 20 % of that script's rows, re-label its rows as the dominant
+        # language so extract doesn't fragment a single-language track into
+        # fake primary/secondary halves.
+        if caption_type == "mono" and len(by_lang) >= 2:
+            # group languages by script bucket
+            script_groups: Dict[str, List[str]] = {}
+            for lang in by_lang:
+                script = _SCRIPT_OF.get(lang, "latin")
+                script_groups.setdefault(script, []).append(lang)
+            for script, langs in script_groups.items():
+                if len(langs) < 2:
+                    continue
+                langs_by_size = sorted(langs, key=lambda l: -len(by_lang[l]))
+                dominant = langs_by_size[0]
+                dominant_n = len(by_lang[dominant])
+                for minor in langs_by_size[1:]:
+                    if len(by_lang[minor]) < 0.2 * dominant_n:
+                        for sup in by_lang[minor]:
+                            sup.language = dominant
+                        by_lang[dominant].extend(by_lang[minor])
+                        by_lang.pop(minor)
 
         def _rank_key(item):
             lang, sups = item

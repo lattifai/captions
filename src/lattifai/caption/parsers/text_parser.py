@@ -27,7 +27,7 @@ SPEAKER_PATTERN2 = re.compile(r"^([A-Z]{1,15}(?:\s+[A-Z]{1,15})?[:：])\s*(.*)$"
 _speaker_candidates: set = set()
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text: str, preserve_newlines: bool = False) -> str:
     """Normalize caption text by:
     - Decoding common HTML entities
     - Collapsing multiple whitespace into a single space
@@ -35,6 +35,13 @@ def normalize_text(text: str) -> str:
 
     Note: HTML tags (<b>, <i>, <u>, <font>) are intentionally preserved
     to allow roundtrip fidelity for formats that support them (SRT, VTT).
+
+    Args:
+        text: Input subtitle text (possibly multi-line).
+        preserve_newlines: When True, collapse only *non-newline* whitespace
+            so ``\\n`` survives. Used by SRT/VTT readers for bilingual cues
+            that encode their two halves as line 1 / line 2. Default False
+            preserves the historical behaviour (whole-string collapse).
     """
     if not text:
         return ""
@@ -61,8 +68,14 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"([a-zA-Z])’([tsdm]|ll|re|ve)\b", r"\1'\2", text, flags=re.IGNORECASE)
     text = re.sub(r"([0-9])’([s])\b", r"\1'\2", text, flags=re.IGNORECASE)
 
-    # Collapse whitespace (after replacements)
-    text = re.sub(r"\s+", " ", text)
+    # Collapse whitespace (after replacements).
+    if preserve_newlines:
+        # Only merge horizontal whitespace; leave \n boundaries intact.
+        text = re.sub(r"[^\S\n]+", " ", text)
+        # Also trim horizontal whitespace surrounding each newline.
+        text = re.sub(r" *\n *", "\n", text)
+    else:
+        text = re.sub(r"\s+", " ", text)
 
     return text.strip()
 

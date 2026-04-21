@@ -134,11 +134,12 @@ class Pysubs2Format(FormatHandler):
             text = event.text
             # pysubs2 uses \N internally for line breaks (even in SRT/VTT).
             # Convert to \n to preserve multiline structure; normalize_text
-            # will collapse to space if enabled. When normalize_text=False,
-            # callers get true newlines for round-tripping or custom reflow.
+            # keeps those \n separators intact (preserve_newlines=True) so
+            # bilingual F1 cues (<zh>\n<en>) survive the read path and can
+            # be detected by the downstream bilingual-mode heuristic.
             text = text.replace("\\N", "\n")
             if normalize_text:
-                text = normalize_text_fn(text)
+                text = normalize_text_fn(text, preserve_newlines=True)
 
             speaker, text = parse_speaker_text(text)
 

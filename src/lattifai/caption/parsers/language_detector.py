@@ -101,10 +101,7 @@ def _build_iso_to_lang():
 
     Avoids maintaining a hand-curated subset; covers all 75 lingua languages.
     """
-    try:
-        from lingua import Language
-    except ImportError:
-        return None
+    from lingua import Language
     return {lang.iso_code_639_1.name.lower(): lang for lang in Language.all()}
 
 
@@ -115,10 +112,8 @@ def _build_detector(candidate_langs: Sequence[str], low_accuracy: bool = True):
     memory; accuracy loss is negligible on caption-length strings. Set
     ``False`` for benchmarks comparing precision at full fidelity.
     """
-    try:
-        from lingua import LanguageDetectorBuilder
-    except ImportError:
-        return None
+    from lingua import LanguageDetectorBuilder
+
     iso_to_lang = _build_iso_to_lang()
     if iso_to_lang is None:
         return None

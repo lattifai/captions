@@ -298,6 +298,264 @@ class Caption:
 
         return "none"
 
+    def extract_for_alignment(
+        self,
+    ) -> "Tuple[str, List[Supervision], List[Supervision]]":
+        """Identify caption structure and extract per-language alignable rows.
+
+        Returns
+        -------
+        (caption_type, primary_sups, secondary_sups)
+          - ``caption_type``: ``"mono"`` | ``"bilingual_inline"`` |
+            ``"bilingual_dual_row"``.
+          - ``primary_sups``: ``Supervision`` list in the priority language
+            (most total characters across dialogue rows; ISO-639-1 lex order
+            breaks ties).
+          - ``secondary_sups``: ``Supervision`` list in the other language
+            (``[]`` for mono).
+
+        Each returned Supervision is a ``fastcopy`` carrying enough state for
+        ``apply_alignment`` to write results back:
+          - ``align_index`` (set on ``sup.custom``): 0-based index into the
+            *original* ``self.supervisions`` for write-back. Inline bilingual
+            shares one index across both sides (F1); dual-row keeps two.
+          - ``text``: plaintext in that language, ASS override tags removed.
+          - ``language``: ISO-639-1 / script name detected on the extracted
+            text.
+          - ``start`` / ``duration``: original timestamps (unchanged).
+
+        Excluded from both lists:
+          - non-dialogue rows (``classify_line_type`` ≠ ``None``: staff_credit,
+            karaoke, sign, title, banner, translator_note, branding, drawing)
+          - zero/near-zero-duration rows (``duration ≤ 0.01s``) — these must
+            be re-timed via interpolation inside ``apply_alignment``.
+
+        ``self`` is not mutated.
+        """
+        import re as _re
+
+        from .parsers.language_detector import detect_language, detect_script
+        from .parsers.text_parser import classify_line_type
+
+        _OVERRIDE_RE = _re.compile(r"\{\\[^}]*\}")
+
+        def _strip_override(text: str) -> str:
+            if not text:
+                return ""
+            return _OVERRIDE_RE.sub("", text).strip()
+
+        def _detect_lang(text: str) -> str:
+            """Best-effort ISO-639-1; fall back to script bucket then 'unknown'."""
+            return detect_language(text) or detect_script(text) or "unknown"
+
+        def _is_alignable(sup: Supervision, plain: str) -> bool:
+            # 1. Must have real duration.
+            if sup.duration is None or sup.duration <= 0.01:
+                return False
+            # 2. ASS pre-tagged drawings are never dialogue.
+            if (sup.custom or {}).get("line_type") == "drawing":
+                return False
+            # 3. classify_line_type sees plaintext + ASS override signals.
+            ass_raw = (sup.custom or {}).get("ass_raw_text")
+            return classify_line_type(
+                plain,
+                start=sup.start,
+                ass_raw_text=ass_raw,
+                duration=sup.duration,
+            ) is None
+
+        # ---- Determine topology via the existing bilingual-mode heuristic ----
+        mode = self._detect_bilingual_mode()
+        _TYPE_MAP = {
+            "none": "mono",
+            "line_by_line": "bilingual_inline",
+            "alternating": "bilingual_dual_row",
+        }
+        caption_type = _TYPE_MAP.get(mode, "mono")
+
+        # ---- Build the flat list of candidate supervisions ----
+        candidates: List[Supervision] = []
+
+        if mode == "line_by_line":
+            # F1: each cue holds <primary>\n<secondary>. Reuse the existing
+            # merger so we don't re-implement line splitting. The merged
+            # Caption preserves 1:1 row order with ``self.supervisions``, so
+            # the original index is simply the enumerate index.
+            merged = self.merge_bilingual(mode="line_by_line")
+            for orig_idx, sup in enumerate(merged.supervisions):
+                text_plain = _strip_override(sup.text or "")
+                trans_plain = _strip_override(sup.translation or "")
+                if not _is_alignable(sup, text_plain or trans_plain):
+                    continue
+                if text_plain:
+                    side = fastcopy(
+                        sup, text=text_plain, translation=None,
+                        language=_detect_lang(text_plain),
+                    )
+                    side.align_index = orig_idx
+                    candidates.append(side)
+                if trans_plain:
+                    side = fastcopy(
+                        sup, text=trans_plain, translation=None,
+                        language=_detect_lang(trans_plain),
+                    )
+                    side.align_index = orig_idx
+                    candidates.append(side)
+        else:
+            # mono + dual-row: each original Supervision contributes one row.
+            for orig_idx, sup in enumerate(self.supervisions):
+                plain = _strip_override(sup.text or "")
+                if not plain or not _is_alignable(sup, plain):
+                    continue
+                side = fastcopy(
+                    sup, text=plain, translation=None,
+                    language=_detect_lang(plain),
+                )
+                side.align_index = orig_idx
+                candidates.append(side)
+
+        # ---- Group by language and rank to pick the priority language ----
+        #
+        # Subtitle-group convention: the translated language (typically CJK
+        # for 字幕组 work) is the "primary" display language — it's written
+        # on top, styled more prominently, and is what the viewer reads. We
+        # encode that convention directly instead of comparing raw character
+        # counts (1 CJK glyph ≈ 2-3 Latin chars, so naïve counts would flip
+        # the ranking). Falls back to row count for ties / non-CJK pairs.
+        _CJK_LANGS = {"zh", "ja", "ko", "east_asian"}
+
+        by_lang: Dict[str, List[Supervision]] = {}
+        for sup in candidates:
+            by_lang.setdefault(sup.language or "unknown", []).append(sup)
+
+        def _rank_key(item):
+            lang, sups = item
+            is_cjk = lang in _CJK_LANGS
+            # Sort: CJK first, then most rows, then ISO lex for stability.
+            return (0 if is_cjk else 1, -len(sups), lang)
+
+        ranked = sorted(by_lang.items(), key=_rank_key)
+        primary = ranked[0][1] if ranked else []
+        secondary = ranked[1][1] if len(ranked) >= 2 else []
+        return caption_type, primary, secondary
+
+    def apply_alignment(self, aligned: List[Supervision]) -> None:
+        """Write aligned timestamps back into ``self.supervisions`` in place.
+
+        Parameters
+        ----------
+        aligned :
+            Supervisions produced by the force aligner. Each row carries
+            the ``align_index`` (in ``sup.custom``) set by
+            ``extract_for_alignment`` — the 0-based index into the original
+            ``self.supervisions``. Updated timing is on ``start`` /
+            ``duration`` and, optionally, word-level alignment under
+            ``alignment["word"]``.
+
+        Behaviour
+        ---------
+        1. **index-matched write-back** — for each row in ``aligned``, read
+           its ``align_index`` and update the row at that index in
+           ``self.supervisions``. Rows without a valid index are silently
+           skipped (defensive); rows in ``self`` whose index is never
+           written are left untouched.
+
+        2. **No-timing interpolation** — afterwards, any dialogue row in
+           ``self`` with ``duration ≤ 0.01`` is re-timed by linearly
+           interpolating between the closest aligned neighbours on either
+           side. A row is "dialogue" iff ``classify_line_type`` returns
+           ``None`` for it (i.e. it isn't a staff_credit / sign / title /
+           karaoke / banner / translator_note / branding / drawing row).
+           Rows in the middle of a run of zero-duration dialogue are
+           distributed uniformly across the available gap.
+        """
+        from .parsers.text_parser import classify_line_type
+
+        n = len(self.supervisions)
+
+        # ---- Step 1: index-matched timestamp copy ----
+        indices_written: set = set()
+        for aligned_sup in aligned:
+            idx = (aligned_sup.custom or {}).get("align_index")
+            if idx is None or not (0 <= idx < n):
+                continue  # defensive: malformed / stale indices are skipped
+            target = self.supervisions[idx]
+            target.start = aligned_sup.start
+            target.duration = aligned_sup.duration
+            if aligned_sup.alignment is not None:
+                target.alignment = {"word": aligned_sup.alignment.get("word")}
+            indices_written.add(idx)
+
+        # ---- Step 2: interpolate no-timing dialogue rows ----
+
+        def _is_dialogue(sup: Supervision) -> bool:
+            if (sup.custom or {}).get("line_type") == "drawing":
+                return False
+            ass_raw = (sup.custom or {}).get("ass_raw_text")
+            return classify_line_type(
+                sup.text or "",
+                start=sup.start,
+                ass_raw_text=ass_raw,
+                duration=sup.duration,
+            ) is None
+
+        def _has_timing(sup: Supervision) -> bool:
+            return sup.duration is not None and sup.duration > 0.01
+
+        sups = self.supervisions
+        i = 0
+        while i < n:
+            sup = sups[i]
+            needs_interp = (
+                not _has_timing(sup)
+                and _is_dialogue(sup)
+                and i not in indices_written
+            )
+            if not needs_interp:
+                i += 1
+                continue
+
+            # Find the run [i, j) of contiguous no-timing dialogue rows.
+            j = i
+            while (
+                j < n
+                and not _has_timing(sups[j])
+                and _is_dialogue(sups[j])
+            ):
+                j += 1
+
+            # Anchors: nearest aligned rows on each side.
+            left = next(
+                (sups[k] for k in range(i - 1, -1, -1) if _has_timing(sups[k])),
+                None,
+            )
+            right = next(
+                (sups[k] for k in range(j, n) if _has_timing(sups[k])),
+                None,
+            )
+
+            run_len = j - i
+            if left is not None and right is not None:
+                gap_start = left.start + left.duration
+                gap_end = right.start
+                span = max(gap_end - gap_start, 0.0)
+                slot = span / run_len
+                for k, idx in enumerate(range(i, j)):
+                    sups[idx].start = round(gap_start + k * slot, 4)
+                    sups[idx].duration = round(slot, 4)
+            elif left is not None:  # only left anchor — pack after it
+                cursor = left.start + left.duration
+                for idx in range(i, j):
+                    sups[idx].start = round(cursor, 4)
+                    sups[idx].duration = 0.0  # unknown tail duration
+            elif right is not None:  # only right anchor — stack before it
+                cursor = right.start
+                for idx in range(j - 1, i - 1, -1):
+                    sups[idx].start = round(cursor, 4)
+                    sups[idx].duration = 0.0
+
+            i = j
+
     def _merge_line_by_line(
         self, primary_language: Optional[str], secondary_language: Optional[str]
     ) -> List[Supervision]:

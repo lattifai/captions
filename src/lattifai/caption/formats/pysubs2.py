@@ -12,7 +12,7 @@ import pysubs2
 
 from ..colors import SPEAKER_PALETTE, hex_rgb_to_bgr, resolve_speaker_color
 from ..config import ASSConfig
-from ..parsers.text_parser import classify_line_type, detect_speaker_candidates
+from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
 from ..supervision import Supervision
@@ -619,28 +619,11 @@ class ASSFormat(Pysubs2Format):
                 "ass_is_comment": event.is_comment,
             }
 
-            # Detect drawing commands (\p1 in override tags or "m X Y" start)
+            # Detect drawing commands (\p1 in override tags or "m X Y" start).
+            # Drawing is an ASS-specific construct unrelated to textual
+            # classification and is cheap to detect at read time.
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
-            else:
-                # Classify against ASS override signals + text heuristics.
-                # Passing ass_raw_text lets the classifier see \an/\fs/\bord
-                # so sign/title/banner/translator_note/karaoke can be detected
-                # anywhere in the file (not just the first 120s).
-                evt_start = event.start / 1000.0 if event.start is not None else 0
-                evt_dur = (
-                    (event.end - event.start) / 1000.0
-                    if event.end is not None and event.start is not None
-                    else None
-                )
-                lt = classify_line_type(
-                    plaintext,
-                    start=evt_start,
-                    ass_raw_text=event.text,
-                    duration=evt_dur,
-                )
-                if lt:
-                    custom["line_type"] = lt
 
             supervisions.append(
                 Supervision(
@@ -747,22 +730,6 @@ class ASSFormat(Pysubs2Format):
 
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
-            else:
-                # Classify against ASS override signals + text heuristics.
-                evt_start = event.start / 1000.0 if event.start is not None else 0
-                evt_dur = (
-                    (event.end - event.start) / 1000.0
-                    if event.end is not None and event.start is not None
-                    else None
-                )
-                lt = classify_line_type(
-                    plaintext,
-                    start=evt_start,
-                    ass_raw_text=event.text,
-                    duration=evt_dur,
-                )
-                if lt:
-                    custom["line_type"] = lt
 
             supervisions.append(
                 Supervision(

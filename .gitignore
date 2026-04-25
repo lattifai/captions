@@ -86,3 +86,4 @@ docs/
 .claude/
 scripts/benchmark_results/
 scripts/smoke_roundtrip_corpus.py
+scripts/probe_rollback_rate.py

@@ -1,4 +1,4 @@
-"""Tests for ``Caption.extract_alignment_supervisions()``.
+"""Tests for ``lattifai.caption.bilingual.extract_alignment_supervisions``.
 
 Contract:
     extract_alignment_supervisions()
@@ -29,6 +29,7 @@ import pytest  # noqa: F401
 import lattifai.caption.parsers.text_parser as text_parser
 
 from lattifai.caption import Caption
+from lattifai.caption.bilingual import detect_bilingual_mode, extract_alignment_supervisions
 from lattifai.caption.supervision import Supervision
 
 
@@ -56,7 +57,7 @@ def test_mono_english_returns_all_rows_as_primary() -> None:
         {"text": "We all think a lot of you, you know?", "start": 1.0, "duration": 3.0},
         {"text": "Morse, please come in.", "start": 5.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert len(primary) == 2
     assert primary[0].language == "en"
     assert primary[0].text == "We all think a lot of you, you know?"
@@ -69,7 +70,7 @@ def test_mono_chinese_returns_all_rows_as_primary() -> None:
         {"text": "我们都很看好你", "start": 1.0, "duration": 3.0},
         {"text": "摩斯 请进来", "start": 5.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert len(primary) == 2
     assert primary[0].language == "zh"
     assert secondary == []
@@ -94,7 +95,7 @@ def test_mono_fast_path_skips_line_classification(monkeypatch) -> None:
         {"text": "We all think a lot of you, you know?", "start": 1.0, "duration": 3.0},
         {"text": "Morse, please come in.", "start": 5.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     assert plan.source_indices_primary == (0, 1)
     assert primary[0].language == "en"
@@ -107,7 +108,7 @@ def test_does_not_mutate_original_caption() -> None:
     ])
     before_texts = [s.text for s in caption.supervisions]
     before_starts = [s.start for s in caption.supervisions]
-    caption.extract_alignment_supervisions()
+    extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert [s.text for s in caption.supervisions] == before_texts
     assert [s.start for s in caption.supervisions] == before_starts
 
@@ -125,7 +126,7 @@ def test_does_not_mutate_original_custom_fields() -> None:
         source_format="ass",
     )
     before_custom = dict(caption.supervisions[0].custom)
-    caption.extract_alignment_supervisions()
+    extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert caption.supervisions[0].custom == before_custom
 
 
@@ -142,7 +143,7 @@ def test_bilingual_inline_yields_two_groups_sharing_align_index() -> None:
         {"text": "摩斯 请进来\nMorse, please come in.",
          "start": 5.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert primary[0].language == "zh"
     assert primary[0].text == "我们都很看好你"
     assert secondary[0].language == "en"
@@ -172,7 +173,7 @@ def test_bilingual_dual_row_targets_distinct_original_indices() -> None:
         ],
         source_format="ass",
     )
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert primary[0].language == "zh"
     assert secondary[0].language == "en"
     assert set(plan.source_indices_primary) == {0, 2}
@@ -191,7 +192,7 @@ def test_staff_credit_row_excluded_from_alignment() -> None:
         {"text": "We all think a lot of you", "start": 20.0,            # idx 1
          "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert plan.source_indices_primary == (1,)
     assert secondary == []
 
@@ -203,7 +204,7 @@ def test_zero_duration_row_excluded_from_alignment() -> None:
         {"text": "Morse, please come in.", "start": 5.0,              # idx 1
          "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert plan.source_indices_primary == (1,)
 
 
@@ -220,7 +221,7 @@ def test_ass_override_tags_stripped_from_extracted_text() -> None:
         ],
         source_format="ass",
     )
-    primary, _, _ = caption.extract_alignment_supervisions()
+    primary, _, _ = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert primary[0].text == "Hello world"
 
 
@@ -250,7 +251,7 @@ def test_mostly_english_mono_is_not_split_by_lingua_short_text_noise() -> None:
         {"text": "No.", "start": 28.0, "duration": 1.0},
         {"text": "We'll meet again before the week's out.", "start": 30.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert secondary == [], (
         "Layer-2 rollback should have folded any Latin-script outliers back "
         "into primary."
@@ -271,7 +272,7 @@ def test_chinese_mono_with_multiline_numeric_cues_stays_mono() -> None:
         {"text": "泰晤士河谷城堡门警局", "start": 15.0, "duration": 3.0},
         {"text": "瑟斯戴 牛津2831", "start": 20.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert secondary == []
     assert primary[0].language == "zh"
 
@@ -309,7 +310,7 @@ def test_srt_inline_bilingual_recognised_after_read(tmp_path) -> None:
     multiline = [s for s in caption.supervisions if "\n" in (s.text or "")]
     assert len(multiline) == 3
 
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert primary and primary[0].language == "zh"
     assert secondary and secondary[0].language == "en"
     assert len(primary) == 3 and len(secondary) == 3
@@ -340,7 +341,7 @@ def test_ass_inline_bilingual_not_misclassified_when_sign_and_dialogue_share_def
          "custom": {"ass_style": "*Default"}},
     ]
     caption = _cap(sups, source_format="ass")
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
     assert primary[0].language == "zh"
     assert secondary and secondary[0].language == "en"
 
@@ -376,7 +377,7 @@ def test_bilingual_pair_skipped_when_secondary_side_is_non_dialogue() -> None:
          "start": 23.08, "duration": 1.32},
     ])
 
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     # The disclaimer pair at idx 0 must be rejected in its entirety —
     # neither primary nor secondary may carry an idx=0 entry.
@@ -425,7 +426,7 @@ def test_mono_with_two_sync_pairs_is_not_misdetected_as_alternating() -> None:
                  "start": 130.0, "duration": 5.0})
 
     caption = _cap(sups)
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     assert secondary == [], (
         "Mostly-mono captions with a handful of same-timing pairs must "
@@ -458,7 +459,7 @@ def test_cue_with_only_override_primary_is_dropped_entirely() -> None:
         {"text": "只要你需要\nAs long as you need.",
          "start": 13.0, "duration": 3.0},
     ])
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     # idx 0 must land in neither side.
     assert 0 not in plan.source_indices_primary
@@ -488,7 +489,7 @@ def test_embedded_newlines_are_flattened_in_extracted_text() -> None:
         {"text": "Hope it doesn't rain.", "start": 13.0, "duration": 3.0},
     ]
     caption = _cap(sups)
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     # Neither side may leak raw newlines.
     for side_name, rows in (("primary", primary), ("secondary", secondary)):
@@ -527,7 +528,7 @@ def test_mostly_mono_with_sparse_bilingual_rows_stays_mono() -> None:
                  "start": 240.0, "duration": 3.0})
 
     caption = _cap(sups)
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     # 5/45 = 11 % coverage — below the bilingual threshold, so we want
     # mono. Secondary must be empty (or rolled back to empty).
@@ -570,7 +571,7 @@ def test_small_n_secondary_noise_collapses_even_when_ratio_is_25_percent() -> No
     ]
 
     caption = _cap(sups)
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     assert secondary == [], (
         "Small-N secondary (ratio 25 % but len < 10) must still trigger "
@@ -611,10 +612,10 @@ def test_skew_rollback_merges_f2_secondary_in_source_order() -> None:
 
     caption = _cap(sups)
     # Sanity: mode must actually trip same_timing_pairs for this test to bite.
-    assert caption.detect_bilingual_mode().value == "same_timing_pairs", (
+    assert detect_bilingual_mode(caption.supervisions, caption.source_format).value == "same_timing_pairs", (
         "test setup should produce same_timing_pairs mode"
     )
-    primary, secondary, plan = caption.extract_alignment_supervisions()
+    primary, secondary, plan = extract_alignment_supervisions(caption.supervisions, caption.source_format)
 
     # Pre-fix: primary tail would look like [even…, odd…], violating
     # source order. Post-fix: merge-by-source-index preserves order.

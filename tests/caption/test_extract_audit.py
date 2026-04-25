@@ -357,12 +357,14 @@ def test_detects_row_count_skew_10x() -> None:
 def test_audit_extract_alignment_captures_exception(monkeypatch: pytest.MonkeyPatch) -> None:
     """If extract_alignment_supervisions raises, the outer audit returns a
     single ``RAISED …`` signature instead of propagating."""
+    import _extract_audit as audit_module
+
     cap, _, _, _ = _clean_mono()
 
-    def boom(self):
+    def boom(*args, **kwargs):
         raise RuntimeError("poisoned")
 
-    monkeypatch.setattr(Caption, "extract_alignment_supervisions", boom)
+    monkeypatch.setattr(audit_module, "extract_alignment_supervisions", boom)
     issues = audit_extract_alignment(cap)
     assert len(issues) == 1
     assert issues[0].startswith("RAISED RuntimeError: poisoned")

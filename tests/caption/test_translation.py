@@ -5,6 +5,7 @@ import json
 import pytest
 
 from lattifai.caption import Caption
+from lattifai.caption.bilingual import merge_bilingual
 from lattifai.caption.supervision import Supervision, fastcopy
 
 # ---------------------------------------------------------------------------
@@ -103,21 +104,26 @@ class TestCaptionBilingual:
             Supervision(text="World\n世界", start=2.0, duration=2.0),
         ]
         c = Caption(supervisions=sups)
-        merged = c.merge_bilingual(mode="line_by_line", primary_language="en", secondary_language="zh")
-        assert merged.supervisions[0].text == "Hello"
-        assert merged.supervisions[0].translation == "你好"
-        assert merged.supervisions[1].text == "World"
-        assert merged.supervisions[1].translation == "世界"
-        assert merged.language == "en"
-        assert merged.target_lang == "zh"
+        merged = merge_bilingual(
+            c.supervisions, c.source_format,
+            mode="line_by_line", primary_language="en", secondary_language="zh",
+        )
+        assert merged[0].text == "Hello"
+        assert merged[0].translation == "你好"
+        assert merged[1].text == "World"
+        assert merged[1].translation == "世界"
+        # Per-supervision language/target_lang are stamped; caller propagates
+        # to the container if needed.
+        assert merged[0].language == "en"
+        assert merged[0].target_lang == "zh"
 
     def test_merge_bilingual_line_by_line_single_line(self):
         """Single-line text should have no translation."""
         sups = [Supervision(text="Hello", start=0.0, duration=2.0)]
         c = Caption(supervisions=sups)
-        merged = c.merge_bilingual(mode="line_by_line")
-        assert merged.supervisions[0].text == "Hello"
-        assert merged.supervisions[0].translation is None
+        merged = merge_bilingual(c.supervisions, c.source_format, mode="line_by_line")
+        assert merged[0].text == "Hello"
+        assert merged[0].translation is None
 
     def test_merge_bilingual_same_timing_pairs(self):
         sups = [
@@ -127,19 +133,20 @@ class TestCaptionBilingual:
             Supervision(text="世界", start=2.0, duration=2.0),
         ]
         c = Caption(supervisions=sups)
-        merged = c.merge_bilingual(
-            mode="same_timing_pairs", primary_language="en", secondary_language="zh"
+        merged = merge_bilingual(
+            c.supervisions, c.source_format,
+            mode="same_timing_pairs", primary_language="en", secondary_language="zh",
         )
-        assert len(merged.supervisions) == 2
-        assert merged.supervisions[0].text == "Hello"
-        assert merged.supervisions[0].translation == "你好"
-        assert merged.supervisions[1].text == "World"
-        assert merged.supervisions[1].translation == "世界"
+        assert len(merged) == 2
+        assert merged[0].text == "Hello"
+        assert merged[0].translation == "你好"
+        assert merged[1].text == "World"
+        assert merged[1].translation == "世界"
 
     def test_merge_bilingual_invalid_mode(self):
         c = self._make_caption(["Hello"])
         with pytest.raises(ValueError, match="Unknown mode"):
-            c.merge_bilingual(mode="invalid")
+            merge_bilingual(c.supervisions, c.source_format, mode="invalid")
 
 
 # ---------------------------------------------------------------------------

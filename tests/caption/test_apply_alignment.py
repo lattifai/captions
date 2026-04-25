@@ -1,4 +1,4 @@
-"""Tests for ``Caption.apply_alignment()``.
+"""Tests for ``lattifai.caption.bilingual.apply_alignment``.
 
 Contract:
     apply_alignment(
@@ -20,7 +20,7 @@ Contract:
 from typing import Tuple
 
 from lattifai.caption import Caption
-from lattifai.caption.bilingual import AlignmentPlan
+from lattifai.caption.bilingual import AlignmentPlan, apply_alignment
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
 
@@ -67,7 +67,7 @@ def test_apply_writes_start_duration_for_matched_index() -> None:
     caption = _cap([
         {"text": "Hello", "start": 1.0, "duration": 3.0},
     ])
-    caption.apply_alignment([_aligned(1.234, 2.876)], plan=_plan(primary_idx=(0,)))
+    apply_alignment(caption.supervisions,[_aligned(1.234, 2.876)], plan=_plan(primary_idx=(0,)))
     assert caption.supervisions[0].start == 1.234
     assert caption.supervisions[0].duration == 2.876
 
@@ -81,7 +81,7 @@ def test_apply_writes_word_alignment_onto_matched_row() -> None:
     caption = _cap([
         {"text": "Hello world", "start": 0.0, "duration": 3.0},
     ])
-    caption.apply_alignment(
+    apply_alignment(caption.supervisions,
         [_aligned(1.0, 1.0, words=words)],
         plan=_plan(primary_idx=(0,)),
     )
@@ -95,7 +95,7 @@ def test_apply_leaves_unaddressed_self_rows_untouched() -> None:
         {"text": "dialogue", "start": 1.0, "duration": 3.0},
         {"text": "staff", "start": 100.0, "duration": 5.0},
     ])
-    caption.apply_alignment(
+    apply_alignment(caption.supervisions,
         [_aligned(1.234, 2.876)],
         plan=_plan(primary_idx=(0,)),
     )
@@ -109,7 +109,7 @@ def test_apply_silently_ignores_out_of_range_indices() -> None:
     caption = _cap([
         {"text": "Hello", "start": 1.0, "duration": 3.0},
     ])
-    caption.apply_alignment(
+    apply_alignment(caption.supervisions,
         [_aligned(1.234, 2.876), _aligned(10.0, 5.0)],
         plan=_plan(primary_idx=(0, 99)),
     )
@@ -121,7 +121,8 @@ def test_apply_mutates_in_place_and_returns_none() -> None:
     caption = _cap([
         {"text": "Hi", "start": 0.0, "duration": 2.0},
     ])
-    result = caption.apply_alignment(
+    result = apply_alignment(
+        caption.supervisions,
         [_aligned(1.0, 1.0)],
         plan=_plan(primary_idx=(0,)),
     )
@@ -143,7 +144,7 @@ def test_apply_dual_row_updates_aligned_language_row_only() -> None:
         {"text": "我们都很看好你", "start": 1.0, "duration": 3.0},          # idx 0
         {"text": "We all think a lot of you", "start": 1.0, "duration": 3.0},  # idx 1
     ])
-    caption.apply_alignment(
+    apply_alignment(caption.supervisions,
         [],
         [_aligned(1.200, 2.600)],
         plan=_plan(primary_idx=(), secondary_idx=(1,)),
@@ -174,7 +175,7 @@ def test_apply_leaves_zero_duration_rows_untouched() -> None:
         {"text": "Last line", "start": 7.0, "duration": 3.0},
     ])
     plan = _plan(primary_idx=(0, 2))
-    caption.apply_alignment(
+    apply_alignment(caption.supervisions,
         [_aligned(1.234, 2.5), _aligned(7.1, 3.1)],
         plan=plan,
     )

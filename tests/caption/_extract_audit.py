@@ -25,6 +25,8 @@ from lattifai.caption.bilingual import (
     _ALIGNMENT_OVERRIDE_RE,
     _ALIGNMENT_SCRIPT_BUCKETS,
     AlignmentPlan,
+    detect_bilingual_mode,
+    extract_alignment_supervisions,
 )
 from lattifai.caption.parsers.text_parser import classify_line_type
 from lattifai.caption.supervision import Supervision
@@ -171,7 +173,7 @@ def audit_extract_products(
                 # >10x escape hatch above still fires on truly extreme
                 # imbalance regardless of mode.
                 from lattifai.caption.bilingual import BilingualMode
-                if cap.detect_bilingual_mode() != BilingualMode.STYLE_GROUPED:
+                if detect_bilingual_mode(cap.supervisions, cap.source_format) != BilingualMode.STYLE_GROUPED:
                     issues.append("bilingual: row-count skew (>2x)")
 
     return sorted(set(issues))
@@ -184,7 +186,7 @@ def audit_extract_alignment(cap: Caption) -> List[str]:
     during extraction is surfaced as a single ``RAISED …`` signature.
     """
     try:
-        primary, secondary, plan = cap.extract_alignment_supervisions()
+        primary, secondary, plan = extract_alignment_supervisions(cap.supervisions, cap.source_format)
     except Exception as exc:  # noqa: BLE001
         return [f"RAISED {classify_error(exc)}"]
     return audit_extract_products(cap, primary, secondary, plan)

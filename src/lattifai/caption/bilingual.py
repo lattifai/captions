@@ -272,7 +272,9 @@ def detect_bilingual_mode(
     bilingual-shaped rows in an otherwise-mono caption don't flip the
     whole file to bilingual.
 
-    Not cached — see ``Caption.has_bilingual_layout``.
+    Not cached — ``supervisions`` is mutable, and any cache would go
+    stale the moment a caller edits it in place. Callers that need to
+    ask repeatedly should bind the result to a local.
 
     ``source_format`` is currently unused by the detector but accepted
     to keep the signature symmetric with :func:`extract_alignment_supervisions`.
@@ -746,3 +748,94 @@ def merge_alternating(
         new_sups.append(new_sup)
         i += 1
     return new_sups
+
+
+# ---------------------------------------------------------------------------
+# Top-level orchestrators.
+#
+# These two functions are the public entry points subtitle-team / aligner
+# callers actually need; everything above is the building blocks they
+# call into. Kept here (and **not** on the ``Caption`` class) so the
+# class stays focused on caption I/O — bilingual handling is a separate
+# concern that may evolve independently.
+# ---------------------------------------------------------------------------
+
+
+def merge_bilingual(
+    supervisions: List[Supervision],
+    source_format: Optional[str] = None,
+    *,
+    mode: str = "line_by_line",
+    primary_language: Optional[str] = None,
+    secondary_language: Optional[str] = None,
+) -> List[Supervision]:
+    """Parse bilingual supervisions into ``text`` + ``translation`` rows.
+
+    ``mode`` selects the merge strategy:
+
+    - ``"line_by_line"``: split each supervision's ``text`` on ``\\n``
+      (first line -> ``text``, second -> ``translation``).
+    - ``"same_timing_pairs"`` / ``"style_grouped"``: collapse consecutive
+      same-timing supervisions into one bilingual cue.
+    - ``"none"``: monolingual passthrough; only stamps ``language``.
+    - ``"auto"``: route via :func:`detect_bilingual_mode` (uses
+      ``source_format``).
+
+    Returns a fresh list; the input is not mutated. Caller is responsible
+    for wrapping the result in a ``Caption`` (or whatever container they
+    want) and propagating ``language`` / ``target_lang`` at the
+    container level.
+    """
+    if mode == "auto":
+        mode = detect_bilingual_mode(supervisions, source_format).value
+
+    if mode == "line_by_line":
+        return merge_line_by_line(supervisions, primary_language, secondary_language)
+    if mode in ("same_timing_pairs", "style_grouped"):
+        return merge_alternating(supervisions, primary_language, secondary_language)
+    if mode == "none":
+        return [
+            fastcopy(sup, language=primary_language or sup.language)
+            for sup in supervisions
+        ]
+    raise ValueError(
+        f"Unknown mode: {mode}. Use 'auto', 'line_by_line', "
+        f"'same_timing_pairs', 'style_grouped', or 'none'."
+    )
+
+
+def apply_alignment(
+    supervisions: List[Supervision],
+    aligned_primary: List[Supervision],
+    aligned_secondary: Optional[List[Supervision]] = None,
+    *,
+    plan: AlignmentPlan,
+) -> None:
+    """Write aligned timestamps back into ``supervisions`` in place.
+
+    Pure index-matched write-back — for each ``aligned_primary[i]`` copy
+    its ``start`` / ``duration`` (and optional ``alignment["word"]``)
+    onto ``supervisions[plan.source_indices_primary[i]]``. Same for the
+    secondary side. Out-of-range indices are silently skipped. Source
+    rows whose index is never written are left untouched; rows the
+    aligner never saw (zero-duration / non-dialogue) keep their
+    original timing — upstream callers that need timing for those rows
+    must decide how to handle them.
+    """
+    n = len(supervisions)
+    if n == 0:
+        return
+
+    def _write_back(target: Supervision, aligned_sup: Supervision) -> None:
+        target.start = aligned_sup.start
+        target.duration = aligned_sup.duration
+        if aligned_sup.alignment is not None:
+            target.alignment = {"word": aligned_sup.alignment.get("word")}
+
+    for aligned_sup, idx in zip(aligned_primary, plan.source_indices_primary):
+        if 0 <= idx < n:
+            _write_back(supervisions[idx], aligned_sup)
+    if aligned_secondary:
+        for aligned_sup, idx in zip(aligned_secondary, plan.source_indices_secondary):
+            if 0 <= idx < n:
+                _write_back(supervisions[idx], aligned_sup)

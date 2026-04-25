@@ -3,6 +3,7 @@
 import pytest
 
 from lattifai.caption import Caption
+from lattifai.caption.bilingual import merge_bilingual
 from lattifai.caption.parsers.text_parser import classify_line_type, cjk_ratio
 from lattifai.caption.supervision import Supervision
 
@@ -47,12 +48,12 @@ class TestMergeBilingualAuto:
             Supervision(text="再见\nGoodbye", start=5, duration=5),
         ]
         cap = Caption(supervisions=sups)
-        result = cap.merge_bilingual(mode="auto")
+        result = merge_bilingual(cap.supervisions, cap.source_format, mode="auto")
 
-        assert result.supervisions[0].text == "你好世界"
-        assert result.supervisions[0].translation == "Hello World"
-        assert result.supervisions[1].text == "再见"
-        assert result.supervisions[1].translation == "Goodbye"
+        assert result[0].text == "你好世界"
+        assert result[0].translation == "Hello World"
+        assert result[1].text == "再见"
+        assert result[1].translation == "Goodbye"
 
     def test_auto_alternating(self):
         """Pattern: consecutive sups with same timing, one CJK one Latin."""
@@ -63,11 +64,11 @@ class TestMergeBilingualAuto:
             Supervision(text="Goodbye", start=5, duration=5),
         ]
         cap = Caption(supervisions=sups)
-        result = cap.merge_bilingual(mode="auto")
+        result = merge_bilingual(cap.supervisions, cap.source_format, mode="auto")
 
-        assert len(result.supervisions) == 2
-        assert result.supervisions[0].text == "你好世界"
-        assert result.supervisions[0].translation == "Hello World"
+        assert len(result) == 2
+        assert result[0].text == "你好世界"
+        assert result[0].translation == "Hello World"
 
     def test_auto_ass_style_split(self):
         """Pattern D: Different ASS styles for different languages."""
@@ -82,11 +83,11 @@ class TestMergeBilingualAuto:
                         custom={"ass_style": "English"}),
         ]
         cap = Caption(supervisions=sups)
-        result = cap.merge_bilingual(mode="auto")
+        result = merge_bilingual(cap.supervisions, cap.source_format, mode="auto")
 
-        assert len(result.supervisions) == 2
-        assert result.supervisions[0].text == "你好世界"
-        assert result.supervisions[0].translation == "Hello World"
+        assert len(result) == 2
+        assert result[0].text == "你好世界"
+        assert result[0].translation == "Hello World"
 
     def test_auto_monolingual_unchanged(self):
         """Monolingual content should pass through unchanged."""
@@ -95,23 +96,27 @@ class TestMergeBilingualAuto:
             Supervision(text="How are you?", start=5, duration=5),
         ]
         cap = Caption(supervisions=sups)
-        result = cap.merge_bilingual(mode="auto")
+        result = merge_bilingual(cap.supervisions, cap.source_format, mode="auto")
 
-        assert len(result.supervisions) == 2
-        assert result.supervisions[0].translation is None
+        assert len(result) == 2
+        assert result[0].translation is None
 
-    def test_auto_explicit_languages(self):
-        """Auto mode should respect explicit language parameters."""
+    def test_explicit_line_by_line_languages(self):
+        """Per-supervision ``language`` / ``target_lang`` get stamped on
+        bilingual rows — caller is now responsible for propagating them to
+        the container level.
+        """
         sups = [
             Supervision(text="你好\nHello", start=0, duration=5),
         ]
         cap = Caption(supervisions=sups)
-        result = cap.merge_bilingual(
-            mode="auto", primary_language="zh", secondary_language="en"
+        result = merge_bilingual(
+            cap.supervisions, cap.source_format,
+            mode="line_by_line", primary_language="zh", secondary_language="en",
         )
 
-        assert result.language == "zh"
-        assert result.target_lang == "en"
+        assert result[0].language == "zh"
+        assert result[0].target_lang == "en"
 
 
 # =============================================================================

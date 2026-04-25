@@ -1565,7 +1565,7 @@ description: |
             tmp = f.name
 
         try:
-            meta = MarkdownFormat.extract_metadata(tmp)
+            meta = MarkdownFormat.parse(tmp).format_metadata
             assert meta["title"] == "State of AI 2026"
             assert meta["channel"] == "Lex Fridman"
             assert "Nathan Lambert" in meta["description"]
@@ -1596,7 +1596,7 @@ description: |
 
         try:
             MarkdownWriter.write(sups, tmp, metadata=original_meta)
-            roundtrip_meta = MarkdownFormat.extract_metadata(tmp)
+            roundtrip_meta = MarkdownFormat.parse(tmp).format_metadata
 
             assert roundtrip_meta["title"] == "Test Episode"
             assert roundtrip_meta["channel"] == "Test Host"

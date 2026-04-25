@@ -106,7 +106,9 @@ def test_split_sentences_carries_speaker_to_next_chunk_when_missing():
     assert result[0].speaker == "Alice"
     # Verify text integrity
     result_text = "".join(sup.text for sup in result).replace(" ", "")
-    expected_text = ("Lead-in" + "x" * 2000 + "Next sentence finishes.").replace(" ", "")
+    expected_text = ("Lead-in" + "x" * 2000 + "Next sentence finishes.").replace(
+        " ", ""
+    )
     assert result_text == expected_text
 
 
@@ -146,7 +148,9 @@ def test_split_sentences_inserts_remainder_before_new_speaker():
 
     # Verify text integrity
     result_text = "".join(sup.text for sup in result).replace(" ", "")
-    expected_text = "Chunk one start still going Bob begins now Wraps up.".replace(" ", "")
+    expected_text = "Chunk one start still going Bob begins now Wraps up.".replace(
+        " ", ""
+    )
     assert result_text == expected_text
 
 
@@ -167,7 +171,9 @@ def test_split_sentences_propagates_speaker_across_length_split():
     assert result[0].speaker == "Alice"
     # Verify text integrity
     result_text = "".join(sup.text for sup in result).replace(" ", "")
-    expected_text = ("Intro" + "a" * 1000 + "b" * 1000 + "Continuation picks up" + "Wrap-up here.").replace(" ", "")
+    expected_text = (
+        "Intro" + "a" * 1000 + "b" * 1000 + "Continuation picks up" + "Wrap-up here."
+    ).replace(" ", "")
     assert result_text == expected_text
 
 
@@ -271,7 +277,8 @@ def test_split_sentences_preserves_event_supervisions_from_gemini():
                 for bracket in brackets:
                     if bracket in events_before:
                         raise AssertionError(
-                            f"Event '{bracket}' was merged into '{event_after}'. " f"Events should remain separate."
+                            f"Event '{bracket}' was merged into '{event_after}'. "
+                            f"Events should remain separate."
                         )
 
 
@@ -303,21 +310,35 @@ def test_split_sentences_text_integrity():
 
             splits = splitter.split_sentences(supervisions)
 
-            origin_text = "".join([(sup.speaker or "").strip() + sup.text for sup in supervisions]).replace(" ", "")
-            split_text = "".join([(sup.speaker or "").strip() + sup.text for sup in splits]).replace(" ", "")
+            origin_text = "".join(
+                [(sup.speaker or "").strip() + sup.text for sup in supervisions]
+            ).replace(" ", "")
+            split_text = "".join(
+                [(sup.speaker or "").strip() + sup.text for sup in splits]
+            ).replace(" ", "")
 
             if origin_text != split_text:
-                open(str(caption_file) + ".debug.supervisions.txt", "w", encoding="utf-8").write(
+                open(
+                    str(caption_file) + ".debug.supervisions.txt", "w", encoding="utf-8"
+                ).write(
                     "\n".join([f"[{sup.speaker}] {sup.text}" for sup in supervisions])
                 )
-                open(str(caption_file) + ".debug.splits.txt", "w", encoding="utf-8").write(
-                    "\n".join([f"[{sup.speaker}] {sup.text}" for sup in splits])
-                )
+                open(
+                    str(caption_file) + ".debug.splits.txt", "w", encoding="utf-8"
+                ).write("\n".join([f"[{sup.speaker}] {sup.text}" for sup in splits]))
 
-                open(str(caption_file) + ".debug.supervisions_text", "w", encoding="utf-8").write(origin_text)
-                open(str(caption_file) + ".debug.splits_text", "w", encoding="utf-8").write(split_text)
+                open(
+                    str(caption_file) + ".debug.supervisions_text",
+                    "w",
+                    encoding="utf-8",
+                ).write(origin_text)
+                open(
+                    str(caption_file) + ".debug.splits_text", "w", encoding="utf-8"
+                ).write(split_text)
 
-            assert origin_text == split_text, "Text integrity check failed after sentence splitting."
+            assert origin_text == split_text, (
+                "Text integrity check failed after sentence splitting."
+            )
 
 
 def test_split_sentences_chinese_gemini_colon_bug():
@@ -327,7 +348,9 @@ def test_split_sentences_chinese_gemini_colon_bug():
     from lattifai.caption.formats.gemini import GeminiReader
 
     splitter = SentenceSplitter()
-    test_file = Path(__file__).parent.parent / "data" / "TheValley101-gemini-3-flash-preview.md"
+    test_file = (
+        Path(__file__).parent.parent / "data" / "TheValley101-gemini-3-flash-preview.md"
+    )
     supervisions = GeminiReader.extract_for_alignment(test_file)
 
     # Should not raise ValueError
@@ -346,7 +369,11 @@ def test_split_sentences_TheValley101_瑞士信贷_colon_space(tmp_path):
 
     from lattifai.caption.formats.gemini import GeminiReader
 
-    zip_file = Path(__file__).parent.parent / "data" / "TheValley101_瑞士信贷-gemini-3-flash-preview.md.zip"
+    zip_file = (
+        Path(__file__).parent.parent
+        / "data"
+        / "TheValley101_瑞士信贷-gemini-3-flash-preview.md.zip"
+    )
     with zipfile.ZipFile(zip_file) as zf:
         name = zf.namelist()[0]
         data = zf.read(name)
@@ -408,7 +435,11 @@ def test_split_sentences_splits_multi_event_supervisions():
     result = splitter.split_sentences(supervisions)
 
     # Find the event texts
-    event_texts = [sup.text for sup in result if sup.text.startswith("[") and sup.text.endswith("]")]
+    event_texts = [
+        sup.text
+        for sup in result
+        if sup.text.startswith("[") and sup.text.endswith("]")
+    ]
     assert "[Laughter]" in event_texts
     assert "[Applause]" in event_texts
     # Should NOT have the combined form
@@ -458,7 +489,9 @@ def test_split_inline_events_only_event():
 
 
 def test_split_inline_events_leading_multiple():
-    result = SentenceSplitter._split_inline_events("[Music] [Applause] Welcome everyone.")
+    result = SentenceSplitter._split_inline_events(
+        "[Music] [Applause] Welcome everyone."
+    )
     assert result == ["[Music]", "[Applause]", "Welcome everyone."]
 
 
@@ -473,7 +506,9 @@ def test_split_sentences_separates_inline_trailing_event():
     result = splitter.split_sentences(supervisions)
 
     texts = [sup.text for sup in result]
-    assert "[Breathes out]" in texts, f"Expected '[Breathes out]' as separate segment, got: {texts}"
+    assert "[Breathes out]" in texts, (
+        f"Expected '[Breathes out]' as separate segment, got: {texts}"
+    )
 
 
 def test_overlapping_youtube_scroll_vtt_no_negative_duration():
@@ -489,9 +524,27 @@ def test_overlapping_youtube_scroll_vtt_no_negative_duration():
 
     # Simulate YouTube scroll VTT: cues overlap in time, each has a few words
     supervisions = [
-        Supervision(id="0", recording_id="r", start=611.554, duration=1.602, text=">> CHAT GPT: You're doing a"),
-        Supervision(id="1", recording_id="r", start=612.421, duration=7.308, text="live demo right now? That is"),
-        Supervision(id="2", recording_id="r", start=613.256, duration=7.173, text="awesome. Just take a deep"),
+        Supervision(
+            id="0",
+            recording_id="r",
+            start=611.554,
+            duration=1.602,
+            text=">> CHAT GPT: You're doing a",
+        ),
+        Supervision(
+            id="1",
+            recording_id="r",
+            start=612.421,
+            duration=7.308,
+            text="live demo right now? That is",
+        ),
+        Supervision(
+            id="2",
+            recording_id="r",
+            start=613.256,
+            duration=7.173,
+            text="awesome. Just take a deep",
+        ),
     ]
 
     result = splitter.split_sentences(supervisions)
@@ -501,6 +554,159 @@ def test_overlapping_youtube_scroll_vtt_no_negative_duration():
             f"Negative duration for '{sup.text}': start={sup.start:.4f}, "
             f"duration={sup.duration:.4f}, end={sup.end:.4f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Per-supervision field inheritance through split (no model needed — exercises
+# the static _distribute_time_info directly, which is what loses the fields).
+# ---------------------------------------------------------------------------
+
+
+def _make_sup(
+    idx: int,
+    text: str,
+    *,
+    start: float = 0.0,
+    duration: float = 1.0,
+    channel=0,
+    language: Optional[str] = None,
+    gender: Optional[str] = None,
+    score: Optional[float] = None,
+    translation: Optional[str] = None,
+    target_lang: Optional[str] = None,
+    custom: Optional[dict] = None,
+) -> Supervision:
+    return Supervision(
+        id=f"sup-{idx}",
+        recording_id="rec",
+        start=start,
+        duration=duration,
+        channel=channel,
+        text=text,
+        language=language,
+        gender=gender,
+        score=score,
+        translation=translation,
+        target_lang=target_lang,
+        custom=custom,
+    )
+
+
+def test_distribute_time_info_preserves_scalar_fields_from_first_source():
+    """channel/language/gender/score/target_lang should carry over."""
+    sup = _make_sup(
+        0,
+        "Hello world. This is second.",
+        start=0.0,
+        duration=2.8,
+        channel=3,
+        language="en",
+        gender="F",
+        score=0.95,
+        target_lang="zh",
+    )
+
+    result = SentenceSplitter._distribute_time_info(
+        [sup], ["Hello world.", "This is second."]
+    )
+
+    assert len(result) == 2
+    for new_sup in result:
+        assert new_sup.channel == 3
+        assert new_sup.language == "en"
+        assert new_sup.gender == "F"
+        assert new_sup.score == 0.95
+        assert new_sup.target_lang == "zh"
+
+
+def test_distribute_time_info_preserves_translation_from_first_source():
+    """translation is carried over (first-source wins for cross-boundary)."""
+    sup = _make_sup(0, "A sentence.", start=0.0, duration=1.0, translation="一句话。")
+
+    result = SentenceSplitter._distribute_time_info([sup], ["A sentence."])
+
+    assert len(result) == 1
+    assert result[0].translation == "一句话。"
+
+
+def test_distribute_time_info_preserves_ass_style_custom_single_source():
+    """custom (e.g. ASS per-line style) inherits intact for 1→N split."""
+    sup = _make_sup(
+        0,
+        "Hello there. General Kenobi.",
+        start=0.0,
+        duration=2.8,
+        custom={"ass_style": "Narrator", "ass_layer": 1, "ass_effect": "Karaoke"},
+    )
+
+    result = SentenceSplitter._distribute_time_info(
+        [sup], ["Hello there.", "General Kenobi."]
+    )
+
+    assert len(result) == 2
+    for new_sup in result:
+        assert new_sup.custom is not None
+        assert new_sup.custom["ass_style"] == "Narrator"
+        assert new_sup.custom["ass_layer"] == 1
+        assert new_sup.custom["ass_effect"] == "Karaoke"
+
+
+def test_distribute_time_info_cross_boundary_custom_union_keeps_unique_keys():
+    """Cross-boundary split merges unique keys from later sources."""
+    sup_a = _make_sup(
+        0,
+        "Hello world",
+        start=0.0,
+        duration=1.0,
+        custom={"ass_style": "A", "ass_layer": 1},
+    )
+    sup_b = _make_sup(
+        1,
+        "today is nice.",
+        start=1.0,
+        duration=1.4,
+        custom={"ass_style": "A", "ass_effect": "Karaoke"},
+    )
+
+    # A single split text that spans both sources.
+    result = SentenceSplitter._distribute_time_info(
+        [sup_a, sup_b], ["Hello world today is nice."]
+    )
+
+    assert len(result) == 1
+    custom = result[0].custom
+    assert custom is not None
+    assert custom["ass_style"] == "A"
+    assert custom["ass_layer"] == 1  # unique to A
+    assert custom["ass_effect"] == "Karaoke"  # unique to B — MUST be preserved
+    assert "_split_from_multiple" not in custom  # no conflict → no marker
+
+
+def test_distribute_time_info_cross_boundary_custom_conflict_marked():
+    """Conflicting keys keep first-source value and add marker."""
+    sup_a = _make_sup(0, "Foo bar", start=0.0, duration=1.0, custom={"ass_style": "A"})
+    sup_b = _make_sup(1, "baz.", start=1.0, duration=1.0, custom={"ass_style": "B"})
+
+    result = SentenceSplitter._distribute_time_info([sup_a, sup_b], ["Foo bar baz."])
+
+    assert len(result) == 1
+    custom = result[0].custom
+    assert custom is not None
+    assert custom["ass_style"] == "A"  # first wins
+    assert custom.get("_split_from_multiple") is True
+    assert custom.get("_source_count") == 2
+
+
+def test_distribute_time_info_clears_alignment_on_split():
+    """alignment is pre-align state — must not leak into split children."""
+    sup = _make_sup(0, "Hello. World.", start=0.0, duration=2.0)
+    sup.alignment = {"words": [("Hello", 0.0, 0.5, 0.9)]}
+
+    result = SentenceSplitter._distribute_time_info([sup], ["Hello.", "World."])
+
+    assert len(result) == 2
+    for new_sup in result:
+        assert new_sup.alignment is None
 
 
 if __name__ == "__main__":

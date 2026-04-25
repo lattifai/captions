@@ -35,6 +35,10 @@ flake8 src/ tests/
 - **Pre-commit hooks**: black, flake8, isort, trailing whitespace, end-of-file fixer
 - `formats/__init__.py` allows `E401, F401` (wildcard imports for re-exports)
 - `tests/` has relaxed linting (`E501, F541, F401, F841` ignored)
+- **No `from __future__ import annotations`**: `requires-python = ">=3.10"` already
+  provides PEP 604 union syntax (`X | Y`) and PEP 585 built-in generics (`list[int]`).
+  When annotating a type that is only imported under `TYPE_CHECKING`, use a string
+  literal (`Optional["RenderConfig"]`) instead of adding the future import.
 
 ## Multilingual Text Convention
 

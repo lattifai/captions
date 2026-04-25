@@ -46,7 +46,7 @@ from typing import Any, Dict, List, Optional, Union
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 # Speaker change marker in YouTube auto-generated captions
 _SPEAKER_CHANGE_RE = re.compile(r"^(?:>>|&gt;&gt;)\s*")
@@ -92,21 +92,17 @@ class JSON3Format(FormatHandler):
         return source_str.lower().endswith(".json3")
 
     @classmethod
-    def read(
+    def parse(
         cls,
         source: Union[Pathlike, str],
         normalize_text: bool = True,
         **kwargs,
-    ) -> List[Supervision]:
-        """Read JSON3 format and extract supervisions with word-level alignment.
+    ) -> ParseResult:
+        """Parse JSON3 and lift window/wire metadata onto the ParseResult.
 
-        Args:
-            source: File path or JSON string content
-            normalize_text: Whether to normalize text content
-
-        Returns:
-            List of Supervision objects with word-level alignment in the
-            'alignment' field when word timing is available.
+        Returns a :class:`ParseResult` with supervisions carrying word-level
+        alignment (when available) and ``format_metadata`` containing
+        ``source_format`` plus any ``json3_*`` header fields.
         """
         if cls.is_content(source):
             data = json.loads(source)
@@ -115,7 +111,7 @@ class JSON3Format(FormatHandler):
                 data = json.load(f)
 
         events = data.get("events", [])
-        supervisions = []
+        supervisions: List[Supervision] = []
 
         for event in events:
             # Skip window/config events (no segs)
@@ -209,26 +205,7 @@ class JSON3Format(FormatHandler):
                 )
             )
 
-        return supervisions
-
-    @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> dict:
-        """Extract JSON3 metadata.
-
-        Returns:
-            Dict containing window styles, positions, and format info.
-        """
-        if cls.is_content(source):
-            data = json.loads(source)
-        else:
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                return {}
-
-        metadata = {"source_format": "json3"}
-
+        metadata: Dict[str, Any] = {"source_format": "json3"}
         if "wireMagic" in data:
             metadata["json3_wire_magic"] = data["wireMagic"]
         if "wsWinStyles" in data:
@@ -236,7 +213,7 @@ class JSON3Format(FormatHandler):
         if "wpWinPositions" in data:
             metadata["json3_window_positions"] = len(data["wpWinPositions"])
 
-        return metadata
+        return ParseResult(supervisions=supervisions, format_metadata=metadata)
 
     @classmethod
     def write(

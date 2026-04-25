@@ -30,18 +30,18 @@ class TestCaptionFromSupervisionsTargetLang:
         assert d["target_lang"] is None
 
 
-class TestCaptionBilingualProperty:
-    """Verify Caption.is_bilingual reflects supervision translation state."""
+class TestCaptionHasTranslationProperty:
+    """Verify Caption.has_translation reflects supervision translation state."""
 
-    def test_not_bilingual_without_translation(self):
+    def test_no_translation_without_translation_field(self):
         sups = [Supervision(text="hello", start=0.0, duration=1.0)]
         caption = Caption.from_supervisions(sups)
-        assert not caption.is_bilingual
+        assert not caption.has_translation
 
-    def test_bilingual_with_translation(self):
+    def test_has_translation_with_translation_field(self):
         sups = [Supervision(text="hello", start=0.0, duration=1.0, translation="你好")]
         caption = Caption.from_supervisions(sups)
-        assert caption.is_bilingual
+        assert caption.has_translation
 
     def test_set_translations(self):
         sups = [
@@ -52,7 +52,7 @@ class TestCaptionBilingualProperty:
         caption.set_translations(["你好", "世界"], target_lang="zh")
 
         assert caption.target_lang == "zh"
-        assert caption.is_bilingual
+        assert caption.has_translation
         assert caption.supervisions[0].translation == "你好"
         assert caption.supervisions[1].translation == "世界"
         assert caption.supervisions[0].target_lang == "zh"

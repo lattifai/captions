@@ -15,7 +15,7 @@ from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..parsers.text_parser import parse_speaker_text
 from ..supervision import Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 @register_format("sbv")
@@ -48,20 +48,19 @@ class SBVFormat(FormatHandler):
         return f"{h}:{m:02d}:{s:02d}.{ms:03d}"
 
     @classmethod
-    def read(
+    def parse(
         cls,
         source,
         normalize_text: bool = True,
         **kwargs,
-    ) -> List[Supervision]:
-        """Read SBV format."""
-        # Get content
+    ) -> ParseResult:
+        """Parse SBV format."""
         if cls.is_content(source):
             content = source
         else:
             content = Path(source).read_text(encoding="utf-8")
 
-        supervisions = []
+        supervisions: List[Supervision] = []
         entries = content.strip().split("\n\n")
 
         for entry in entries:
@@ -69,7 +68,6 @@ class SBVFormat(FormatHandler):
             if len(lines) < 2:
                 continue
 
-            # First line: timestamp (H:MM:SS.mmm,H:MM:SS.mmm)
             timestamp_line = lines[0].strip()
             text_lines = lines[1:]
 
@@ -99,7 +97,7 @@ class SBVFormat(FormatHandler):
             except (ValueError, IndexError):
                 continue
 
-        return supervisions
+        return ParseResult(supervisions=supervisions)
 
     @classmethod
     def write(

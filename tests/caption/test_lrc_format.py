@@ -111,7 +111,7 @@ class TestLRCFormatRead:
         content = """[00:15.20]Hello world
 [00:18.50]This is karaoke
 """
-        sups = LRCFormat.read(content)
+        sups = LRCFormat.parse(content).supervisions
 
         assert len(sups) == 2
         assert sups[0].text == "Hello world"
@@ -122,7 +122,7 @@ class TestLRCFormatRead:
     def test_read_enhanced_lrc(self):
         """Read enhanced LRC with word-level timestamps."""
         content = "[00:15.200]<00:15.200>Hello <00:15.650>world\n"
-        sups = LRCFormat.read(content)
+        sups = LRCFormat.parse(content).supervisions
 
         assert len(sups) == 1
         assert sups[0].text == "Hello world"
@@ -142,7 +142,7 @@ class TestLRCFormatRead:
 
 [00:00.00]First line
 """
-        sups = LRCFormat.read(content)
+        sups = LRCFormat.parse(content).supervisions
 
         assert len(sups) == 1
         assert sups[0].text == "First line"
@@ -150,7 +150,7 @@ class TestLRCFormatRead:
     def test_read_lrc_millisecond_precision(self):
         """Read LRC with millisecond precision."""
         content = "[00:15.234]Hello\n"
-        sups = LRCFormat.read(content)
+        sups = LRCFormat.parse(content).supervisions
 
         assert len(sups) == 1
         assert abs(sups[0].start - 15.234) < 0.001
@@ -166,7 +166,7 @@ class TestLRCFormatRoundTrip:
             Supervision(text="This is karaoke", start=18.5, duration=2.0),
         ]
         content = LRCFormat.to_bytes(original).decode("utf-8")
-        restored = LRCFormat.read(content)
+        restored = LRCFormat.parse(content).supervisions
 
         assert len(restored) == 2
         assert restored[0].text == original[0].text
@@ -190,7 +190,7 @@ class TestLRCFormatRoundTrip:
             )
         ]
         content = LRCFormat.to_bytes(original, render=RenderConfig(word_level=True)).decode("utf-8")
-        restored = LRCFormat.read(content)
+        restored = LRCFormat.parse(content).supervisions
 
         assert len(restored) == 1
         assert restored[0].text == "Hello world"

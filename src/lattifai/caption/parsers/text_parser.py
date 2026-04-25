@@ -27,7 +27,7 @@ SPEAKER_PATTERN2 = re.compile(r"^([A-Z]{1,15}(?:\s+[A-Z]{1,15})?[:：])\s*(.*)$"
 _speaker_candidates: set = set()
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text: str, preserve_newlines: bool = False) -> str:
     """Normalize caption text by:
     - Decoding common HTML entities
     - Collapsing multiple whitespace into a single space
@@ -35,6 +35,13 @@ def normalize_text(text: str) -> str:
 
     Note: HTML tags (<b>, <i>, <u>, <font>) are intentionally preserved
     to allow roundtrip fidelity for formats that support them (SRT, VTT).
+
+    Args:
+        text: Input subtitle text (possibly multi-line).
+        preserve_newlines: When True, collapse only *non-newline* whitespace
+            so ``\\n`` survives. Used by SRT/VTT readers for bilingual cues
+            that encode their two halves as line 1 / line 2. Default False
+            preserves the historical behaviour (whole-string collapse).
     """
     if not text:
         return ""
@@ -49,7 +56,9 @@ def normalize_text(text: str) -> str:
         "&quot;": '"',
         "&#39;": "'",
         "&nbsp;": " ",
-        "\\N": " ",
+        # \N intentionally NOT replaced here — it is ASS-specific line break
+        # syntax and must be preserved for bilingual subtitle roundtrip.
+        # The ASS reader converts \N via pysubs2 event.plaintext (see P0-2).
         "…": " ",  # replace ellipsis with space to avoid merging words
     }
     for entity, char in html_entities.items():
@@ -59,8 +68,14 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"([a-zA-Z])’([tsdm]|ll|re|ve)\b", r"\1'\2", text, flags=re.IGNORECASE)
     text = re.sub(r"([0-9])’([s])\b", r"\1'\2", text, flags=re.IGNORECASE)
 
-    # Collapse whitespace (after replacements)
-    text = re.sub(r"\s+", " ", text)
+    # Collapse whitespace (after replacements).
+    if preserve_newlines:
+        # Only merge horizontal whitespace; leave \n boundaries intact.
+        text = re.sub(r"[^\S\n]+", " ", text)
+        # Also trim horizontal whitespace surrounding each newline.
+        text = re.sub(r" *\n *", "\n", text)
+    else:
+        text = re.sub(r"\s+", " ", text)
 
     return text.strip()
 
@@ -228,6 +243,227 @@ def parse_timestamp_text(line: str) -> Tuple[Optional[float], Optional[float], s
             return None, None, line
 
     return None, None, line
+
+
+def cjk_ratio(text: str) -> float:
+    """Calculate the ratio of CJK characters in text.
+
+    CJK Unified Ideographs (U+4E00..U+9FFF), CJK Extension A (U+3400..U+4DBF),
+    and fullwidth forms are counted. Punctuation and whitespace are excluded
+    from the denominator.
+
+    Args:
+        text: Input text string.
+
+    Returns:
+        Ratio of CJK characters (0.0 to 1.0). Returns 0.0 for empty text.
+    """
+    if not text:
+        return 0.0
+    # Count only alphanumeric + CJK chars (skip punctuation/whitespace)
+    cjk_count = 0
+    char_count = 0
+    for ch in text:
+        cp = ord(ch)
+        is_cjk = (
+            0x4E00 <= cp <= 0x9FFF        # CJK Unified Ideographs
+            or 0x3400 <= cp <= 0x4DBF     # CJK Extension A
+            or 0xF900 <= cp <= 0xFAFF     # CJK Compatibility Ideographs
+            or 0x20000 <= cp <= 0x2A6DF   # CJK Extension B
+            or 0xFF00 <= cp <= 0xFFEF     # Fullwidth Forms
+        )
+        is_letter = ch.isalnum() or is_cjk
+        if is_letter:
+            char_count += 1
+            if is_cjk:
+                cjk_count += 1
+    return cjk_count / char_count if char_count > 0 else 0.0
+
+
+# =============================================================================
+# Filename language detection (P2-3)
+# =============================================================================
+
+# Ordered from most specific (bilingual) to least specific (monolingual).
+# Each entry: (pattern, language, target_language)
+_LANG_PATTERNS = [
+    # Bilingual: simplified Chinese + English
+    (r"[.\s](?:简体中文&英文|简体&英文|CN&EN|chs&eng)[.\s]", "zh", "en"),
+    # Bilingual: traditional Chinese + English
+    (r"[.\s](?:繁体&英文|繁體&英文|cht&eng)[.\s]", "zh_tw", "en"),
+    # Bilingual: generic
+    (r"[.\s](?:双语|bilingual)[.\s]", "zh", "en"),
+    # Monolingual: simplified Chinese
+    (r"[.\s](?:简体中文|简体|chs|CHS)[.\s]", "zh", None),
+    (r"[.\s]CN[.\s]", "zh", None),
+    # Monolingual: traditional Chinese
+    (r"[.\s](?:繁体|繁體|cht|CHT)[.\s]", "zh_tw", None),
+    # Monolingual: English
+    (r"[.\s](?:英文|eng)[.\s]", "en", None),
+    (r"[.\s]EN[.\s]", "en", None),
+]
+_LANG_COMPILED = [(re.compile(p, re.IGNORECASE), lang, target) for p, lang, target in _LANG_PATTERNS]
+
+
+def detect_language_from_filename(filename: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract language information from subtitle filename patterns.
+
+    Recognizes common Chinese fansub naming conventions like:
+    - Show.S01E01.简体中文&英文.ass -> ("zh", "en")
+    - Show.CN.srt -> ("zh", None)
+
+    Args:
+        filename: Subtitle filename (basename or full path).
+
+    Returns:
+        Tuple of (language, target_language). Both None if no pattern matches.
+    """
+    # Ensure dots at boundaries for matching
+    name = "." + filename + "."
+    for pattern, lang, target in _LANG_COMPILED:
+        if pattern.search(name):
+            return lang, target
+    return None, None
+
+
+# Staff credit role keywords (Chinese fansub conventions)
+_STAFF_ROLES = re.compile(
+    r"^\s*("
+    # Single-role markers
+    r"翻译|校对|时间轴|后期|总监|压制|监制|特效|听译|编辑|审核|"
+    r"片源|录制|制作|调轴|打轴|"
+    # Combined role markers with pipe separator (e.g. `翻|校|监`)
+    r"翻\|校\|监|翻\|校|校\|监"
+    r")\s+(.+?)\s*$"
+)
+
+# Branding / disclaimer keywords
+_BRANDING_KEYWORDS = [
+    "yyets", "zimuzu", "人人影视", "字幕组", "字幕社",
+    "www.", ".com", ".tv", ".net", ".org",
+    "原创翻译", "双语字幕", "仅供交流", "禁止商用",
+    "仅供学习", "请勿用于商业",
+]
+
+# Recap / prologue keywords for banner detection
+_BANNER_KEYWORDS = ("前情提要", "前情回顾", "上集回顾", "上期回顾", "本剧纯属虚构")
+
+# ASS override tag extractors (compiled once)
+_ASS_AN_RE = re.compile(r"\\an(\d)")
+_ASS_FS_RE = re.compile(r"\\fs(\d+(?:\.\d+)?)")
+_ASS_BORD_RE = re.compile(r"\\bord(\d+(?:\.\d+)?)")
+_ASS_B_RE = re.compile(r"\\b([01])(?![a-zA-Z\d])")  # \b0 / \b1, not \bord
+_ASS_POS_RE = re.compile(r"\\pos\(")
+_ASS_T_FS_RE = re.compile(r"\\t\([^)]*\\fs")  # \t(...\fs... — animated font size
+_ASS_KARAOKE_RE = re.compile(r"\\k[fo]?\d+")
+
+
+def _extract_ass_signals(ass_raw_text: str) -> dict:
+    """Pull the override-tag signals relevant to line-type classification.
+
+    Scans all ``{...}`` override blocks in ``ass_raw_text`` and reports:
+      * ``an``: alignment (1-9) from ``\\anN``; 0 if absent
+      * ``fs``: font size from ``\\fsN``; 0.0 if absent (first occurrence wins)
+      * ``bord``: border width from ``\\bordN``; None if absent
+      * ``b``: bold flag from ``\\b0``/``\\b1`` (NOT ``\\bord``); None if absent
+      * ``has_pos``: True if any ``\\pos(...)`` present
+      * ``has_t_fs``: True if any ``\\t(...\\fs...)`` (animated font-size)
+    """
+    an_m = _ASS_AN_RE.search(ass_raw_text)
+    fs_m = _ASS_FS_RE.search(ass_raw_text)
+    bord_m = _ASS_BORD_RE.search(ass_raw_text)
+    b_m = _ASS_B_RE.search(ass_raw_text)
+    return {
+        "an": int(an_m.group(1)) if an_m else 0,
+        "fs": float(fs_m.group(1)) if fs_m else 0.0,
+        "bord": float(bord_m.group(1)) if bord_m else None,
+        "b": int(b_m.group(1)) if b_m else None,
+        "has_pos": bool(_ASS_POS_RE.search(ass_raw_text)),
+        "has_t_fs": bool(_ASS_T_FS_RE.search(ass_raw_text)),
+    }
+
+
+def classify_line_type(
+    text: str,
+    start: float = 0.0,
+    ass_raw_text: Optional[str] = None,
+    duration: Optional[float] = None,
+) -> Optional[str]:
+    """Classify a subtitle line for forced-alignment skip decisions.
+
+    Returns one of: ``staff_credit`` | ``branding`` | ``banner`` | ``title`` |
+    ``sign`` | ``translator_note`` | ``karaoke`` | ``None`` (normal dialogue).
+
+    Priority: unambiguous ASS tag signals (karaoke, sign, title, banner,
+    translator_note) are checked first; text-based heuristics (staff_credit,
+    branding) run last.
+
+    Args:
+        text: Plaintext subtitle body (override tags already stripped).
+        start: Event start time in seconds.
+        ass_raw_text: Original ASS text with override tags (optional; when
+            available, drives the ASS-specific classifiers).
+        duration: Event duration in seconds (reserved; unused currently).
+    """
+    if not text:
+        return None
+
+    # ---- ASS override-tag-based classification ----
+    if ass_raw_text:
+        # 1. Karaoke: any \k / \kf / \ko tag
+        if _ASS_KARAOKE_RE.search(ass_raw_text):
+            return "karaoke"
+
+        sig = _extract_ass_signals(ass_raw_text)
+
+        # 2. Sign: top/right alignment (\an8/9) + border outline + bold + small fs.
+        #    Standard subtitle-group convention for on-screen location labels.
+        if (
+            sig["an"] in (8, 9)
+            and sig["bord"] == 1
+            and sig["b"] == 1
+            and 16 <= sig["fs"] <= 22
+        ):
+            return "sign"
+
+        # 3. Title: top-center (\an8) + large animated font.
+        #    Show-name / act-marker overlays use \t(...\fs...) for size animation.
+        if sig["an"] == 8 and sig["fs"] >= 28 and sig["has_t_fs"]:
+            return "title"
+
+        # 4. Banner: \an1 + recap/prologue keyword in text.
+        stripped = text.strip()
+        if sig["an"] == 1 and any(kw in stripped for kw in _BANNER_KEYWORDS):
+            return "banner"
+
+        # 5. Translator note: \an3/9 + small fs + explicit \b0 + positioned.
+        #    字幕组 convention for commentary overlays.
+        if (
+            sig["an"] in (3, 9)
+            and 0 < sig["fs"] <= 16
+            and sig["b"] == 0
+            and sig["has_pos"]
+        ):
+            return "translator_note"
+
+    # ---- Text-based heuristics (staff_credit / branding) ----
+    # Preserve original behaviour: these only apply to short early-in-file
+    # lines to avoid matching ordinary dialogue that happens to mention a
+    # role word.
+    if start > 120.0 or len(text) > 50:
+        return None
+
+    stripped = text.strip()
+
+    if _STAFF_ROLES.match(stripped):
+        return "staff_credit"
+
+    lower = stripped.lower()
+    for kw in _BRANDING_KEYWORDS:
+        if kw in lower:
+            return "branding"
+
+    return None
 
 
 if __name__ == "__main__":

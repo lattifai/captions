@@ -11,12 +11,12 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional
 from xml.dom import minidom
 
-from ..supervision import AlignmentItem, Pathlike, Supervision
+from ..supervision import AlignmentItem, Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 # XML namespaces
 TTML_NS = "http://www.w3.org/ns/ttml"
@@ -141,48 +141,21 @@ class TTMLFormatBase(FormatHandler):
         return metadata
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict:
-        """Extract TTML metadata. Deprecated: use parse() instead."""
-        if isinstance(source, (str, Path)) and not cls.is_content(source):
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    return cls._extract_ttml_metadata(f.read())
-            except Exception:
-                return {}
-        return cls._extract_ttml_metadata(str(source))
-
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
         """Parse TTML in a single pass: supervisions + profile/language metadata."""
-        from .base import ParseResult
-
-        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
-        if isinstance(source, (str, Path)) and not cls.is_content(source):
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                return ParseResult(supervisions=supervisions)
-        else:
-            content = str(source)
-        metadata = cls._extract_ttml_metadata(content)
-        return ParseResult(supervisions=supervisions, format_metadata=metadata)
-
-    @classmethod
-    def read(
-        cls,
-        source: Union[Pathlike, str],
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
-        """Read TTML content and return supervisions."""
         if isinstance(source, (str, Path)) and not cls.is_content(source):
             with open(source, "r", encoding="utf-8") as f:
                 content = f.read()
         else:
             content = str(source)
 
-        # Parse XML
+        supervisions = cls._parse_supervisions(content)
+        metadata = cls._extract_ttml_metadata(content)
+        return ParseResult(supervisions=supervisions, format_metadata=metadata)
+
+    @classmethod
+    def _parse_supervisions(cls, content: str) -> List[Supervision]:
+        """Extract supervisions from a TTML XML string."""
         try:
             # Strip namespaces for easier parsing
             content = re.sub(r' xmlns="[^"]+"', "", content, count=1)
@@ -195,7 +168,7 @@ class TTMLFormatBase(FormatHandler):
         except ET.ParseError:
             return []
 
-        supervisions = []
+        supervisions: List[Supervision] = []
 
         # Find body/div/p structure
         body = root.find("body") or root.find(f"{{{TTML_NS}}}body")
@@ -339,7 +312,6 @@ class TTMLFormatBase(FormatHandler):
             include_speaker: Whether to include speaker names
             word_level: Whether to output word-level timing (span-based karaoke)
         """
-        from .base import expand_to_word_supervisions
 
         ET.register_namespace("", TTML_NS)
         ET.register_namespace("tts", TTML_STYLE_NS)

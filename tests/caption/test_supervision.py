@@ -70,12 +70,12 @@ class TestSupervisionTranslation:
         assert s2.translation == "こんにちは"
         assert s2.target_lang == "ja"
 
-    def test_is_bilingual_property(self):
+    def test_has_translation_property(self):
         s1 = Supervision(text="hello")
-        assert not s1.is_bilingual
+        assert not s1.has_translation
 
         s2 = Supervision(text="hello", translation="你好")
-        assert s2.is_bilingual
+        assert s2.has_translation
 
     def test_translation_preserved_by_with_offset(self):
         s = Supervision(text="hi", start=0.0, duration=1.0, translation="嗨", target_lang="zh")

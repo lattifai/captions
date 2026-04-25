@@ -5,6 +5,7 @@ import json
 import pytest
 
 from lattifai.caption import Caption
+from lattifai.caption.bilingual import merge_bilingual
 from lattifai.caption.supervision import Supervision, fastcopy
 
 # ---------------------------------------------------------------------------
@@ -17,15 +18,15 @@ class TestSupervisionTranslation:
         sup = Supervision(text="Hello", start=1.0, duration=2.0)
         assert sup.translation is None
         assert sup.target_lang is None
-        assert sup.is_bilingual is False
+        assert sup.has_translation is False
 
-    def test_is_bilingual(self):
+    def test_has_translation(self):
         sup = Supervision(text="Hello", translation="你好", start=1.0, duration=2.0)
-        assert sup.is_bilingual is True
+        assert sup.has_translation is True
 
-    def test_is_bilingual_empty_string(self):
+    def test_has_translation_empty_string(self):
         sup = Supervision(text="Hello", translation="", start=1.0, duration=2.0)
-        assert sup.is_bilingual is False
+        assert sup.has_translation is False
 
     def test_fastcopy_preserves_translation(self):
         sup = Supervision(text="Hello", translation="你好", target_lang="zh", start=1.0, duration=2.0)
@@ -57,7 +58,7 @@ class TestSupervisionTranslation:
         sup = Supervision.from_dict(d)
         assert sup.translation == "你好"
         assert sup.target_lang == "zh"
-        assert sup.is_bilingual is True
+        assert sup.has_translation is True
 
 
 # ---------------------------------------------------------------------------
@@ -73,14 +74,14 @@ class TestCaptionBilingual:
             c.set_translations(translations, target_lang="zh")
         return c
 
-    def test_is_bilingual_false(self):
+    def test_has_translation_false(self):
         c = self._make_caption(["Hello", "World"])
-        assert c.is_bilingual is False
+        assert c.has_translation is False
 
     def test_set_translations(self):
         c = self._make_caption(["Hello", "World"])
         c.set_translations(["你好", "世界"], target_lang="zh")
-        assert c.is_bilingual is True
+        assert c.has_translation is True
         assert c.target_lang == "zh"
         assert c.supervisions[0].translation == "你好"
         assert c.supervisions[1].translation == "世界"
@@ -92,9 +93,9 @@ class TestCaptionBilingual:
 
     def test_strip_translations(self):
         c = self._make_caption(["Hello"], ["你好"])
-        assert c.is_bilingual is True
+        assert c.has_translation is True
         c.strip_translations()
-        assert c.is_bilingual is False
+        assert c.has_translation is False
         assert c.supervisions[0].translation is None
 
     def test_merge_bilingual_line_by_line(self):
@@ -103,23 +104,28 @@ class TestCaptionBilingual:
             Supervision(text="World\n世界", start=2.0, duration=2.0),
         ]
         c = Caption(supervisions=sups)
-        merged = c.merge_bilingual(mode="line_by_line", primary_language="en", secondary_language="zh")
-        assert merged.supervisions[0].text == "Hello"
-        assert merged.supervisions[0].translation == "你好"
-        assert merged.supervisions[1].text == "World"
-        assert merged.supervisions[1].translation == "世界"
-        assert merged.language == "en"
-        assert merged.target_lang == "zh"
+        merged = merge_bilingual(
+            c.supervisions, c.source_format,
+            mode="line_by_line", primary_language="en", secondary_language="zh",
+        )
+        assert merged[0].text == "Hello"
+        assert merged[0].translation == "你好"
+        assert merged[1].text == "World"
+        assert merged[1].translation == "世界"
+        # Per-supervision language/target_lang are stamped; caller propagates
+        # to the container if needed.
+        assert merged[0].language == "en"
+        assert merged[0].target_lang == "zh"
 
     def test_merge_bilingual_line_by_line_single_line(self):
         """Single-line text should have no translation."""
         sups = [Supervision(text="Hello", start=0.0, duration=2.0)]
         c = Caption(supervisions=sups)
-        merged = c.merge_bilingual(mode="line_by_line")
-        assert merged.supervisions[0].text == "Hello"
-        assert merged.supervisions[0].translation is None
+        merged = merge_bilingual(c.supervisions, c.source_format, mode="line_by_line")
+        assert merged[0].text == "Hello"
+        assert merged[0].translation is None
 
-    def test_merge_bilingual_alternating(self):
+    def test_merge_bilingual_same_timing_pairs(self):
         sups = [
             Supervision(text="Hello", start=0.0, duration=2.0),
             Supervision(text="你好", start=0.0, duration=2.0),
@@ -127,17 +133,20 @@ class TestCaptionBilingual:
             Supervision(text="世界", start=2.0, duration=2.0),
         ]
         c = Caption(supervisions=sups)
-        merged = c.merge_bilingual(mode="alternating", primary_language="en", secondary_language="zh")
-        assert len(merged.supervisions) == 2
-        assert merged.supervisions[0].text == "Hello"
-        assert merged.supervisions[0].translation == "你好"
-        assert merged.supervisions[1].text == "World"
-        assert merged.supervisions[1].translation == "世界"
+        merged = merge_bilingual(
+            c.supervisions, c.source_format,
+            mode="same_timing_pairs", primary_language="en", secondary_language="zh",
+        )
+        assert len(merged) == 2
+        assert merged[0].text == "Hello"
+        assert merged[0].translation == "你好"
+        assert merged[1].text == "World"
+        assert merged[1].translation == "世界"
 
     def test_merge_bilingual_invalid_mode(self):
         c = self._make_caption(["Hello"])
         with pytest.raises(ValueError, match="Unknown mode"):
-            c.merge_bilingual(mode="invalid")
+            merge_bilingual(c.supervisions, c.source_format, mode="invalid")
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +272,7 @@ class TestEndToEnd:
         c2 = Caption.from_string(json_bytes.decode("utf-8"), format="json")
         assert c2.supervisions[0].translation == "你好"
         assert c2.supervisions[1].translation == "世界"
-        assert c2.supervisions[0].is_bilingual is True
+        assert c2.supervisions[0].has_translation is True
 
     def test_bilingual_srt_round_trip(self):
         """Write bilingual SRT, re-read, and verify text contains both lines."""

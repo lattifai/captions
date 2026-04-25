@@ -14,7 +14,6 @@ from lattifai.caption.formats.pysubs2 import ASSFormat
 from lattifai.caption.standardize import CaptionStandardizer
 from lattifai.caption.supervision import AlignmentItem
 
-
 # ── Fixtures ──────────────────────────────────────────
 
 
@@ -103,7 +102,7 @@ Dialogue: 0,0:00:04.00,0:00:06.00,Default,Bob,0,0,0,,How are you?
 
     def test_read_basic_ass(self):
         """Read ASS content and verify supervisions."""
-        sups = ASSFormat.read(self.ASS_CONTENT)
+        sups = ASSFormat.parse(self.ASS_CONTENT).supervisions
         assert len(sups) == 2
         assert sups[0].text == "Hello world"
         assert sups[0].speaker == "Alice"
@@ -146,6 +145,54 @@ Dialogue: 0,0:00:04.00,0:00:06.00,Default,Bob,0,0,0,,How are you?
         output = caption.to_string(format="ass")
         assert "Hello world" in output
         assert "How are you?" in output
+
+
+class TestASSMalformedInputTolerance:
+    """Malformed ASS fields should be repaired narrowly enough to parse."""
+
+    BAD_TIMESTAMP_ASS = """\
+[Script Info]
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:-1.00,0:00:-1.00,Default,,0,0,0,,Broken line
+"""
+
+    BAD_COLOR_ASS = """\
+[Script Info]
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: 原文字幕,微软雅黑,14,&H00FFFFFF,&HF0000000,&H00H202020,&H32000000,0,0,0,0,100,100,0,0.00,1,2,1,2,5,5,15,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.00,原文字幕,,0,0,0,,Hello
+"""
+
+    def test_from_string_tolerates_component_negative_timestamps(self):
+        """ASS timestamps like ``0:00:-1.00`` should clamp to zero instead of aborting."""
+        caption = Caption.from_string(self.BAD_TIMESTAMP_ASS, format="ass")
+
+        assert len(caption.supervisions) == 1
+        assert caption.supervisions[0].text == "Broken line"
+        assert caption.supervisions[0].start == 0.0
+        assert caption.supervisions[0].duration == 0.0
+
+    def test_from_string_tolerates_extra_h_in_style_colors(self):
+        """ASS style colors like ``&H00H202020`` should normalize during parse fallback."""
+        caption = Caption.from_string(self.BAD_COLOR_ASS, format="ass")
+
+        assert caption.supervisions[0].text == "Hello"
+        assert (
+            caption.metadata["ass_styles"]["原文字幕"]["outlinecolor"] == "&H00202020"
+        )
 
 
 # ── Line Break Handling ───────────────────────────────
@@ -331,14 +378,14 @@ class TestASSStandardization:
             seg_text = seg.text or ""
             for line in seg_text.split("\n"):
                 # No line should end with a bare apostrophe from a contraction
-                assert not line.rstrip().endswith("\u2019"), (
-                    f"Contraction split mid-word: '{line}'"
-                )
+                assert not line.rstrip().endswith(
+                    "\u2019"
+                ), f"Contraction split mid-word: '{line}'"
                 # No line should start with orphaned contraction suffix
                 stripped = line.lstrip()
-                assert not re.match(r"^(re|t|s|ve|ll|d)\b", stripped) or len(stripped) > 10, (
-                    f"Orphaned contraction suffix: '{line}'"
-                )
+                assert (
+                    not re.match(r"^(re|t|s|ve|ll|d)\b", stripped) or len(stripped) > 10
+                ), f"Orphaned contraction suffix: '{line}'"
 
     def test_split_with_word_alignment_uses_timestamps(self):
         """When word alignment is available, timing should come from word timestamps."""
@@ -360,7 +407,9 @@ class TestASSStandardization:
         text = " ".join(w.symbol for w in words)  # 74 chars
         sups = [
             Supervision(
-                text=text, start=0.0, duration=5.5,
+                text=text,
+                start=0.0,
+                duration=5.5,
                 alignment={"word": words},
             )
         ]
@@ -392,7 +441,9 @@ class TestASSStandardization:
         text = " ".join(w.symbol for w in words)  # 37 chars
         sups = [
             Supervision(
-                text=text, start=0.0, duration=3.0,
+                text=text,
+                start=0.0,
+                duration=3.0,
                 alignment={"word": words},
             )
         ]
@@ -415,7 +466,9 @@ class TestASSStandardization:
     def test_split_preserves_speaker(self):
         """Split segments should preserve the original speaker."""
         long_text = "word " * 25  # 125 chars
-        sups = [Supervision(text=long_text.strip(), start=0.0, duration=8.0, speaker="Tao")]
+        sups = [
+            Supervision(text=long_text.strip(), start=0.0, duration=8.0, speaker="Tao")
+        ]
         standardizer = CaptionStandardizer(max_chars_per_line=42, max_lines=2)
         result = standardizer.process(sups)
         assert len(result) >= 2
@@ -500,7 +553,7 @@ Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello
 """
-        metadata = ASSFormat.extract_metadata(content)
+        metadata = ASSFormat.parse(content).format_metadata
         assert metadata["ass_info"]["Title"] == "Test"
         assert metadata["ass_info"]["PlayResX"] == "1920"
 
@@ -519,7 +572,7 @@ Style: Custom,Impact,30,&H00FF0000,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 1,0:00:01.00,0:00:03.00,Custom,,10,10,20,FadeIn,Styled text
 """
-        sups = ASSFormat.read(content)
+        sups = ASSFormat.parse(content).supervisions
         assert len(sups) == 1
         assert sups[0].custom["ass_style"] == "Custom"
         assert sups[0].custom["ass_layer"] == 1
@@ -571,7 +624,9 @@ class TestASSStyle:
         """Custom font_size should appear in Default style."""
         config = ASSConfig(font_size=24)
         content = ASSFormat.to_bytes(simple_sups, config=config).decode("utf-8")
-        style_lines = [l for l in content.splitlines() if l.startswith("Style: Default")]
+        style_lines = [
+            l for l in content.splitlines() if l.startswith("Style: Default")
+        ]
         assert len(style_lines) == 1
         fields = style_lines[0].split(",")
         assert fields[2].strip() == "24"  # fontsize is 3rd field

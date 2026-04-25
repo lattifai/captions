@@ -38,7 +38,7 @@ class TestSRV3Format:
         if not SRV3_FILE.exists():
             pytest.skip(f"Test file not found: {SRV3_FILE}")
 
-        supervisions = SRV3Format.read(SRV3_FILE)
+        supervisions = SRV3Format.parse(SRV3_FILE).supervisions
 
         # Should have multiple segments
         assert len(supervisions) > 0
@@ -62,7 +62,7 @@ class TestSRV3Format:
         if not SRV3_FILE.exists():
             pytest.skip(f"Test file not found: {SRV3_FILE}")
 
-        supervisions = SRV3Format.read(SRV3_FILE)
+        supervisions = SRV3Format.parse(SRV3_FILE).supervisions
         first = supervisions[0]
 
         # Check word alignment
@@ -81,7 +81,7 @@ class TestSRV3Format:
         if not SRV3_FILE.exists():
             pytest.skip(f"Test file not found: {SRV3_FILE}")
 
-        supervisions = SRV3Format.read(SRV3_FILE)
+        supervisions = SRV3Format.parse(SRV3_FILE).supervisions
 
         # Find segment with "didn't" (originally &#39;)
         found_apostrophe = False
@@ -104,7 +104,7 @@ class TestSRV3Format:
         </body>
         </timedtext>"""
 
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
 
         # Should only have 2 segments (empty one skipped)
         assert len(supervisions) == 2
@@ -116,7 +116,7 @@ class TestSRV3Format:
         if not SRV3_FILE.exists():
             pytest.skip(f"Test file not found: {SRV3_FILE}")
 
-        metadata = SRV3Format.extract_metadata(SRV3_FILE)
+        metadata = SRV3Format.parse(SRV3_FILE).format_metadata
 
         assert metadata.get("srv3_format") == "3"
 
@@ -129,7 +129,7 @@ class TestSRV3Format:
         </body>
         </timedtext>"""
 
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
 
         assert len(supervisions) == 1
         assert "Hello" in supervisions[0].text
@@ -203,20 +203,20 @@ class TestSRV3EdgeCases:
     def test_empty_content(self):
         """Test handling of empty content."""
         content = '<?xml version="1.0"?><timedtext format="3"><body></body></timedtext>'
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
         assert supervisions == []
 
     def test_invalid_xml(self):
         """Test handling of invalid XML."""
         # Content that looks like SRV3 but is malformed XML
         content = '<timedtext format="3"><body>not closed properly'
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
         assert supervisions == []
 
     def test_missing_body(self):
         """Test handling of missing body element."""
         content = '<?xml version="1.0"?><timedtext format="3"><head></head></timedtext>'
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
         assert supervisions == []
 
     def test_paragraph_without_duration(self):
@@ -229,7 +229,7 @@ class TestSRV3EdgeCases:
         </body>
         </timedtext>"""
 
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
 
         # Only paragraph with duration should be included
         assert len(supervisions) == 1
@@ -244,7 +244,7 @@ class TestSRV3EdgeCases:
         </body>
         </timedtext>"""
 
-        supervisions = SRV3Format.read(content)
+        supervisions = SRV3Format.parse(content).supervisions
 
         assert len(supervisions) == 1
         # Empty span should be skipped
@@ -366,7 +366,7 @@ class TestSRV3RoundTrip:
         content = SRV3Format.to_bytes(original_supervisions)
 
         # Read back
-        read_supervisions = SRV3Format.read(content.decode("utf-8"))
+        read_supervisions = SRV3Format.parse(content.decode("utf-8")).supervisions
 
         # Verify count
         assert len(read_supervisions) == 2
@@ -399,7 +399,7 @@ class TestSRV3RoundTrip:
         content = SRV3Format.to_bytes(original_supervisions, render=RenderConfig(word_level=True))
 
         # Read back
-        read_supervisions = SRV3Format.read(content.decode("utf-8"))
+        read_supervisions = SRV3Format.parse(content.decode("utf-8")).supervisions
 
         # Verify word-level alignment was preserved
         assert len(read_supervisions) == 1
@@ -419,13 +419,13 @@ class TestSRV3RoundTrip:
             pytest.skip(f"Test file not found: {SRV3_FILE}")
 
         # Read original
-        original = SRV3Format.read(SRV3_FILE)
+        original = SRV3Format.parse(SRV3_FILE).supervisions
 
         # Write to bytes with word-level
         content = SRV3Format.to_bytes(original, render=RenderConfig(word_level=True))
 
         # Read back
-        roundtrip = SRV3Format.read(content.decode("utf-8"))
+        roundtrip = SRV3Format.parse(content.decode("utf-8")).supervisions
 
         # Verify segment count preserved
         assert len(roundtrip) == len(original)

@@ -18,12 +18,12 @@ Metadata tags:
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 from ..config import LRCConfig
-from ..supervision import AlignmentItem, Pathlike, Supervision
+from ..supervision import AlignmentItem, Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 @register_format("lrc")
@@ -65,54 +65,20 @@ class LRCFormat(FormatHandler):
         return metadata
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> Dict[str, str]:
-        """Extract LRC metadata. Deprecated: use parse() instead."""
-        if cls.is_content(source):
-            return cls._extract_lrc_metadata(source)
-        try:
-            return cls._extract_lrc_metadata(Path(str(source)).read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
+        """Parse LRC (standard + enhanced) in a single pass.
 
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
-        """Parse LRC in a single pass: supervisions + metadata tags."""
-        from .base import ParseResult
-
-        if cls.is_content(source):
-            content = source
-        else:
-            content = Path(source).read_text(encoding="utf-8")
-
-        supervisions = cls.read(content, normalize_text=normalize_text, **kwargs)
-        metadata = cls._extract_lrc_metadata(content)
-        return ParseResult(supervisions=supervisions, format_metadata=metadata)
-
-    @classmethod
-    def read(
-        cls,
-        source,
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
-        """Read LRC file and return list of Supervision objects.
-
-        Parses both standard LRC and enhanced LRC with word-level timestamps.
-
-        Args:
-            source: File path or string content
-            normalize_text: Whether to normalize text (currently unused)
-            **kwargs: Additional options
-
-        Returns:
-            List of Supervision objects with timing and optional word alignment
+        Returns supervisions with optional word-level alignment plus metadata
+        tags (``lrc_ar`` / ``lrc_ti`` / ``lrc_al`` / ``lrc_by`` / ``lrc_offset``
+        / ``lrc_length`` / ``lrc_re`` / ``lrc_ve``) on
+        ``ParseResult.format_metadata``.
         """
         if cls.is_content(source):
             content = source
         else:
             content = Path(source).read_text(encoding="utf-8")
 
-        supervisions = []
+        supervisions: List[Supervision] = []
         # Match line timestamp: [mm:ss.xx] or [mm:ss.xxx]
         line_pattern = re.compile(r"\[(\d+):(\d+)\.(\d+)\](.+)")
         # Match word timestamp: <mm:ss.xx> or <mm:ss.xxx>
@@ -173,7 +139,10 @@ class LRCFormat(FormatHandler):
             else:
                 sup.duration = 5.0  # Default 5 seconds for last line
 
-        return supervisions
+        return ParseResult(
+            supervisions=supervisions,
+            format_metadata=cls._extract_lrc_metadata(content),
+        )
 
     @classmethod
     def write(

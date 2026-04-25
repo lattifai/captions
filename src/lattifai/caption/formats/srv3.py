@@ -39,7 +39,7 @@ from typing import Dict, List, Optional, Union
 from ..parsers.text_parser import normalize_text as normalize_text_fn
 from ..supervision import AlignmentItem, Pathlike, Supervision
 from . import register_format
-from .base import FormatHandler
+from .base import FormatHandler, ParseResult
 
 
 @register_format("srv3")
@@ -80,43 +80,10 @@ class SRV3Format(FormatHandler):
         return any(path_lower.endswith(ext) for ext in cls.extensions)
 
     @classmethod
-    def read(
-        cls,
-        source: Union[Pathlike, str],
-        normalize_text: bool = True,
-        **kwargs,
-    ) -> List[Supervision]:
-        """Read SRV3 format and extract supervisions with word-level alignment.
+    def _parse_supervisions(cls, body: ET.Element, normalize_text: bool) -> List[Supervision]:
+        """Extract supervisions from a pre-located SRV3 ``<body>`` element."""
+        supervisions: List[Supervision] = []
 
-        Args:
-            source: File path or XML string content
-            normalize_text: Whether to normalize text content
-
-        Returns:
-            List of Supervision objects with word-level alignment in the
-            'alignment' field when word timing is available.
-        """
-        # Load content
-        if cls.is_content(source):
-            content = source
-        else:
-            with open(source, "r", encoding="utf-8") as f:
-                content = f.read()
-
-        # Parse XML
-        try:
-            root = ET.fromstring(content)
-        except ET.ParseError:
-            return []
-
-        supervisions = []
-
-        # Find body element
-        body = root.find("body")
-        if body is None:
-            return []
-
-        # Process all <p> elements
         for p in body.findall("p"):
             # Skip empty/continuation lines (a="1")
             if p.get("a") == "1":
@@ -220,44 +187,28 @@ class SRV3Format(FormatHandler):
         return metadata
 
     @classmethod
-    def extract_metadata(cls, source: Union[Pathlike, str], **kwargs) -> dict:
-        """Extract SRV3 metadata. Deprecated: use parse() instead."""
-        if cls.is_content(source):
-            content = source
-        else:
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                return {}
-        try:
-            return cls._extract_srv3_metadata(ET.fromstring(content))
-        except ET.ParseError:
-            return {}
-
-    @classmethod
-    def parse(cls, source, normalize_text: bool = True, **kwargs) -> "ParseResult":
+    def parse(cls, source, normalize_text: bool = True, **kwargs) -> ParseResult:
         """Parse SRV3 in a single pass: supervisions + head metadata."""
-        from .base import ParseResult
-
-        supervisions = cls.read(source, normalize_text=normalize_text, **kwargs)
-
-        # Extract metadata from already-loaded content
         if cls.is_content(source):
             content = source
         else:
-            try:
-                with open(source, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                return ParseResult(supervisions=supervisions)
+            with open(source, "r", encoding="utf-8") as f:
+                content = f.read()
 
         try:
             root = ET.fromstring(content)
-            metadata = cls._extract_srv3_metadata(root)
         except ET.ParseError:
-            metadata = {}
+            return ParseResult(supervisions=[])
 
+        body = root.find("body")
+        if body is None:
+            return ParseResult(
+                supervisions=[],
+                format_metadata=cls._extract_srv3_metadata(root),
+            )
+
+        supervisions = cls._parse_supervisions(body, normalize_text=normalize_text)
+        metadata = cls._extract_srv3_metadata(root)
         return ParseResult(supervisions=supervisions, format_metadata=metadata)
 
     @classmethod

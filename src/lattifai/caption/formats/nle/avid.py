@@ -17,7 +17,7 @@ from typing import List, Optional, Union
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter, render_bilingual_text, strip_standard_kwargs
+from ..base import FormatReader, FormatWriter, ParseResult, render_bilingual_text, strip_standard_kwargs
 
 
 class FrameRate(Enum):
@@ -395,11 +395,11 @@ class AvidDSReaderHandler(FormatReader):
         return False
 
     @classmethod
-    def read(cls, source: Union[Pathlike, str], normalize_text: bool = True, **kwargs) -> List[Supervision]:
+    def parse(cls, source: Union[Pathlike, str], normalize_text: bool = True, **kwargs) -> ParseResult:
         if isinstance(source, (str, Path)) and not cls.is_content(source):
             with open(source, "r", encoding="utf-8") as f:
                 content = f.read()
         else:
             content = str(source)
 
-        return AvidDSReader.read(content, normalize_text=normalize_text)
+        return ParseResult(supervisions=AvidDSReader.read(content, normalize_text=normalize_text))

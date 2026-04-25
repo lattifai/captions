@@ -277,19 +277,19 @@ capability is going.
 
     def test_speaker_change_extracted(self):
         """>> marker is extracted as speaker='>>' from text."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         speaker_sups = [s for s in sups if s.speaker == ">>"]
         assert len(speaker_sups) >= 2
 
     def test_speaker_change_stripped_from_text(self):
         """>> marker is not present in supervision text."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         for s in sups:
             assert ">>" not in (s.text or ""), f">> found in text: {s.text!r}"
 
     def test_speaker_change_not_in_word_alignment(self):
         """>> is not in any word alignment symbol."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         for s in sups:
             if s.alignment and "word" in s.alignment:
                 for word in s.alignment["word"]:
@@ -297,19 +297,19 @@ capability is going.
 
     def test_non_speaker_segments_have_none_speaker(self):
         """Segments without >> have speaker=None."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         non_speaker = [s for s in sups if s.speaker is None]
         assert len(non_speaker) >= 1
 
     def test_first_segment_no_speaker(self):
         """First segment (no >>) has speaker=None."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         assert sups[0].speaker is None
         assert "diffusion" in sups[0].text
 
     def test_speaker_change_text_content(self):
         """Text after >> stripping is correct."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         speaker_sups = [s for s in sups if s.speaker == ">>"]
         # At least one should contain "It's"
         texts = [s.text for s in speaker_sups]
@@ -317,7 +317,7 @@ capability is going.
 
     def test_speaker_change_roundtrip_youtube_vtt(self):
         """Write back to YouTube VTT preserves >> markers."""
-        sups = VTTFormat.read(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE)
+        sups = VTTFormat.parse(self.YOUTUBE_VTT_WITH_SPEAKER_CHANGE).supervisions
         output = VTTFormat.to_bytes(
             sups,
             render=RenderConfig(word_level=True),

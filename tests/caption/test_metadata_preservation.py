@@ -32,7 +32,7 @@ Dialogue: 1,0:00:03.50,0:00:06.00,Custom,,10,10,20,Karaoke,Styled text
 
     def test_ass_read_preserves_global_metadata(self):
         """Test that ASS reader extracts Script Info and Styles."""
-        metadata = ASSFormat.extract_metadata(self.ASS_CONTENT)
+        metadata = ASSFormat.parse(self.ASS_CONTENT).format_metadata
 
         assert "ass_info" in metadata
         assert metadata["ass_info"]["Title"] == "Test Subtitle"
@@ -47,7 +47,7 @@ Dialogue: 1,0:00:03.50,0:00:06.00,Custom,,10,10,20,Karaoke,Styled text
 
     def test_ass_read_preserves_event_custom(self):
         """Test that ASS reader preserves event attributes in Supervision.custom."""
-        supervisions = ASSFormat.read(self.ASS_CONTENT)
+        supervisions = ASSFormat.parse(self.ASS_CONTENT).supervisions
 
         assert len(supervisions) == 2
 
@@ -127,8 +127,8 @@ Style: Default,Arial,20
 Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: Marked=0,0:00:01.00,0:00:03.00,Default,NTP,0,0,0,,Hello
 """
-        supervisions = SSAFormat.read(ssa_content)
-        metadata = SSAFormat.extract_metadata(ssa_content)
+        supervisions = SSAFormat.parse(ssa_content).supervisions
+        metadata = SSAFormat.parse(ssa_content).format_metadata
 
         assert len(supervisions) == 1
         assert "ass_info" in metadata or "ass_styles" in metadata
@@ -197,7 +197,7 @@ class TestLRCMetadataPreservation:
 
     def test_lrc_read_extracts_metadata(self):
         """Test that LRC reader extracts metadata tags."""
-        metadata = LRCFormat.extract_metadata(self.LRC_CONTENT)
+        metadata = LRCFormat.parse(self.LRC_CONTENT).format_metadata
 
         assert metadata["lrc_ar"] == "Test Artist"
         assert metadata["lrc_ti"] == "Test Song"
@@ -235,7 +235,7 @@ class TestTTMLMetadataPreservation:
 
     def test_ttml_read_extracts_language(self):
         """Test that TTML reader extracts language."""
-        metadata = TTMLFormat.extract_metadata(self.TTML_CONTENT)
+        metadata = TTMLFormat.parse(self.TTML_CONTENT).format_metadata
 
         assert metadata.get("ttml_language") == "en"
 
@@ -265,7 +265,7 @@ item []:
                 xmax = 3
                 text = "Hello"
 """
-        supervisions = TextGridFormat.read(textgrid_content)
+        supervisions = TextGridFormat.parse(textgrid_content).supervisions
 
         assert len(supervisions) == 1
         assert supervisions[0].custom["textgrid_tier"] == "utterances"
@@ -294,7 +294,7 @@ item []:
         xmax = 10.5
         intervals: size = 0
 """
-        metadata = TextGridFormat.extract_metadata(textgrid_content)
+        metadata = TextGridFormat.parse(textgrid_content).format_metadata
 
         assert metadata["textgrid_xmin"] == 0.0
         assert metadata["textgrid_xmax"] == 10.5

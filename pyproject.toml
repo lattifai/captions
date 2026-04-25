@@ -37,6 +37,7 @@ dependencies = [
     "pysubs2>=1.6.0",
     "praatio>=6.0.0",
     "tgt>=1.4.0",
+    "lingua-language-detector>=2.0",
 ]
 
 [project.optional-dependencies]

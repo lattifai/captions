@@ -20,7 +20,7 @@ through ``extract_alignment_supervisions`` itself:
 from typing import Iterable, List
 
 from lattifai.caption import Caption
-from lattifai.caption.caption import (
+from lattifai.caption.bilingual import (
     _ALIGNMENT_CJK_DISTINCT,
     _ALIGNMENT_OVERRIDE_RE,
     _ALIGNMENT_SCRIPT_BUCKETS,
@@ -244,7 +244,7 @@ def audit_extract_products(
                 # of the source, not a sign of mis-extraction. The
                 # >10x escape hatch above still fires on truly extreme
                 # imbalance regardless of mode.
-                from lattifai.caption.caption import BilingualMode
+                from lattifai.caption.bilingual import BilingualMode
                 if cap.detect_bilingual_mode() != BilingualMode.STYLE_GROUPED:
                     issues.append("bilingual: row-count skew (>2x)")
 

@@ -1,9 +1,9 @@
 """Bilingual layout detection, extraction, and merging.
 
 This module owns the entire "is this caption bilingual, and if so how"
-question. ``Caption`` delegates to it for ``detect_bilingual_mode``,
-``extract_alignment_supervisions``, ``_merge_line_by_line``, and
-``_merge_alternating``.
+question. ``Caption`` delegates to it for ``detect_bilingual_mode`` and
+``extract_alignment_supervisions``; ``Caption.merge_bilingual`` calls
+``merge_line_by_line`` / ``merge_alternating`` directly.
 
 Functions here take primitive inputs (a list of ``Supervision`` and a
 ``source_format`` string) so they can be tested without instantiating a

@@ -9,8 +9,8 @@ from .bilingual import (
     BilingualMode,
     detect_bilingual_mode as _detect_bilingual_mode,
     extract_alignment_supervisions as _extract_alignment_supervisions,
-    merge_alternating as _merge_alternating_impl,
-    merge_line_by_line as _merge_line_by_line_impl,
+    merge_alternating,
+    merge_line_by_line,
 )
 
 if TYPE_CHECKING:
@@ -220,9 +220,9 @@ class Caption:
             mode = self.detect_bilingual_mode().value
 
         if mode == "line_by_line":
-            new_sups = self._merge_line_by_line(primary_language, secondary_language)
+            new_sups = merge_line_by_line(self.supervisions, primary_language, secondary_language)
         elif mode in ("same_timing_pairs", "style_grouped"):
-            new_sups = self._merge_alternating(primary_language, secondary_language)
+            new_sups = merge_alternating(self.supervisions, primary_language, secondary_language)
         elif mode == "none":
             # Monolingual: no merge needed, but stamp align_index so
             # extract_alignment_supervisions can still drive write-back.
@@ -434,18 +434,6 @@ class Caption:
                     sups[idx].duration = 0.0
 
             i = j
-
-    def _merge_line_by_line(
-        self, primary_language: Optional[str], secondary_language: Optional[str]
-    ) -> List[Supervision]:
-        """Thin wrapper around :func:`bilingual.merge_line_by_line`."""
-        return _merge_line_by_line_impl(self.supervisions, primary_language, secondary_language)
-
-    def _merge_alternating(
-        self, primary_language: Optional[str], secondary_language: Optional[str]
-    ) -> List[Supervision]:
-        """Thin wrapper around :func:`bilingual.merge_alternating`."""
-        return _merge_alternating_impl(self.supervisions, primary_language, secondary_language)
 
     def shift_time(self, seconds: float) -> "Caption":
         """

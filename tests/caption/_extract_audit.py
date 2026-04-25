@@ -237,7 +237,16 @@ def audit_extract_products(
             if ratio > 10.0:
                 issues.append("bilingual: extreme row-count skew (>10x)")
             elif ratio > 2.0:
-                issues.append("bilingual: row-count skew (>2x)")
+                # STYLE_GROUPED layouts legitimately mix dominant
+                # dialogue with sparser secondary tracks (Japanese OP/ED
+                # lyrics paired with Chinese dialogue, English songs over
+                # Chinese subtitles, etc.). Skew is a structural feature
+                # of the source, not a sign of mis-extraction. The
+                # >10x escape hatch above still fires on truly extreme
+                # imbalance regardless of mode.
+                from lattifai.caption.caption import BilingualMode
+                if cap.detect_bilingual_mode() != BilingualMode.STYLE_GROUPED:
+                    issues.append("bilingual: row-count skew (>2x)")
 
     return sorted(set(issues))
 

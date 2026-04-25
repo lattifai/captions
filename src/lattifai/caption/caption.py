@@ -507,7 +507,7 @@ class Caption:
         ``self`` is not mutated.
         """
         from .parsers.language_detector import detect_language, detect_script
-        from .parsers.text_parser import _BRANDING_KEYWORDS, _STAFF_ROLES, classify_line_type
+        from .parsers.text_parser import _BRANDING_KEYWORDS, _STAFF_ROLES, cjk_ratio, classify_line_type
 
         def _strip(text: str) -> str:
             # Strip ASS override tags, then collapse embedded whitespace
@@ -668,61 +668,146 @@ class Caption:
                 sup.language = p_lang
             return primary, []
 
-        i = 0
+        if mode == BilingualMode.STYLE_GROUPED:
+            # ASS files where the two languages are partitioned by
+            # ``ass_style`` rather than by adjacent timestamp. The
+            # high-CJK style supplies primary rows and the low-CJK
+            # style supplies the secondary side; minor "decoration"
+            # styles (op/bgm/ed/LOGO/lyric…) are assigned to the side
+            # whose average CJK ratio is closest to the row's own —
+            # that handles the common case of OP/ED themes that ride
+            # in the "wrong" language relative to the body dialogue
+            # (Japanese theme song over a Chinese-translated film,
+            # for instance).
+            #
+            # Per-side language voting uses **only** the dominant
+            # style on each side. Mixing in minor styles' text would
+            # let an OP block of Japanese lyrics flip the primary's
+            # vote from ``zh`` to ``ja`` even though 1377 of 1462
+            # primary rows are clearly Chinese — and that misvote
+            # would then trip the same-script rollback in Layer 2 and
+            # silently degrade a real bilingual file to mono.
+            #
+            # Each row keeps its own ``align_index`` (F2 dual-row):
+            # primary and secondary are independent runs over the
+            # source list. The Layer 1-3 fallbacks below are skipped:
+            # STYLE_GROUPED's grouping is structural (already grounded
+            # in ass_style), not a heuristic that needs rolling back.
+            # The one degenerate case worth catching — high_style and
+            # low_style turn out to share an alignment script — is
+            # handled inline before assigning rows.
+            style_cjk: dict[str, list[float]] = {}
+            for sup in self.supervisions:
+                style = (sup.custom or {}).get("ass_style", "")
+                if style and sup.text:
+                    style_cjk.setdefault(style, []).append(cjk_ratio(sup.text))
+            avg_cjk = {s: sum(r) / len(r) for s, r in style_cjk.items() if r}
+            high_style = max(avg_cjk, key=avg_cjk.get) if avg_cjk else None
+            low_style = min(avg_cjk, key=avg_cjk.get) if avg_cjk else None
 
-        while i < len(self.supervisions):
-            sup = self.supervisions[i]
-            step = 1
-            raw_primary = sup.text or ""
-            raw_secondary = ""
-            secondary_index = i
+            high_texts = [s.text for s in self.supervisions
+                          if (s.custom or {}).get("ass_style") == high_style and s.text]
+            low_texts = [s.text for s in self.supervisions
+                         if (s.custom or {}).get("ass_style") == low_style and s.text]
+            p_lang = _vote_lang(high_texts)
+            s_lang = _vote_lang(low_texts)
 
-            if mode == BilingualMode.LINE_BY_LINE:
-                lines = raw_primary.split("\n")
-                if len(lines) >= 2:
-                    raw_primary = lines[0]
-                    raw_secondary = lines[1]
-            elif (
-                mode in (BilingualMode.SAME_TIMING_PAIRS, BilingualMode.STYLE_GROUPED)
-                and i + 1 < len(self.supervisions)
-            ):
-                next_sup = self.supervisions[i + 1]
-                if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
-                    raw_secondary = next_sup.text or ""
-                    secondary_index = i + 1
-                    step = 2
+            if not s_lang or _same_alignment_script(p_lang, s_lang):
+                # Style split exists but the two sides resolve to the
+                # same alignment script — treat as mono and fall through
+                # to the structured-mono main loop below.
+                pass
+            else:
+                high_avg = avg_cjk.get(high_style, 1.0)
+                low_avg = avg_cjk.get(low_style, 0.0)
+                for i, sup in enumerate(self.supervisions):
+                    text = _strip(sup.text)
+                    if not text or not _is_alignable(sup, text):
+                        continue
+                    style = (sup.custom or {}).get("ass_style", "")
+                    side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))
+                    side.align_index = i
+                    side.alignment_break_before = break_before[i]
+                    if style == low_style:
+                        side.language = s_lang
+                        secondary.append(side)
+                    elif style == high_style:
+                        side.language = p_lang
+                        primary.append(side)
+                    else:
+                        # Minor style: route by per-row CJK distance.
+                        row_cjk = cjk_ratio(text)
+                        if abs(row_cjk - high_avg) <= abs(row_cjk - low_avg):
+                            side.language = p_lang
+                            primary.append(side)
+                        else:
+                            side.language = s_lang
+                            secondary.append(side)
+                return primary, secondary
 
-            t1 = _strip(raw_primary)
-            t2 = _strip(raw_secondary)
-            # Primary must be present and alignable — a cue whose top
-            # line boils down to pure override tags (``{\a6}``) has no
-            # content to align and its "secondary" half has no 1:1
-            # counterpart either, so the whole cue is dropped. Secondary
-            # is optional (mono rows legitimately have no t2), but when
-            # present it must also pass the dialogue classifier. Pre-fix
-            # we only probed ``probe = t1 or t2``, which let disclaimer
-            # pairs like ``视频资料来自网络 版权归BBC所有\n仅供学习交流使用…``
-            # slip through (t1 escapes classify_line_type; t2 is caught
-            # as branding).
-            if not t1 or not _is_alignable(sup, t1):
+            # Same-script fallback path: rebuild primary as a flat mono
+            # extraction over all rows (matches the structured-mono main
+            # loop's behaviour for source_format == 'ass').
+            primary, secondary = [], []
+            primary_texts, secondary_texts = [], []
+            mode = BilingualMode.NONE  # downstream loop becomes mono.
+
+        if mode != BilingualMode.STYLE_GROUPED:
+            i = 0
+
+            while i < len(self.supervisions):
+                sup = self.supervisions[i]
+                step = 1
+                raw_primary = sup.text or ""
+                raw_secondary = ""
+                secondary_index = i
+
+                if mode == BilingualMode.LINE_BY_LINE:
+                    lines = raw_primary.split("\n")
+                    if len(lines) >= 2:
+                        raw_primary = lines[0]
+                        raw_secondary = lines[1]
+                elif (
+                    mode == BilingualMode.SAME_TIMING_PAIRS
+                    and i + 1 < len(self.supervisions)
+                ):
+                    next_sup = self.supervisions[i + 1]
+                    if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
+                        raw_secondary = next_sup.text or ""
+                        secondary_index = i + 1
+                        step = 2
+
+                t1 = _strip(raw_primary)
+                t2 = _strip(raw_secondary)
+                # Primary must be present and alignable — a cue whose top
+                # line boils down to pure override tags (``{\a6}``) has no
+                # content to align and its "secondary" half has no 1:1
+                # counterpart either, so the whole cue is dropped. Secondary
+                # is optional (mono rows legitimately have no t2), but when
+                # present it must also pass the dialogue classifier. Pre-fix
+                # we only probed ``probe = t1 or t2``, which let disclaimer
+                # pairs like ``视频资料来自网络 版权归BBC所有\n仅供学习交流使用…``
+                # slip through (t1 escapes classify_line_type; t2 is caught
+                # as branding).
+                if not t1 or not _is_alignable(sup, t1):
+                    i += step
+                    continue
+                if t2 and not _is_alignable(sup, t2):
+                    i += step
+                    continue
+                base_custom = dict(sup.custom or {})
+                side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
+                side.align_index = i
+                side.alignment_break_before = break_before[i]
+                primary.append(side)
+                primary_texts.append(t1)
+                if t2:
+                    side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
+                    side.align_index = secondary_index
+                    side.alignment_break_before = break_before[secondary_index]
+                    secondary.append(side)
+                    secondary_texts.append(t2)
                 i += step
-                continue
-            if t2 and not _is_alignable(sup, t2):
-                i += step
-                continue
-            base_custom = dict(sup.custom or {})
-            side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
-            side.align_index = i
-            side.alignment_break_before = break_before[i]
-            primary.append(side)
-            primary_texts.append(t1)
-            if t2:
-                side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
-                side.align_index = secondary_index
-                side.alignment_break_before = break_before[secondary_index]
-                secondary.append(side)
-                secondary_texts.append(t2)
-            i += step
 
         # ---- Layer 1: aggregate voting ----
         p_lang = _vote_lang(primary_texts)

@@ -1,0 +1,13 @@
+# Force LF line endings across platforms.
+#
+# Without this, Windows checkouts with ``core.autocrlf=true`` rewrite caption
+# fixtures to CRLF, which then propagates through line-terminator detection
+# (``Caption.metadata['line_terminator']``) and breaks tests that assert on
+# specific byte sequences (e.g. ``"1\n" in srt_content``).
+#
+# Test fixtures must be byte-identical across platforms — caption format
+# parsers care about exact bytes, so LF normalization is mandatory.
+tests/data/** text eol=lf
+
+# Source code follows the same convention.
+*.py text eol=lf

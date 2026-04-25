@@ -472,13 +472,29 @@ class Caption:
         except Exception as exc:
             raise CaptionParseError(f"Failed to parse {format} content: {exc}") from exc
 
+        metadata = dict(result.format_metadata) if result.format_metadata else {}
+
+        # Detect dominant line terminator so writers can preserve the source
+        # convention (CRLF for Windows-authored files, LF otherwise). Without
+        # this, ``from_string(bytes_with_crlf)`` would lose the metadata and
+        # the next ``to_bytes`` would silently flip back to LF — breaking
+        # byte-level roundtrip stability.
+        if content and "line_terminator" not in metadata:
+            crlf = content.count("\r\n")
+            total_lf = content.count("\n")
+            bare_lf = total_lf - crlf
+            if crlf > bare_lf and crlf > 0:
+                metadata["line_terminator"] = "\r\n"
+            elif bare_lf > 0:
+                metadata["line_terminator"] = "\n"
+
         return cls(
             supervisions=result.supervisions,
             language=result.language,
             target_lang=result.target_lang,
             kind=result.kind,
             source_format=format,
-            metadata=result.format_metadata,
+            metadata=metadata,
         )
 
     def to_bytes(
@@ -567,18 +583,9 @@ class Caption:
         if detected_encoding and "encoding" not in caption.metadata:
             caption.metadata["encoding"] = detected_encoding
 
-        # Detect dominant line terminator so writers can preserve Windows-style
-        # (CRLF) files (common in ASS output from Arctime/Aegisub on Windows).
-        # Without this, pysubs2's ``\n`` output silently flips CRLF to LF and
-        # turns a byte-faithful roundtrip into a full-file diff.
-        if content and "line_terminator" not in caption.metadata:
-            crlf = content.count("\r\n")
-            total_lf = content.count("\n")
-            bare_lf = total_lf - crlf
-            if crlf > bare_lf and crlf > 0:
-                caption.metadata["line_terminator"] = "\r\n"
-            elif bare_lf > 0:
-                caption.metadata["line_terminator"] = "\n"
+        # ``line_terminator`` is now detected inside ``from_string`` so the
+        # CRLF/LF round-trip works the same way regardless of whether the
+        # caller went through a file path or fed in a string directly.
 
         # P2-3: detect language from filename when not already set by the reader.
         # Patterns like ".简体中文&英文.ass" / ".CN&EN.srt" / ".双语.ass" are

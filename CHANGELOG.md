@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.8 - 2026-04-25
+
+### Fixes (Windows)
+- **SBV reader**: normalize CRLF → LF before splitting cue blocks. Previously the `\n\n` blank-line delimiter never matched on Windows-authored files (`write_text` writes CRLF), so the entire file collapsed into a single supervision
+- **`Caption.from_string`**: detect dominant `line_terminator` (CRLF / LF) on string input, mirroring what `Caption.read` does for file input. Without this, `read → to_bytes → from_string → to_bytes` produced different bytes on the second pass — first round preserved CRLF from the source file, second round defaulted to LF
+- **`.gitattributes`**: force LF for all `tests/data/**` fixtures and source files. Windows checkouts with `core.autocrlf=true` were silently rewriting fixtures to CRLF, propagating through `line_terminator` detection and breaking byte-level assertions
+
 ## 0.4.7 - 2026-04-25
 
 ### Features

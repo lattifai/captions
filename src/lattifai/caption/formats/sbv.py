@@ -60,6 +60,11 @@ class SBVFormat(FormatHandler):
         else:
             content = Path(source).read_text(encoding="utf-8")
 
+        # Normalize line endings so the cue-block split works regardless of OS
+        # (Windows ``write_text`` produces ``\r\n`` and CRLF files would not
+        # match the ``\n\n`` blank-line delimiter otherwise).
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+
         supervisions: List[Supervision] = []
         entries = content.strip().split("\n\n")
 

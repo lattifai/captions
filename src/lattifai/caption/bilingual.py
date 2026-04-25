@@ -12,7 +12,7 @@ Functions here take primitive inputs (a list of ``Supervision`` and a
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional, Tuple
 
@@ -50,42 +50,15 @@ class BilingualMode(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Plan structures consumed by ``Caption.apply_alignment``.
+# Plan structure consumed by ``Caption.apply_alignment``.
 #
 # ``extract_alignment_supervisions`` returns extracted ``primary`` and
-# ``secondary`` supervisions plus a frozen ``AlignmentPlan`` that captures
-# every piece of source-level topology ``apply_alignment`` needs:
-#
-#   - ``source_indices_primary`` / ``source_indices_secondary``: where each
-#     extracted row writes back, replacing the old per-row ``align_index``
-#     stamped into ``Supervision.custom``.
-#   - ``interp_runs``: pre-computed runs of zero-duration dialogue rows
-#     that ``apply_alignment`` should re-time by linear interpolation,
-#     each with its left/right anchor (the nearest timed source row on
-#     either side, blocked by ``break_indices``). Replaces the old
-#     ``classify_line_type`` + prev/next-anchor scan inside
-#     ``apply_alignment``.
-#   - ``break_indices``: source row indices whose preceding gap exceeds
-#     the adaptive threshold; preserved here for audit/debug. The plan's
-#     ``interp_runs`` already factor break boundaries in, so executors
-#     only need this set for diagnostics.
+# ``secondary`` supervisions plus a frozen ``AlignmentPlan`` whose
+# ``source_indices_primary[i]`` / ``source_indices_secondary[i]`` tell
+# ``apply_alignment`` which row to write each aligned result back to.
+# F1 inline captions share the same source index across the two sides;
+# F2 dual-row uses each row's original position.
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class InterpRun:
-    """A run of zero-duration dialogue source rows to be re-timed.
-
-    Anchors are 0-based indices into the original ``supervisions`` list
-    (the ``Caption.supervisions`` that ``extract_alignment_supervisions``
-    was called on). ``apply_alignment`` reads the anchor row's *post-
-    write-back* timing, which is correct because the write-back step
-    runs before the interpolation step.
-    """
-
-    rows: Tuple[int, ...]
-    left_anchor: Optional[int]
-    right_anchor: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -100,8 +73,6 @@ class AlignmentPlan:
 
     source_indices_primary: Tuple[int, ...] = ()
     source_indices_secondary: Tuple[int, ...] = ()
-    interp_runs: Tuple[InterpRun, ...] = ()
-    break_indices: frozenset = field(default_factory=frozenset)
 
 
 # ---------------------------------------------------------------------------
@@ -273,125 +244,6 @@ def _is_simple_mono(supervisions: List[Supervision], source_format: Optional[str
     return True
 
 
-def _compute_break_before(supervisions: List[Supervision]) -> List[bool]:
-    """Mark source rows whose preceding gap exceeds the adaptive threshold.
-
-    The adaptive threshold is ``max(2.0, min(5.0, 3 × median_positive_gap))``,
-    clamped to the 2-5 s window that accommodates both tight dialogue and
-    typical scene/commercial cuts. Same-timing neighbours (F2 candidates)
-    are never marked as boundaries — their gap is ~0 by definition and F2
-    must stay contiguous. The output is per-source-row and feeds into
-    :func:`_compute_interp_runs` and :class:`AlignmentPlan.break_indices`
-    so that ``apply_alignment`` does not interpolate across the boundary.
-    """
-    n = len(supervisions)
-    if n < 2:
-        return [False] * n
-    gaps: List[float] = []
-    for j in range(1, n):
-        prev_end = (supervisions[j - 1].start or 0.0) + (supervisions[j - 1].duration or 0.0)
-        g = (supervisions[j].start or 0.0) - prev_end
-        if g > 0:
-            gaps.append(g)
-    if not gaps:
-        return [False] * n
-    med = sorted(gaps)[len(gaps) // 2]
-    threshold = max(2.0, min(5.0, 3.0 * med))
-    out = [False] * n
-    for j in range(1, n):
-        # Same-timing pairs are the F2 atomic unit; never split them.
-        if abs((supervisions[j].start or 0.0) - (supervisions[j - 1].start or 0.0)) < 0.01:
-            continue
-        prev_end = (supervisions[j - 1].start or 0.0) + (supervisions[j - 1].duration or 0.0)
-        g = (supervisions[j].start or 0.0) - prev_end
-        if g >= threshold:
-            out[j] = True
-    return out
-
-
-def _compute_interp_runs(
-    supervisions: List[Supervision],
-    break_before: List[bool],
-) -> Tuple[InterpRun, ...]:
-    """Pre-compute zero-duration dialogue runs for ``apply_alignment``.
-
-    Mirrors the old ``classify_line_type`` + prev/next-anchor scan that
-    used to live inside ``Caption.apply_alignment``, but does it once at
-    extract time so the executor doesn't have to re-classify rows.
-
-    Algorithm:
-
-    1. ``timed[i] = (sup.duration > 0.01)`` — rows that already carry
-       timing (or will be written back by the aligner; ``_is_alignable``
-       guarantees that all extracted rows have ``duration > 0.01``, so
-       both populations collapse to this single check).
-    2. ``needs_interp[i]`` — non-timed dialogue rows: ``classify_line_type``
-       returns None and ``line_type != "drawing"``.
-    3. Walk ``supervisions`` from left to right and right to left to find
-       the nearest timed row on each side, blocked by ``break_before``
-       (the adaptive-gap segment boundary).
-    4. Group consecutive ``needs_interp`` rows into runs (split on
-       ``break_before``); each run carries its source-level anchors.
-    """
-    from .parsers.text_parser import classify_line_type
-
-    n = len(supervisions)
-    if n == 0:
-        return ()
-
-    timed = [False] * n
-    needs_interp = [False] * n
-    for i, sup in enumerate(supervisions):
-        if sup.duration is not None and sup.duration > 0.01:
-            timed[i] = True
-            continue
-        custom = sup.custom or {}
-        if custom.get("line_type") == "drawing":
-            continue
-        if classify_line_type(
-            sup.text or "",
-            start=sup.start,
-            ass_raw_text=custom.get("ass_raw_text"),
-            duration=sup.duration,
-        ) is None:
-            needs_interp[i] = True
-
-    prev_timed = [-1] * n
-    last_timed = -1
-    for i in range(n):
-        if break_before[i]:
-            last_timed = -1
-        prev_timed[i] = last_timed
-        if timed[i]:
-            last_timed = i
-
-    next_timed = [-1] * n
-    last_timed = -1
-    for i in range(n - 1, -1, -1):
-        next_timed[i] = last_timed
-        if timed[i]:
-            last_timed = i
-        if break_before[i]:
-            last_timed = -1
-
-    runs: List[InterpRun] = []
-    i = 0
-    while i < n:
-        if not needs_interp[i]:
-            i += 1
-            continue
-        j = i + 1
-        while j < n and needs_interp[j] and not break_before[j]:
-            j += 1
-        left = prev_timed[i] if prev_timed[i] != -1 else None
-        right = next_timed[j - 1] if next_timed[j - 1] != -1 else None
-        if left is not None or right is not None:
-            runs.append(InterpRun(rows=tuple(range(i, j)), left_anchor=left, right_anchor=right))
-        i = j
-
-    return tuple(runs)
-
-
 # ---------------------------------------------------------------------------
 # Public API: detect / extract / merge.
 # ---------------------------------------------------------------------------
@@ -546,21 +398,11 @@ def extract_alignment_supervisions(
         source order. ``secondary_sups`` holds the other language for
         bilingual captions; ``[]`` for mono.
 
-        ``plan`` is an :class:`AlignmentPlan` that captures every piece
-        of source-level topology ``apply_alignment`` needs to write
-        back results without re-classifying rows or re-walking
-        anchors:
-
-          - ``source_indices_primary[i]`` / ``source_indices_secondary[i]``:
-            0-based index back into ``supervisions`` for ``primary[i]``
-            / ``secondary[i]``. F1 inline shares one index across both
-            sides; F2 dual-row uses each row's original position.
-          - ``interp_runs``: pre-computed runs of zero-duration dialogue
-            rows that ``apply_alignment`` should re-time by linear
-            interpolation, each with its left/right anchor (already
-            split on the adaptive-gap break boundaries).
-          - ``break_indices``: source-row indices whose preceding gap
-            exceeds the adaptive threshold; preserved for audit/debug.
+        ``plan`` is an :class:`AlignmentPlan` whose ``source_indices_primary[i]``
+        / ``source_indices_secondary[i]`` give the 0-based source-row index
+        back into ``supervisions`` for ``primary[i]`` / ``secondary[i]``.
+        F1 inline shares one index across both sides; F2 dual-row uses
+        each row's original position.
 
     Each returned ``Supervision`` is a ``fastcopy`` carrying:
       - ``text``: plaintext in that language (ASS override tags stripped)
@@ -584,10 +426,6 @@ def extract_alignment_supervisions(
     """
     from .parsers.text_parser import cjk_ratio
 
-    break_before = _compute_break_before(supervisions)
-    interp_runs = _compute_interp_runs(supervisions, break_before)
-    break_indices = frozenset(i for i, b in enumerate(break_before) if b)
-
     def _make_plan(
         primary_idx: List[int],
         secondary_idx: List[int],
@@ -595,8 +433,6 @@ def extract_alignment_supervisions(
         return AlignmentPlan(
             source_indices_primary=tuple(primary_idx),
             source_indices_secondary=tuple(secondary_idx),
-            interp_runs=interp_runs,
-            break_indices=break_indices,
         )
 
     # Single decision point: ask once whether the file shows a bilingual

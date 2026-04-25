@@ -311,22 +311,18 @@ class Caption:
         plan :
             The :class:`AlignmentPlan` produced by
             ``extract_alignment_supervisions``. Carries the source-row
-            indices for both sides plus pre-computed interpolation runs
-            for zero-duration dialogue rows that the aligner never saw.
+            indices for both sides.
 
         Behaviour
         ---------
-        Two passes:
-
-        1. **index-matched write-back** — copy timing and word alignment
-           from each aligned row onto ``self.supervisions[plan.source_indices_*[i]]``.
-           Out-of-range indices are silently skipped (defensive).
-
-        2. **plan-driven interpolation** — for each ``InterpRun`` in
-           ``plan.interp_runs``, distribute the run's zero-duration
-           dialogue rows uniformly between the run's left and right
-           anchors. Anchors are read from ``self.supervisions`` *after*
-           the write-back pass, so they carry the freshly aligned timing.
+        Pure index-matched write-back — copy timing and word alignment
+        from each aligned row onto
+        ``self.supervisions[plan.source_indices_*[i]]``. Out-of-range
+        indices are silently skipped (defensive). Source rows whose
+        index is never written are left untouched; rows the aligner
+        never saw (zero-duration / non-dialogue) keep their original
+        timing — upstream callers that need timing for those rows
+        must decide how to handle them.
         """
         sups = self.supervisions
         n = len(sups)
@@ -339,38 +335,13 @@ class Caption:
             if aligned_sup.alignment is not None:
                 target.alignment = {"word": aligned_sup.alignment.get("word")}
 
-        def _apply_side(aligned_side: List[Supervision], indices: tuple) -> None:
-            for aligned_sup, idx in zip(aligned_side, indices):
+        for aligned_sup, idx in zip(aligned_primary, plan.source_indices_primary):
+            if 0 <= idx < n:
+                _write_back(sups[idx], aligned_sup)
+        if aligned_secondary:
+            for aligned_sup, idx in zip(aligned_secondary, plan.source_indices_secondary):
                 if 0 <= idx < n:
                     _write_back(sups[idx], aligned_sup)
-
-        _apply_side(aligned_primary, plan.source_indices_primary)
-        if aligned_secondary:
-            _apply_side(aligned_secondary, plan.source_indices_secondary)
-
-        for run in plan.interp_runs:
-            rows = run.rows
-            if not rows:
-                continue
-            left = run.left_anchor
-            right = run.right_anchor
-            if left is not None and right is not None:
-                gap_start = round(sups[left].start + sups[left].duration, 4)
-                span = round(max(sups[right].start - gap_start, 0.0), 4)
-                slot = round(span / len(rows), 4)
-                for off, idx in enumerate(rows):
-                    sups[idx].start = round(gap_start + off * slot, 4)
-                    sups[idx].duration = slot
-            elif left is not None:
-                start = round(sups[left].start + sups[left].duration, 4)
-                for idx in rows:
-                    sups[idx].start = start
-                    sups[idx].duration = 0.0
-            elif right is not None:
-                start = round(sups[right].start, 4)
-                for idx in rows:
-                    sups[idx].start = start
-                    sups[idx].duration = 0.0
 
     def shift_time(self, seconds: float) -> "Caption":
         """

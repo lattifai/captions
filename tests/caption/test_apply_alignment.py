@@ -8,21 +8,19 @@ Contract:
         plan: AlignmentPlan,
     ) -> None
 
-    Mutates ``self.supervisions`` in place:
+    Mutates ``self.supervisions`` in place: for each ``aligned_primary[i]``,
+    copy its ``start`` / ``duration`` / ``alignment["word"]`` onto
+    ``self.supervisions[plan.source_indices_primary[i]]``. Same for the
+    secondary side. Out-of-range indices are silently skipped.
 
-    1. For each ``aligned_primary[i]``, copy its ``start`` / ``duration`` /
-       ``alignment["word"]`` onto ``self.supervisions[plan.source_indices_primary[i]]``.
-       Same for the secondary side. Out-of-range indices are silently skipped.
-
-    2. For each ``InterpRun`` in ``plan.interp_runs``, distribute the run's
-       zero-duration dialogue rows uniformly between the run's left and
-       right anchors (anchors are read *after* the write-back pass).
+    Source rows the aligner never saw (zero-duration / non-dialogue) keep
+    their original timing — upstream callers decide how to handle them.
 """
 
-from typing import List, Optional, Tuple
+from typing import Tuple
 
 from lattifai.caption import Caption
-from lattifai.caption.bilingual import AlignmentPlan, InterpRun
+from lattifai.caption.bilingual import AlignmentPlan
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
 
@@ -52,14 +50,10 @@ def _aligned(start: float, duration: float, words=None) -> Supervision:
 def _plan(
     primary_idx: Tuple[int, ...] = (),
     secondary_idx: Tuple[int, ...] = (),
-    interp_runs: Tuple[InterpRun, ...] = (),
-    break_indices=frozenset(),
 ) -> AlignmentPlan:
     return AlignmentPlan(
         source_indices_primary=primary_idx,
         source_indices_secondary=secondary_idx,
-        interp_runs=interp_runs,
-        break_indices=break_indices,
     )
 
 
@@ -161,107 +155,33 @@ def test_apply_dual_row_updates_aligned_language_row_only() -> None:
 
 
 # ---------------------------------------------------------------------------
-# No-timing interpolation via plan.interp_runs
+# Rows the aligner never saw — kept untouched
 # ---------------------------------------------------------------------------
 
 
-def test_apply_interpolates_zero_duration_dialogue_between_neighbours() -> None:
-    """Plan-driven uniform interpolation between two anchors."""
-    caption = _cap([
-        {"text": "First line", "start": 1.0, "duration": 2.0},    # idx 0
-        {"text": "Middle line", "start": 0.0, "duration": 0.0},   # idx 1
-        {"text": "Last line", "start": 7.0, "duration": 3.0},     # idx 2
-    ])
-    plan = _plan(
-        primary_idx=(0, 2),
-        interp_runs=(InterpRun(rows=(1,), left_anchor=0, right_anchor=2),),
-    )
-    caption.apply_alignment(
-        [_aligned(1.0, 2.0), _aligned(7.0, 3.0)],
-        plan=plan,
-    )
-    middle = caption.supervisions[1]
-    assert 3.0 <= middle.start < 7.0
-    assert middle.duration > 0.0
-    assert middle.start + middle.duration <= 7.0
+def test_apply_leaves_zero_duration_rows_untouched() -> None:
+    """Source rows excluded from the plan keep their original timing.
 
-
-def test_apply_does_not_touch_zero_duration_non_dialogue_rows() -> None:
-    """A staff_credit row should never appear in plan.interp_runs."""
+    apply_alignment is pure write-back: rows the aligner never saw
+    (zero-duration / non-dialogue / staff_credit etc.) remain at their
+    original ``start`` / ``duration`` values. Upstream callers decide
+    how to handle them — fail loudly, drop, or run a separate
+    interpolation pass.
+    """
     caption = _cap([
-        {"text": "First line", "start": 1.0, "duration": 2.0},     # idx 0
-        {"text": "翻译 张三", "start": 0.0, "duration": 0.0},        # idx 1
-        {"text": "Last line", "start": 7.0, "duration": 3.0},      # idx 2
+        {"text": "First line", "start": 1.0, "duration": 2.0},
+        {"text": "Middle line", "start": 0.0, "duration": 0.0},
+        {"text": "Last line", "start": 7.0, "duration": 3.0},
     ])
-    # Plan does NOT include idx 1 in any interp_run — the row is a
-    # staff credit, classify_line_type returns non-None.
     plan = _plan(primary_idx=(0, 2))
     caption.apply_alignment(
-        [_aligned(1.0, 2.0), _aligned(7.0, 3.0)],
+        [_aligned(1.234, 2.5), _aligned(7.1, 3.1)],
         plan=plan,
     )
-    credit = caption.supervisions[1]
-    assert credit.start == 0.0
-    assert credit.duration == 0.0
-
-
-# ---------------------------------------------------------------------------
-# break-aware interpolation
-# ---------------------------------------------------------------------------
-
-
-def test_apply_one_sided_extend_when_only_left_anchor_exists() -> None:
-    """A run with only a left anchor extends from the left, duration=0."""
-    caption = _cap([
-        {"text": "A", "start": 0.0, "duration": 1.0},      # idx 0 timed
-        {"text": "B", "start": 1.0, "duration": 0.0},      # idx 1 zero-dur dialogue
-        {"text": "C", "start": 50.0, "duration": 1.0},     # idx 2 timed, post-gap
-    ])
-    # Plan: idx 1 belongs to a run whose right anchor is None (blocked
-    # by the break boundary at idx 2).
-    plan = _plan(
-        primary_idx=(0, 2),
-        interp_runs=(InterpRun(rows=(1,), left_anchor=0, right_anchor=None),),
-        break_indices=frozenset({2}),
-    )
-    caption.apply_alignment(
-        [_aligned(0.0, 1.0), _aligned(50.0, 1.0)],
-        plan=plan,
-    )
-    assert caption.supervisions[1].start == 1.0
+    assert caption.supervisions[0].start == 1.234
+    assert caption.supervisions[0].duration == 2.5
+    # Middle row was not in the plan — original (0.0, 0.0) preserved.
+    assert caption.supervisions[1].start == 0.0
     assert caption.supervisions[1].duration == 0.0
-    assert caption.supervisions[2].start == 50.0
-    assert caption.supervisions[2].duration == 1.0
-
-
-def test_apply_splits_zero_duration_run_into_two_runs_at_break_boundary() -> None:
-    """Two independent interp_runs, one per break segment."""
-    caption = _cap([
-        {"text": "A", "start": 0.0, "duration": 1.0},       # idx 0 timed
-        {"text": "B1", "start": 1.0, "duration": 0.0},      # idx 1 pre-break dialogue
-        {"text": "B2", "start": 1.5, "duration": 0.0},      # idx 2 pre-break dialogue
-        {"text": "C", "start": 50.0, "duration": 1.0},      # idx 3 timed, post-gap
-        {"text": "D1", "start": 51.0, "duration": 0.0},     # idx 4 post-break dialogue
-        {"text": "D2", "start": 51.5, "duration": 0.0},     # idx 5 post-break dialogue
-        {"text": "E", "start": 60.0, "duration": 1.0},      # idx 6 timed
-    ])
-    # Plan: pre-break run uses left anchor only (right blocked); post-break
-    # run uses both anchors.
-    plan = _plan(
-        primary_idx=(0, 3, 6),
-        interp_runs=(
-            InterpRun(rows=(1, 2), left_anchor=0, right_anchor=None),
-            InterpRun(rows=(4, 5), left_anchor=3, right_anchor=6),
-        ),
-        break_indices=frozenset({3}),
-    )
-    caption.apply_alignment(
-        [_aligned(0.0, 1.0), _aligned(50.0, 1.0), _aligned(60.0, 1.0)],
-        plan=plan,
-    )
-    assert caption.supervisions[1].duration == 0.0
-    assert caption.supervisions[2].duration == 0.0
-    assert caption.supervisions[4].duration > 0.0
-    assert caption.supervisions[5].duration > 0.0
-    assert abs(caption.supervisions[4].duration - 4.5) < 1e-3
-    assert abs(caption.supervisions[5].duration - 4.5) < 1e-3
+    assert caption.supervisions[2].start == 7.1
+    assert caption.supervisions[2].duration == 3.1

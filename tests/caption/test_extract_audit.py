@@ -46,11 +46,7 @@ Quad = Tuple[Caption, List[Supervision], List[Supervision], AlignmentPlan]
 
 
 def _clean_mono() -> Quad:
-    """Return a clean mono-zh caption and its (primary, secondary, plan).
-
-    Evenly-spaced 2 s gaps, all within the adaptive-gap threshold, so
-    ``plan.break_indices`` is empty.
-    """
+    """Return a clean mono-zh caption and its (primary, secondary, plan)."""
     src = [
         Supervision(text="第一句", start=0.0, duration=1.5, language="zh"),
         Supervision(text="第二句", start=2.0, duration=1.5, language="zh"),
@@ -65,8 +61,6 @@ def _clean_mono() -> Quad:
     plan = AlignmentPlan(
         source_indices_primary=(0, 1, 2),
         source_indices_secondary=(),
-        interp_runs=(),
-        break_indices=frozenset(),
     )
     return cap, primary, [], plan
 
@@ -95,8 +89,6 @@ def _clean_f2() -> Quad:
     plan = AlignmentPlan(
         source_indices_primary=(0, 2, 4),
         source_indices_secondary=(1, 3, 5),
-        interp_runs=(),
-        break_indices=frozenset(),
     )
     return cap, primary, secondary, plan
 
@@ -127,8 +119,6 @@ def _clean_f1() -> Quad:
     plan = AlignmentPlan(
         source_indices_primary=(0, 1, 2),
         source_indices_secondary=(0, 1, 2),
-        interp_runs=(),
-        break_indices=frozenset(),
     )
     return cap, primary, secondary, plan
 
@@ -210,20 +200,6 @@ def test_detects_zero_duration_row() -> None:
     primary[0].duration = 0.0
     issues = audit_extract_products(cap, primary, secondary, plan)
     assert "primary: zero-duration row leaked through" in issues
-
-
-# ---------------------------------------------------------------------------
-# plan.break_indices contract
-# ---------------------------------------------------------------------------
-
-
-def test_detects_break_indices_disagree_with_source() -> None:
-    cap, primary, secondary, plan = _clean_mono()
-    # All gaps in the baseline are small — no row should have a break.
-    # Add a fictitious break to disagree with the caption's own map.
-    plan = replace(plan, break_indices=frozenset({1}))
-    issues = audit_extract_products(cap, primary, secondary, plan)
-    assert "plan: break_indices disagrees with source gap" in issues
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +324,6 @@ def test_detects_row_count_skew_2x() -> None:
     plan = AlignmentPlan(
         source_indices_primary=(0, 1, 2, 3),
         source_indices_secondary=(4,),
-        interp_runs=(),
-        break_indices=frozenset(),
     )
     issues = audit_extract_products(cap, primary, secondary, plan)
     assert "bilingual: row-count skew (>2x)" in issues
@@ -370,8 +344,6 @@ def test_detects_row_count_skew_10x() -> None:
     plan = AlignmentPlan(
         source_indices_primary=tuple(range(11)),
         source_indices_secondary=(11,),
-        interp_runs=(),
-        break_indices=frozenset(),
     )
     issues = audit_extract_products(cap, primary, secondary, plan)
     assert "bilingual: extreme row-count skew (>10x)" in issues

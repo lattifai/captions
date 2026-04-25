@@ -50,41 +50,6 @@ def _same_alignment_script(a: str | None, b: str | None) -> bool:
     return _ALIGNMENT_SCRIPT_BUCKETS.get(a, "latin") == _ALIGNMENT_SCRIPT_BUCKETS.get(b, "latin")
 
 
-def _expected_break_before(cap: Caption) -> list[bool]:
-    """Recompute the adaptive-gap break map the way bilingual.py does.
-
-    Mirrors ``_compute_break_before`` — adaptive gap threshold
-    ``max(2.0, min(5.0, 3 × median_positive_gap))``, same-timing
-    neighbours (F2 atomic unit) are never boundaries.
-    """
-    sups = cap.supervisions
-    n = len(sups)
-    if n < 2:
-        return [False] * n
-
-    gaps: list[float] = []
-    for j in range(1, n):
-        prev_end = (sups[j - 1].start or 0.0) + (sups[j - 1].duration or 0.0)
-        g = (sups[j].start or 0.0) - prev_end
-        if g > 0:
-            gaps.append(g)
-
-    if not gaps:
-        return [False] * n
-
-    med = sorted(gaps)[len(gaps) // 2]
-    threshold = max(2.0, min(5.0, 3.0 * med))
-    out = [False] * n
-    for j in range(1, n):
-        if abs((sups[j].start or 0.0) - (sups[j - 1].start or 0.0)) < 0.01:
-            continue
-        prev_end = (sups[j - 1].start or 0.0) + (sups[j - 1].duration or 0.0)
-        g = (sups[j].start or 0.0) - prev_end
-        if g >= threshold:
-            out[j] = True
-    return out
-
-
 def audit_extract_products(
     cap: Caption,
     primary: List[Supervision],
@@ -108,7 +73,6 @@ def audit_extract_products(
       - no residual ``{\\…}`` ASS override tags
       - no ``line_type == "drawing"``, ``classify_line_type is None``
       - each side carries a uniform ``language`` label
-      - ``plan.break_indices`` matches the caption's adaptive-gap map
       - bilingual output: distinct language labels and alignment-
         script buckets, no newline leakage, roughly balanced row counts
       - F1-subset vs F2-disjoint topology; mixed topologies flagged
@@ -117,11 +81,6 @@ def audit_extract_products(
 
     n_src = len(cap.supervisions)
     is_bilingual = bool(secondary)
-    expected_break = _expected_break_before(cap)
-
-    expected_break_set = {i for i, b in enumerate(expected_break) if b}
-    if set(plan.break_indices) != expected_break_set:
-        issues.append("plan: break_indices disagrees with source gap")
 
     def _side_issues(
         rows: List[Supervision],

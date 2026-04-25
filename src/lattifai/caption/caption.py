@@ -426,14 +426,6 @@ class Caption:
 
         return BilingualMode.NONE
 
-    def _detect_bilingual_mode(self) -> str:
-        """Deprecated string-returning alias of :meth:`detect_bilingual_mode`.
-
-        Removed in Step 7 of the bilingual refactor — Step 4-6 callers
-        still expect ``str``.
-        """
-        return self.detect_bilingual_mode().value
-
     def extract_alignment_supervisions(
         self,
     ) -> "tuple[list[Supervision], list[Supervision]]":

@@ -76,16 +76,19 @@ def test_mono_chinese_returns_all_rows_as_primary() -> None:
     assert secondary == []
 
 
-def test_mono_fast_path_skips_bilingual_detection_and_line_classification(monkeypatch) -> None:
-    """Simple mono captions should bypass the heavy bilingual/classification path."""
+def test_mono_fast_path_skips_line_classification(monkeypatch) -> None:
+    """Simple mono captions should bypass the per-row classify_line_type pipeline.
 
-    def fail_detect_mode(*args, **kwargs):
-        raise AssertionError("fast path should not call _detect_bilingual_mode")
+    Note: detect_bilingual_mode IS called (Step 4 of the bilingual
+    refactor made it the single decision point at the top of
+    extract_alignment_supervisions). The fast-path's job is to skip
+    the much heavier classify_line_type / staff-role / branding
+    checks once mode == NONE has been confirmed.
+    """
 
     def fail_classify(*args, **kwargs):
         raise AssertionError("fast path should not call classify_line_type")
 
-    monkeypatch.setattr(Caption, "_detect_bilingual_mode", fail_detect_mode)
     monkeypatch.setattr(text_parser, "classify_line_type", fail_classify)
 
     caption = _cap([
@@ -319,7 +322,7 @@ def test_ass_inline_bilingual_not_misclassified_when_sign_and_dialogue_share_def
 
     Signs land on "Default" (pure CJK), inline dialogue on "*Default"
     (zh\\nen). The style-CJK split would otherwise fool step 1 of
-    ``_detect_bilingual_mode`` into declaring dual-row; step 3's newline
+    ``detect_bilingual_mode`` into declaring dual-row; step 3's newline
     signal takes precedence.
     """
     sups = [
@@ -449,7 +452,7 @@ def test_cue_with_only_override_primary_is_dropped_entirely() -> None:
         # shape of the sign/disclaimer card in many subtitle-group SRTs.
         {"text": "{\\a6}\n声明：本字幕仅作学习交流之用",
          "start": 1.0, "duration": 3.0},
-        # Enough genuine bilingual cues so ``_detect_bilingual_mode``
+        # Enough genuine bilingual cues so ``detect_bilingual_mode``
         # locks onto line_by_line.
         {"text": "我们都很看好你\nWe all think a lot of you",
          "start": 5.0, "duration": 3.0},
@@ -546,7 +549,7 @@ def test_small_n_secondary_noise_collapses_even_when_ratio_is_25_percent() -> No
     counts, not only on the 5 % ratio threshold.
 
     A 4-mono + 2-sync-pair caption passes the current ``pair_coverage
-    >= 0.2`` test (pair coverage = 4/8 = 50 %) so ``_detect_bilingual_mode``
+    >= 0.2`` test (pair coverage = 4/8 = 50 %) so ``detect_bilingual_mode``
     returns ``"alternating"``. The resulting split is primary=6 / secondary=2,
     ratio = 2/8 = 25 % — well above 5 %. Pre-fix the ratio test let this
     through as a genuine bilingual; in reality it's a noisy mono caption
@@ -599,7 +602,7 @@ def test_skew_rollback_merges_f2_secondary_in_source_order() -> None:
     # 9 real bilingual same-timing pairs (CJK + Latin). Pair coverage is
     # 18 / 48 = 37.5 %, well past the 20 % alternating threshold, and
     # every pair has a strong CJK-vs-Latin delta (all 9 count as
-    # "evidence"), so _detect_bilingual_mode locks onto "alternating".
+    # "evidence"), so detect_bilingual_mode locks onto "alternating".
     for i in range(9):
         sups.append({"text": f"第{i}集标题", "start": 100.0 + i * 10.0, "duration": 3.0})
         sups.append({"text": f"EPISODE TITLE {i}", "start": 100.0 + i * 10.0, "duration": 3.0})
@@ -611,7 +614,7 @@ def test_skew_rollback_merges_f2_secondary_in_source_order() -> None:
 
     caption = _cap(sups)
     # Sanity: mode must actually trip alternating for this test to bite.
-    assert caption._detect_bilingual_mode() == "alternating", (
+    assert caption.detect_bilingual_mode().value == "alternating", (
         "test setup should produce alternating mode"
     )
     primary, secondary = caption.extract_alignment_supervisions()

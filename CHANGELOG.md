@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.7 - 2026-04-25
+
+### Features
+- **ASS byte-level roundtrip fidelity** for subtitle-group files: preserve original Script Info, Styles section, comment lines, and field ordering so `read → write` is bit-identical on hand-authored ASS sources
+- **SRT byte-level roundtrip fidelity** for subtitle-group files: preserve original timestamp formatting, blank-line conventions, and trailing whitespace
+
+### Fixes
+- ASS reader: tolerate malformed timestamps and colors in hand-edited files instead of failing to parse
+- VTT/SRT/JSON readers: convert pysubs2's internal `\N` marker to actual `\n` newlines (was leaking the escape sequence)
+- VTT/SRT/JSON readers: emit `\n` instead of a space when an inline `\N` line break is present
+- `split_sentences`: preserve per-supervision fields (speaker, language, custom metadata) across sentence splits
+
+### Internal
+- Drop redundant `from __future__ import annotations` across the package — `requires-python = ">=3.10"` already provides PEP 604 union syntax and PEP 585 built-in generics
+
 ## 0.4.6 - 2026-04-12
 
 ### Features

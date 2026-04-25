@@ -3,8 +3,22 @@
 import io
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+
+class BilingualMode(str, Enum):
+    """Pre-merge bilingual layout detected on raw caption rows.
+
+    ``NONE`` is the overwhelming common case — most captions are mono.
+    ``LINE_BY_LINE`` and ``ALTERNATING`` reflect the two patterns subtitle
+    groups use to ship two languages within a single file.
+    """
+
+    NONE = "none"
+    LINE_BY_LINE = "line_by_line"
+    ALTERNATING = "alternating"
 
 if TYPE_CHECKING:
     from .config import ASSConfig, LRCConfig, SRTConfig, RenderConfig, StandardizationConfig
@@ -277,26 +291,48 @@ class Caption:
             metadata=self.metadata.copy(),
         )
 
-    def _detect_bilingual_mode(self) -> str:
-        """Auto-detect bilingual arrangement pattern.
+    @property
+    def has_bilingual_layout(self) -> bool:
+        """``True`` if the raw caption shows a bilingual structure.
+
+        Derived from :meth:`detect_bilingual_mode` — non-NONE modes flip
+        this to ``True``. Distinct from :attr:`has_translation`, which
+        reports the post-merge state (``Supervision.translation`` set).
+
+        The method (not a cached property) — ``Caption`` is mutable, so
+        any cache would have to be invalidated on every supervision edit
+        and that's strictly more dangerous than re-running the cheap
+        scan. Callers that need to ask repeatedly should bind the result
+        to a local.
+        """
+        return self.detect_bilingual_mode() != BilingualMode.NONE
+
+    def detect_bilingual_mode(self) -> BilingualMode:
+        """Detect the bilingual arrangement of the raw caption (pre-merge).
 
         Priority (most specific → most ambiguous):
-        1. Text contains ``\\n`` with CJK/Latin split -> line_by_line.
-           This is the strongest signal: an explicit within-cue break with
-           different scripts on each side. Checked first so that ASS files
-           whose dialogue uses inline ``\\N`` (F1) aren't misclassified as
-           dual-row just because a handful of sign/title rows happen to
-           share a Style name with dialogue (e.g. ``Default`` vs
-           ``*Default``).
-        2. Same-timing pairs with different CJK ratios -> alternating.
-        3. ASS style names correlate with different languages -> alternating.
-        4. Otherwise -> none (monolingual).
+
+        1. Text contains ``\\n`` with CJK/Latin split → ``LINE_BY_LINE``.
+           Strongest signal: an explicit within-cue break with different
+           scripts on each side. Checked first so ASS files whose dialogue
+           uses inline ``\\N`` (F1) aren't misclassified as dual-row just
+           because a handful of sign/title rows share a style name with
+           dialogue.
+        2. Same-timing pairs with different CJK ratios → ``ALTERNATING``.
+        3. ASS style names correlate with different languages → ``ALTERNATING``.
+        4. Otherwise → ``NONE`` (monolingual).
+
+        Each branch enforces a ≥ 20 % coverage floor so a few stray
+        bilingual-shaped rows in an otherwise-mono caption don't flip
+        the whole file to bilingual.
+
+        Not cached — see :attr:`has_bilingual_layout`.
         """
         from .parsers.text_parser import cjk_ratio
 
         sups = self.supervisions
         if not sups:
-            return "none"
+            return BilingualMode.NONE
 
         # 1. line_by_line via explicit \n split.
         #    Count a cue as "bilingual" only when the two halves are CLEARLY
@@ -329,7 +365,7 @@ class Caption:
             and newline_bilingual / newline_total > 0.5
             and bilingual_coverage >= 0.2
         ):
-            return "line_by_line"
+            return BilingualMode.LINE_BY_LINE
 
         # 2. Same-timing pairs (alternating pattern).
         #    We count both how many pairs exist AND what share of the
@@ -359,7 +395,7 @@ class Caption:
             and cjk_diff_count / pair_count > 0.5
             and pair_coverage >= 0.2
         ):
-            return "alternating"
+            return BilingualMode.ALTERNATING
 
         # 3. ASS style-based split (e.g., "中文 1080" vs "英文 1080")
         #
@@ -386,9 +422,17 @@ class Caption:
             spread = avg_ratios[high_style] - avg_ratios[low_style]
             min_coverage = min(counts[high_style], counts[low_style]) / len(sups)
             if spread > 0.4 and min_coverage >= 0.2:
-                return "alternating"
+                return BilingualMode.ALTERNATING
 
-        return "none"
+        return BilingualMode.NONE
+
+    def _detect_bilingual_mode(self) -> str:
+        """Deprecated string-returning alias of :meth:`detect_bilingual_mode`.
+
+        Removed in Step 7 of the bilingual refactor — Step 4-6 callers
+        still expect ``str``.
+        """
+        return self.detect_bilingual_mode().value
 
     def extract_alignment_supervisions(
         self,

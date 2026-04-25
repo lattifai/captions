@@ -12,6 +12,7 @@ Functions here take primitive inputs (a list of ``Supervision`` and a
 """
 
 import re
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional, Tuple
 
@@ -46,6 +47,61 @@ class BilingualMode(str, Enum):
     LINE_BY_LINE = "line_by_line"
     SAME_TIMING_PAIRS = "same_timing_pairs"
     STYLE_GROUPED = "style_grouped"
+
+
+# ---------------------------------------------------------------------------
+# Plan structures consumed by ``Caption.apply_alignment``.
+#
+# ``extract_alignment_supervisions`` returns extracted ``primary`` and
+# ``secondary`` supervisions plus a frozen ``AlignmentPlan`` that captures
+# every piece of source-level topology ``apply_alignment`` needs:
+#
+#   - ``source_indices_primary`` / ``source_indices_secondary``: where each
+#     extracted row writes back, replacing the old per-row ``align_index``
+#     stamped into ``Supervision.custom``.
+#   - ``interp_runs``: pre-computed runs of zero-duration dialogue rows
+#     that ``apply_alignment`` should re-time by linear interpolation,
+#     each with its left/right anchor (the nearest timed source row on
+#     either side, blocked by ``break_indices``). Replaces the old
+#     ``classify_line_type`` + prev/next-anchor scan inside
+#     ``apply_alignment``.
+#   - ``break_indices``: source row indices whose preceding gap exceeds
+#     the adaptive threshold; preserved here for audit/debug. The plan's
+#     ``interp_runs`` already factor break boundaries in, so executors
+#     only need this set for diagnostics.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class InterpRun:
+    """A run of zero-duration dialogue source rows to be re-timed.
+
+    Anchors are 0-based indices into the original ``supervisions`` list
+    (the ``Caption.supervisions`` that ``extract_alignment_supervisions``
+    was called on). ``apply_alignment`` reads the anchor row's *post-
+    write-back* timing, which is correct because the write-back step
+    runs before the interpolation step.
+    """
+
+    rows: Tuple[int, ...]
+    left_anchor: Optional[int]
+    right_anchor: Optional[int]
+
+
+@dataclass(frozen=True)
+class AlignmentPlan:
+    """Side-channel structure produced by ``extract_alignment_supervisions``.
+
+    ``source_indices_primary[i]`` / ``source_indices_secondary[i]`` give the
+    0-based source-row index for ``primary[i]`` / ``secondary[i]``. F1 inline
+    captions share the same index across the two sides; F2 dual-row uses
+    each row's original position.
+    """
+
+    source_indices_primary: Tuple[int, ...] = ()
+    source_indices_secondary: Tuple[int, ...] = ()
+    interp_runs: Tuple[InterpRun, ...] = ()
+    break_indices: frozenset = field(default_factory=frozenset)
 
 
 # ---------------------------------------------------------------------------
@@ -224,9 +280,9 @@ def _compute_break_before(supervisions: List[Supervision]) -> List[bool]:
     clamped to the 2-5 s window that accommodates both tight dialogue and
     typical scene/commercial cuts. Same-timing neighbours (F2 candidates)
     are never marked as boundaries — their gap is ~0 by definition and F2
-    must stay contiguous. The output is per-source-row and later stamped
-    onto each extracted side via ``Supervision.custom["alignment_break_before"]``
-    so that ``apply_alignment`` can refuse to interpolate across the boundary.
+    must stay contiguous. The output is per-source-row and feeds into
+    :func:`_compute_interp_runs` and :class:`AlignmentPlan.break_indices`
+    so that ``apply_alignment`` does not interpolate across the boundary.
     """
     n = len(supervisions)
     if n < 2:
@@ -251,6 +307,89 @@ def _compute_break_before(supervisions: List[Supervision]) -> List[bool]:
         if g >= threshold:
             out[j] = True
     return out
+
+
+def _compute_interp_runs(
+    supervisions: List[Supervision],
+    break_before: List[bool],
+) -> Tuple[InterpRun, ...]:
+    """Pre-compute zero-duration dialogue runs for ``apply_alignment``.
+
+    Mirrors the old ``classify_line_type`` + prev/next-anchor scan that
+    used to live inside ``Caption.apply_alignment``, but does it once at
+    extract time so the executor doesn't have to re-classify rows.
+
+    Algorithm:
+
+    1. ``timed[i] = (sup.duration > 0.01)`` — rows that already carry
+       timing (or will be written back by the aligner; ``_is_alignable``
+       guarantees that all extracted rows have ``duration > 0.01``, so
+       both populations collapse to this single check).
+    2. ``needs_interp[i]`` — non-timed dialogue rows: ``classify_line_type``
+       returns None and ``line_type != "drawing"``.
+    3. Walk ``supervisions`` from left to right and right to left to find
+       the nearest timed row on each side, blocked by ``break_before``
+       (the adaptive-gap segment boundary).
+    4. Group consecutive ``needs_interp`` rows into runs (split on
+       ``break_before``); each run carries its source-level anchors.
+    """
+    from .parsers.text_parser import classify_line_type
+
+    n = len(supervisions)
+    if n == 0:
+        return ()
+
+    timed = [False] * n
+    needs_interp = [False] * n
+    for i, sup in enumerate(supervisions):
+        if sup.duration is not None and sup.duration > 0.01:
+            timed[i] = True
+            continue
+        custom = sup.custom or {}
+        if custom.get("line_type") == "drawing":
+            continue
+        if classify_line_type(
+            sup.text or "",
+            start=sup.start,
+            ass_raw_text=custom.get("ass_raw_text"),
+            duration=sup.duration,
+        ) is None:
+            needs_interp[i] = True
+
+    prev_timed = [-1] * n
+    last_timed = -1
+    for i in range(n):
+        if break_before[i]:
+            last_timed = -1
+        prev_timed[i] = last_timed
+        if timed[i]:
+            last_timed = i
+
+    next_timed = [-1] * n
+    last_timed = -1
+    for i in range(n - 1, -1, -1):
+        next_timed[i] = last_timed
+        if timed[i]:
+            last_timed = i
+        if break_before[i]:
+            last_timed = -1
+
+    runs: List[InterpRun] = []
+    i = 0
+    while i < n:
+        if not needs_interp[i]:
+            i += 1
+            continue
+        j = i + 1
+        while j < n and needs_interp[j] and not break_before[j]:
+            j += 1
+        left = prev_timed[i] if prev_timed[i] != -1 else None
+        right = next_timed[j - 1] if next_timed[j - 1] != -1 else None
+        if left is not None or right is not None:
+            runs.append(InterpRun(rows=tuple(range(i, j)), left_anchor=left, right_anchor=right))
+        i = j
+
+    return tuple(runs)
 
 
 # ---------------------------------------------------------------------------
@@ -396,24 +535,36 @@ def detect_bilingual_mode(
 def extract_alignment_supervisions(
     supervisions: List[Supervision],
     source_format: Optional[str] = None,
-) -> Tuple[List[Supervision], List[Supervision]]:
+) -> Tuple[List[Supervision], List[Supervision], AlignmentPlan]:
     """Extract per-language alignable supervisions from a (possibly
     bilingual) caption.
 
     Returns
     -------
-    (primary_sups, secondary_sups)
+    (primary_sups, secondary_sups, plan)
         ``primary_sups`` holds the detected primary-language rows, in
         source order. ``secondary_sups`` holds the other language for
         bilingual captions; ``[]`` for mono.
 
+        ``plan`` is an :class:`AlignmentPlan` that captures every piece
+        of source-level topology ``apply_alignment`` needs to write
+        back results without re-classifying rows or re-walking
+        anchors:
+
+          - ``source_indices_primary[i]`` / ``source_indices_secondary[i]``:
+            0-based index back into ``supervisions`` for ``primary[i]``
+            / ``secondary[i]``. F1 inline shares one index across both
+            sides; F2 dual-row uses each row's original position.
+          - ``interp_runs``: pre-computed runs of zero-duration dialogue
+            rows that ``apply_alignment`` should re-time by linear
+            interpolation, each with its left/right anchor (already
+            split on the adaptive-gap break boundaries).
+          - ``break_indices``: source-row indices whose preceding gap
+            exceeds the adaptive threshold; preserved for audit/debug.
+
     Each returned ``Supervision`` is a ``fastcopy`` carrying:
       - ``text``: plaintext in that language (ASS override tags stripped)
       - ``language``: ISO-639-1 decided by *group-level aggregated voting*.
-      - ``align_index`` (on ``sup.custom``): 0-based index back into
-        ``supervisions`` for ``apply_alignment`` to write results.
-        F1 inline shares one index across both sides; F2 dual-row uses
-        each row's original position.
       - ``start`` / ``duration``: original timestamps (unchanged).
 
     Excluded from both lists:
@@ -434,6 +585,19 @@ def extract_alignment_supervisions(
     from .parsers.text_parser import cjk_ratio
 
     break_before = _compute_break_before(supervisions)
+    interp_runs = _compute_interp_runs(supervisions, break_before)
+    break_indices = frozenset(i for i, b in enumerate(break_before) if b)
+
+    def _make_plan(
+        primary_idx: List[int],
+        secondary_idx: List[int],
+    ) -> AlignmentPlan:
+        return AlignmentPlan(
+            source_indices_primary=tuple(primary_idx),
+            source_indices_secondary=tuple(secondary_idx),
+            interp_runs=interp_runs,
+            break_indices=break_indices,
+        )
 
     # Single decision point: ask once whether the file shows a bilingual
     # layout. Most captions are mono and skip every bilingual-shaped
@@ -445,19 +609,20 @@ def extract_alignment_supervisions(
     secondary: List[Supervision] = []
     primary_texts: List[str] = []
     secondary_texts: List[str] = []
+    primary_idx: List[int] = []
+    secondary_idx: List[int] = []
 
     if mode == BilingualMode.NONE and _is_simple_mono(supervisions, source_format):
         for i, sup in enumerate(supervisions):
             text = _strip_alignment_text(sup.text)
             side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))
-            side.align_index = i
-            side.alignment_break_before = break_before[i]
             primary.append(side)
             primary_texts.append(text)
+            primary_idx.append(i)
         p_lang = _vote_lang(primary_texts)
         for sup in primary:
             sup.language = p_lang
-        return primary, []
+        return primary, [], _make_plan(primary_idx, [])
 
     if mode == BilingualMode.STYLE_GROUPED:
         # ASS files where the two languages are partitioned by
@@ -479,7 +644,8 @@ def extract_alignment_supervisions(
         # would then trip the same-script rollback in Layer 2 and
         # silently degrade a real bilingual file to mono.
         #
-        # Each row keeps its own ``align_index`` (F2 dual-row):
+        # Each row's source position is recorded in the parallel
+        # ``primary_idx`` / ``secondary_idx`` lists (F2 dual-row):
         # primary and secondary are independent runs over the
         # source list. The Layer 1-3 fallbacks below are skipped:
         # STYLE_GROUPED's grouping is structural (already grounded
@@ -517,30 +683,33 @@ def extract_alignment_supervisions(
                     continue
                 style = (sup.custom or {}).get("ass_style", "")
                 side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))
-                side.align_index = i
-                side.alignment_break_before = break_before[i]
                 if style == low_style:
                     side.language = s_lang
                     secondary.append(side)
+                    secondary_idx.append(i)
                 elif style == high_style:
                     side.language = p_lang
                     primary.append(side)
+                    primary_idx.append(i)
                 else:
                     # Minor style: route by per-row CJK distance.
                     row_cjk = cjk_ratio(text)
                     if abs(row_cjk - high_avg) <= abs(row_cjk - low_avg):
                         side.language = p_lang
                         primary.append(side)
+                        primary_idx.append(i)
                     else:
                         side.language = s_lang
                         secondary.append(side)
-            return primary, secondary
+                        secondary_idx.append(i)
+            return primary, secondary, _make_plan(primary_idx, secondary_idx)
 
         # Same-script fallback path: rebuild primary as a flat mono
         # extraction over all rows (matches the structured-mono main
         # loop's behaviour for source_format == 'ass').
         primary, secondary = [], []
         primary_texts, secondary_texts = [], []
+        primary_idx, secondary_idx = [], []
         mode = BilingualMode.NONE  # downstream loop becomes mono.
 
     if mode != BilingualMode.STYLE_GROUPED:
@@ -588,16 +757,14 @@ def extract_alignment_supervisions(
                 continue
             base_custom = dict(sup.custom or {})
             side = fastcopy(sup, text=t1, translation=None, custom=dict(base_custom))
-            side.align_index = i
-            side.alignment_break_before = break_before[i]
             primary.append(side)
             primary_texts.append(t1)
+            primary_idx.append(i)
             if t2:
                 side = fastcopy(sup, text=t2, translation=None, custom=dict(base_custom))
-                side.align_index = secondary_index
-                side.alignment_break_before = break_before[secondary_index]
                 secondary.append(side)
                 secondary_texts.append(t2)
+                secondary_idx.append(secondary_index)
             i += step
 
     # ---- Layer 1: aggregate voting ----
@@ -606,16 +773,17 @@ def extract_alignment_supervisions(
 
     # ---- Layer 2: same-script rollback (mono mis-split as bilingual) ----
     if s_lang and _same_alignment_script(p_lang, s_lang):
-        # Merge by align_index (not naive extend) so F2-style splits
+        # Merge by source index (not naive extend) so F2-style splits
         # that happen to share the same script (e.g. pure-JP captions
         # with stray same-timing pairs) recover in source order.
         merged = sorted(
-            zip(primary + secondary, primary_texts + secondary_texts),
-            key=lambda pt: pt[0].align_index,
+            zip(primary + secondary, primary_texts + secondary_texts, primary_idx + secondary_idx),
+            key=lambda triple: triple[2],
         )
-        primary = [p for p, _ in merged]
-        primary_texts = [t for _, t in merged]
-        secondary, secondary_texts = [], []
+        primary = [p for p, _, _ in merged]
+        primary_texts = [t for _, t, _ in merged]
+        primary_idx = [k for _, _, k in merged]
+        secondary, secondary_texts, secondary_idx = [], [], []
         p_lang = _vote_lang(primary_texts)
         s_lang = None
 
@@ -634,8 +802,8 @@ def extract_alignment_supervisions(
     #     dozen stray sync pairs.
     if secondary:
         total = len(primary) + len(secondary)
-        primary_indexes = {s.align_index for s in primary}
-        is_f1 = all(s.align_index in primary_indexes for s in secondary)
+        primary_indexes = set(primary_idx)
+        is_f1 = all(k in primary_indexes for k in secondary_idx)
         ratio = len(secondary) / total
 
         if is_f1:
@@ -655,16 +823,17 @@ def extract_alignment_supervisions(
                 # secondary rows after primary, producing a sequence
                 # like [0, 2, 4, …, 1, 3, 5, …] that violates the
                 # "rows emitted in source order" contract. Merge by
-                # align_index instead so downstream consumers
+                # source index instead so downstream consumers
                 # (apply_alignment, audits) see a clean non-
                 # decreasing index sequence.
                 merged = sorted(
-                    zip(primary + secondary, primary_texts + secondary_texts),
-                    key=lambda pt: pt[0].align_index,
+                    zip(primary + secondary, primary_texts + secondary_texts, primary_idx + secondary_idx),
+                    key=lambda triple: triple[2],
                 )
-                primary = [p for p, _ in merged]
-                primary_texts = [t for _, t in merged]
-            secondary, secondary_texts = [], []
+                primary = [p for p, _, _ in merged]
+                primary_texts = [t for _, t, _ in merged]
+                primary_idx = [k for _, _, k in merged]
+            secondary, secondary_texts, secondary_idx = [], [], []
             p_lang = _vote_lang(primary_texts)
             s_lang = None
 
@@ -673,7 +842,7 @@ def extract_alignment_supervisions(
     for sup in secondary:
         sup.language = s_lang
 
-    return primary, secondary
+    return primary, secondary, _make_plan(primary_idx, secondary_idx)
 
 
 def merge_line_by_line(
@@ -683,13 +852,13 @@ def merge_line_by_line(
 ) -> List[Supervision]:
     """Split each supervision's text by newline into text + translation.
 
-    Stamps ``sup.custom["align_index"]`` with the original row index so
-    ``extract_alignment_supervisions`` / ``apply_alignment`` can write
-    results back by position (F1 inline — both sides share the same
-    source row, so one index serves both).
+    F1 inline: each merged supervision keeps the source row's original
+    timing; alignment write-back is later driven by the
+    :class:`AlignmentPlan` produced by ``extract_alignment_supervisions``,
+    not by per-row stamping.
     """
     new_sups = []
-    for orig_idx, sup in enumerate(supervisions):
+    for sup in supervisions:
         text = sup.text or ""
         lines = text.split("\n")
         if len(lines) >= 2:
@@ -702,7 +871,6 @@ def merge_line_by_line(
             )
         else:
             new_sup = fastcopy(sup, language=primary_language or sup.language)
-        new_sup.align_index = orig_idx
         new_sups.append(new_sup)
     return new_sups
 
@@ -714,11 +882,12 @@ def merge_alternating(
 ) -> List[Supervision]:
     """Merge consecutive same-timing supervisions into text + translation.
 
-    Stamps ``sup.custom["align_index"]`` with the row index of the merged
-    primary side; when two rows are fused (F2 dual-row), the secondary
-    side's original row index is stamped on
-    ``sup.custom["translation_align_index"]`` so write-back can target
-    each language's original row independently.
+    F2 dual-row collapses two adjacent same-timing supervisions into one
+    bilingual cue. Source-row indices are not stamped onto the merged
+    supervisions: alignment write-back is driven by the
+    :class:`AlignmentPlan` produced by ``extract_alignment_supervisions``,
+    which already knows that primary and secondary live at distinct
+    source rows.
     """
     new_sups = []
     i = 0
@@ -734,13 +903,10 @@ def merge_alternating(
                     language=primary_language or sup.language,
                     target_lang=secondary_language,
                 )
-                new_sup.align_index = i
-                new_sup.translation_align_index = i + 1
                 new_sups.append(new_sup)
                 i += 2
                 continue
         new_sup = fastcopy(sup, language=primary_language or sup.language)
-        new_sup.align_index = i
         new_sups.append(new_sup)
         i += 1
     return new_sups

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from .bilingual import (
+    AlignmentPlan,
     BilingualMode,
     detect_bilingual_mode as _detect_bilingual_mode,
     extract_alignment_supervisions as _extract_alignment_supervisions,
@@ -224,13 +225,13 @@ class Caption:
         elif mode in ("same_timing_pairs", "style_grouped"):
             new_sups = merge_alternating(self.supervisions, primary_language, secondary_language)
         elif mode == "none":
-            # Monolingual: no merge needed, but stamp align_index so
-            # extract_alignment_supervisions can still drive write-back.
-            new_sups = []
-            for i, sup in enumerate(self.supervisions):
-                copy = fastcopy(sup, language=primary_language or sup.language)
-                copy.align_index = i
-                new_sups.append(copy)
+            # Monolingual: no merge needed; alignment write-back is
+            # driven by the AlignmentPlan from extract_alignment_supervisions,
+            # not by per-row stamping.
+            new_sups = [
+                fastcopy(sup, language=primary_language or sup.language)
+                for sup in self.supervisions
+            ]
         else:
             raise ValueError(
                 f"Unknown mode: {mode}. Use 'auto', 'line_by_line', "
@@ -273,48 +274,59 @@ class Caption:
 
     def extract_alignment_supervisions(
         self,
-    ) -> "tuple[list[Supervision], list[Supervision]]":
+    ) -> "tuple[list[Supervision], list[Supervision], AlignmentPlan]":
         """Extract per-language alignable supervisions from a (possibly
         bilingual) caption.
 
         Thin wrapper around
         :func:`lattifai.caption.bilingual.extract_alignment_supervisions`.
-        See that function for the topology rules and Layer 1-3 fallbacks.
+        See that function for the topology rules, the Layer 1-3 fallbacks,
+        and the :class:`AlignmentPlan` returned alongside the two sides.
 
         ``self`` is not mutated.
         """
         return _extract_alignment_supervisions(self.supervisions, self.source_format)
 
 
-    def apply_alignment(self, aligned: List[Supervision]) -> None:
+    def apply_alignment(
+        self,
+        aligned_primary: List[Supervision],
+        aligned_secondary: Optional[List[Supervision]] = None,
+        *,
+        plan: AlignmentPlan,
+    ) -> None:
         """Write aligned timestamps back into ``self.supervisions`` in place.
 
         Parameters
         ----------
-        aligned :
-            Supervisions produced by the force aligner. Each row carries
-            the ``align_index`` (in ``sup.custom``) set by
-            ``extract_for_alignment`` — the 0-based index into the original
-            ``self.supervisions``. Updated timing is on ``start`` /
-            ``duration`` and, optionally, word-level alignment under
-            ``alignment["word"]``.
+        aligned_primary :
+            Aligner output for the primary side, in the same order as the
+            ``primary`` list returned by ``extract_alignment_supervisions``.
+            Each row's new ``start`` / ``duration`` (and optional word-level
+            ``alignment["word"]``) is copied onto the source row at
+            ``plan.source_indices_primary[i]``.
+        aligned_secondary :
+            Same as ``aligned_primary`` but for the secondary side. ``None``
+            (or empty list) for monolingual captions.
+        plan :
+            The :class:`AlignmentPlan` produced by
+            ``extract_alignment_supervisions``. Carries the source-row
+            indices for both sides plus pre-computed interpolation runs
+            for zero-duration dialogue rows that the aligner never saw.
 
         Behaviour
         ---------
-        1. **index-matched write-back** — for each row in ``aligned``, read
-           its ``align_index`` and update the row at that index in
-           ``self.supervisions``. Rows without a valid index are silently
-           skipped (defensive); rows in ``self`` whose index is never
-           written are left untouched.
+        Two passes:
 
-        2. **No-timing interpolation** — afterwards, any dialogue row in
-           ``self`` with ``duration ≤ 0.01`` is re-timed by linearly
-           interpolating between the closest aligned neighbours on either
-           side. A row is "dialogue" iff ``classify_line_type`` returns
-           ``None`` for it (i.e. it isn't a staff_credit / sign / title /
-           karaoke / banner / translator_note / branding / drawing row).
-           Rows in the middle of a run of zero-duration dialogue are
-           distributed uniformly across the available gap.
+        1. **index-matched write-back** — copy timing and word alignment
+           from each aligned row onto ``self.supervisions[plan.source_indices_*[i]]``.
+           Out-of-range indices are silently skipped (defensive).
+
+        2. **plan-driven interpolation** — for each ``InterpRun`` in
+           ``plan.interp_runs``, distribute the run's zero-duration
+           dialogue rows uniformly between the run's left and right
+           anchors. Anchors are read from ``self.supervisions`` *after*
+           the write-back pass, so they carry the freshly aligned timing.
         """
         sups = self.supervisions
         n = len(sups)
@@ -327,113 +339,38 @@ class Caption:
             if aligned_sup.alignment is not None:
                 target.alignment = {"word": aligned_sup.alignment.get("word")}
 
-        # Fast path: every row already has usable timing and alignment covers
-        # the whole caption one-to-one, so simple index-matched write-back is enough.
-        fast_path = len(aligned) == n and all(sup.duration is not None and sup.duration > 0.01 for sup in sups)
-        if fast_path:
-            seen = [False] * n
-            for aligned_sup in aligned:
-                idx = (aligned_sup.custom or {}).get("align_index")
-                if idx is None or idx < 0 or idx >= n or seen[idx]:
-                    fast_path = False
-                    break
-                seen[idx] = True
-            if fast_path:
-                for aligned_sup in aligned:
-                    _write_back(sups[aligned_sup.align_index], aligned_sup)
-                return
+        def _apply_side(aligned_side: List[Supervision], indices: tuple) -> None:
+            for aligned_sup, idx in zip(aligned_side, indices):
+                if 0 <= idx < n:
+                    _write_back(sups[idx], aligned_sup)
 
-        from .parsers.text_parser import classify_line_type
+        _apply_side(aligned_primary, plan.source_indices_primary)
+        if aligned_secondary:
+            _apply_side(aligned_secondary, plan.source_indices_secondary)
 
-        # ---- Step 1: index-matched timestamp copy ----
-        written = [False] * n
-        break_before = [False] * n
-        for aligned_sup in aligned:
-            idx = (aligned_sup.custom or {}).get("align_index")
-            if idx is None or idx < 0 or idx >= n:
+        for run in plan.interp_runs:
+            rows = run.rows
+            if not rows:
                 continue
-            _write_back(sups[idx], aligned_sup)
-            written[idx] = True
-            # Segment boundary signal stamped by extract_alignment_supervisions.
-            # Blocks cross-boundary interpolation in Step 2 below.
-            if (aligned_sup.custom or {}).get("alignment_break_before"):
-                break_before[idx] = True
-
-        # ---- Step 2: interpolate no-timing dialogue rows ----
-        timed = [False] * n
-        dialogue = [False] * n
-        prev_timed = [-1] * n
-        next_timed = [-1] * n
-
-        last_timed = -1
-        for i, sup in enumerate(sups):
-            # Break boundary: rows before row ``i`` cannot borrow a right
-            # anchor past this point, so reset the running left anchor.
-            if break_before[i]:
-                last_timed = -1
-            prev_timed[i] = last_timed
-            has_timing = sup.duration is not None and sup.duration > 0.01
-            timed[i] = has_timing
-            if has_timing:
-                last_timed = i
-                continue
-            if written[i]:
-                continue
-            custom = sup.custom or {}
-            if custom.get("line_type") == "drawing":
-                continue
-            dialogue[i] = classify_line_type(
-                sup.text or "",
-                start=sup.start,
-                ass_raw_text=custom.get("ass_raw_text"),
-                duration=sup.duration,
-            ) is None
-
-        last_timed = -1
-        for i in range(n - 1, -1, -1):
-            next_timed[i] = last_timed
-            if timed[i]:
-                last_timed = i
-            # Same signal from the right-scan side: post-boundary timed
-            # rows must not serve as a left anchor for the pre-boundary
-            # zero-duration run.
-            if break_before[i]:
-                last_timed = -1
-
-        i = 0
-        while i < n:
-            if not dialogue[i]:
-                i += 1
-                continue
-
-            j = i + 1
-            # Dialogue runs cannot extend across a break boundary either.
-            while j < n and dialogue[j] and not break_before[j]:
-                j += 1
-
-            left_idx = prev_timed[i]
-            right_idx = next_timed[j - 1]
-            run_len = j - i
-
-            if left_idx != -1 and right_idx != -1:
-                gap_start = round(sups[left_idx].start + sups[left_idx].duration, 4)
-                span = round(max(sups[right_idx].start - gap_start, 0.0), 4)
-                slot = round(span / run_len, 4)
-                for offset, idx in enumerate(range(i, j)):
-                    sups[idx].start = round(gap_start + offset * slot, 4)
+            left = run.left_anchor
+            right = run.right_anchor
+            if left is not None and right is not None:
+                gap_start = round(sups[left].start + sups[left].duration, 4)
+                span = round(max(sups[right].start - gap_start, 0.0), 4)
+                slot = round(span / len(rows), 4)
+                for off, idx in enumerate(rows):
+                    sups[idx].start = round(gap_start + off * slot, 4)
                     sups[idx].duration = slot
-            elif left_idx != -1:
-                start = round(sups[left_idx].start + sups[left_idx].duration, 4)
-                for idx in range(i, j):
+            elif left is not None:
+                start = round(sups[left].start + sups[left].duration, 4)
+                for idx in rows:
                     sups[idx].start = start
                     sups[idx].duration = 0.0
-            elif right_idx != -1:
-                start = round(sups[right_idx].start, 4)
-                for idx in range(i, j):
+            elif right is not None:
+                start = round(sups[right].start, 4)
+                for idx in rows:
                     sups[idx].start = start
                     sups[idx].duration = 0.0
-
-            i = j
 
     def shift_time(self, seconds: float) -> "Caption":
         """

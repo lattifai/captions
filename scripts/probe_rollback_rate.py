@@ -66,7 +66,7 @@ def main() -> None:
         if mode == BilingualMode.NONE:
             continue
         try:
-            _, secondary = cap.extract_alignment_supervisions()
+            _, secondary, _ = cap.extract_alignment_supervisions()
         except Exception as exc:
             failed.append((label, f"extract: {exc}"))
             continue
@@ -104,7 +104,7 @@ def main() -> None:
             mode = cap.detect_bilingual_mode()
             if mode == BilingualMode.NONE:
                 continue
-            _, secondary = cap.extract_alignment_supervisions()
+            _, secondary, _ = cap.extract_alignment_supervisions()
             if not secondary:
                 rollback_paths.append((mode.value, label, len(cap.supervisions)))
         except Exception:

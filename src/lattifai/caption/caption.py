@@ -264,7 +264,7 @@ class Caption:
             New Caption with translation fields populated
         """
         if mode == "auto":
-            mode = self._detect_bilingual_mode()
+            mode = self.detect_bilingual_mode().value
 
         if mode == "line_by_line":
             new_sups = self._merge_line_by_line(primary_language, secondary_language)

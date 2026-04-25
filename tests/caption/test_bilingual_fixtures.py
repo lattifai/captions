@@ -19,8 +19,8 @@ FIXTURE_DIR = Path(__file__).resolve().parent.parent / "data" / "captions" / "bi
 FIXTURE_EXPECTATIONS = [
     # Positive cases — all three detect branches should fire.
     ("bilingual_line_by_line.srt", BilingualMode.LINE_BY_LINE),
-    ("bilingual_alternating.ass", BilingualMode.ALTERNATING),
-    ("bilingual_ass_styles.ass", BilingualMode.ALTERNATING),
+    ("bilingual_alternating.ass", BilingualMode.SAME_TIMING_PAIRS),
+    ("bilingual_ass_styles.ass", BilingualMode.STYLE_GROUPED),
     # Negative cases — mono captions that share a "shape" with
     # bilingual but fail one of the coverage / count guards.
     ("mono_with_sparse_newlines.srt", BilingualMode.NONE),
@@ -47,6 +47,24 @@ def test_detect_bilingual_mode_returns_enum():
     assert isinstance(result, BilingualMode)
     # Enum values double as strings for serialisation friendliness.
     assert result == "line_by_line"
+
+
+def test_bilingual_mode_distinguishes_sync_pairs_from_style_grouped():
+    """The two ASS bilingual fixtures differ structurally.
+
+    ``bilingual_alternating.ass`` has cues at the same (start, duration)
+    physically adjacent in the file → SAME_TIMING_PAIRS.
+    ``bilingual_ass_styles.ass`` separates languages by style and offsets
+    the timestamps by 100ms so adjacent-pair detection misses → falls
+    back to the style branch → STYLE_GROUPED.
+    """
+    sync = Caption.read(FIXTURE_DIR / "bilingual_alternating.ass")
+    grouped = Caption.read(FIXTURE_DIR / "bilingual_ass_styles.ass")
+    assert sync.detect_bilingual_mode() == BilingualMode.SAME_TIMING_PAIRS
+    assert grouped.detect_bilingual_mode() == BilingualMode.STYLE_GROUPED
+    # has_bilingual_layout collapses both to True.
+    assert sync.has_bilingual_layout
+    assert grouped.has_bilingual_layout
 
 
 def test_detect_bilingual_mode_not_cached():

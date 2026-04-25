@@ -613,9 +613,9 @@ def test_skew_rollback_merges_f2_secondary_in_source_order() -> None:
         sups.append({"text": f"这是纯中文对白 第{i}句", "start": 500.0 + i * 3.0, "duration": 2.5})
 
     caption = _cap(sups)
-    # Sanity: mode must actually trip alternating for this test to bite.
-    assert caption.detect_bilingual_mode().value == "alternating", (
-        "test setup should produce alternating mode"
+    # Sanity: mode must actually trip same_timing_pairs for this test to bite.
+    assert caption.detect_bilingual_mode().value == "same_timing_pairs", (
+        "test setup should produce same_timing_pairs mode"
     )
     primary, secondary = caption.extract_alignment_supervisions()
 

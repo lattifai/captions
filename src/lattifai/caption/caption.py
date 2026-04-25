@@ -12,13 +12,30 @@ class BilingualMode(str, Enum):
     """Pre-merge bilingual layout detected on raw caption rows.
 
     ``NONE`` is the overwhelming common case — most captions are mono.
-    ``LINE_BY_LINE`` and ``ALTERNATING`` reflect the two patterns subtitle
-    groups use to ship two languages within a single file.
+    The other three modes describe distinct **structural** patterns
+    subtitle groups use to ship two languages within a single file:
+
+    - ``LINE_BY_LINE``: one cue, two lines split by ``\\n``
+      (CJK on top, Latin below or vice versa).
+    - ``SAME_TIMING_PAIRS``: two adjacent cues at the same
+      ``(start, duration)`` carrying the two languages.
+    - ``STYLE_GROUPED``: ASS file with one style per language;
+      cues for each language are grouped and **not necessarily
+      adjacent** in the file. Pairing requires sorting by timestamp.
+
+    The split between ``SAME_TIMING_PAIRS`` and ``STYLE_GROUPED`` was
+    introduced after we caught real ASS subtitle-group files where the
+    two languages share the same timestamps but are emitted in two
+    separate runs (e.g. all 580 English rows first, then all 582
+    Chinese rows). The old umbrella ``ALTERNATING`` mode treated this
+    as a sync-pair layout, found no adjacent pairs, and routed the
+    file to a Layer 2/3 rollback that silently degraded it to mono.
     """
 
     NONE = "none"
     LINE_BY_LINE = "line_by_line"
-    ALTERNATING = "alternating"
+    SAME_TIMING_PAIRS = "same_timing_pairs"
+    STYLE_GROUPED = "style_grouped"
 
 if TYPE_CHECKING:
     from .config import ASSConfig, LRCConfig, SRTConfig, RenderConfig, StandardizationConfig
@@ -248,15 +265,20 @@ class Caption:
         """Parse existing bilingual text into translation fields.
 
         Args:
-            mode: "line_by_line" splits each supervision's text by newline
-                  (first line -> text, second line -> translation);
-                  "alternating" merges consecutive supervisions with same timing
-                  (first -> text, second -> translation);
-                  "auto" detects the pattern automatically:
-                    1. ASS style names suggest language split -> alternating by style
-                    2. Same-timing pairs with CJK vs Latin -> alternating
-                    3. Text contains \\n with CJK/Latin split -> line_by_line
-                    4. Otherwise -> no merge (monolingual)
+            mode: One of:
+                  - ``"line_by_line"``: each supervision's text is split
+                    by ``\\n`` (first line -> text, second -> translation).
+                  - ``"same_timing_pairs"``: consecutive supervisions
+                    with identical (start, duration) are merged into a
+                    single bilingual cue.
+                  - ``"style_grouped"``: ASS supervisions are partitioned
+                    by ``ass_style`` (high-CJK style -> primary, low-CJK
+                    style -> translation) and then paired by
+                    (start, duration). Currently delegates to the
+                    ``same_timing_pairs`` merger; a dedicated style-aware
+                    merger arrives later.
+                  - ``"none"``: monolingual; no merge.
+                  - ``"auto"``: route via :meth:`detect_bilingual_mode`.
             primary_language: Language code for the primary text
             secondary_language: Language code for the translation
 
@@ -268,7 +290,7 @@ class Caption:
 
         if mode == "line_by_line":
             new_sups = self._merge_line_by_line(primary_language, secondary_language)
-        elif mode == "alternating":
+        elif mode in ("same_timing_pairs", "style_grouped"):
             new_sups = self._merge_alternating(primary_language, secondary_language)
         elif mode == "none":
             # Monolingual: no merge needed, but stamp align_index so
@@ -279,7 +301,10 @@ class Caption:
                 copy.align_index = i
                 new_sups.append(copy)
         else:
-            raise ValueError(f"Unknown mode: {mode}. Use 'auto', 'line_by_line', 'alternating', or 'none'.")
+            raise ValueError(
+                f"Unknown mode: {mode}. Use 'auto', 'line_by_line', "
+                f"'same_timing_pairs', 'style_grouped', or 'none'."
+            )
 
         return Caption(
             supervisions=new_sups,
@@ -318,8 +343,10 @@ class Caption:
            uses inline ``\\N`` (F1) aren't misclassified as dual-row just
            because a handful of sign/title rows share a style name with
            dialogue.
-        2. Same-timing pairs with different CJK ratios → ``ALTERNATING``.
-        3. ASS style names correlate with different languages → ``ALTERNATING``.
+        2. Adjacent same-timing pairs with different CJK ratios →
+           ``SAME_TIMING_PAIRS``.
+        3. ASS style names correlate with different languages →
+           ``STYLE_GROUPED``.
         4. Otherwise → ``NONE`` (monolingual).
 
         Each branch enforces a ≥ 20 % coverage floor so a few stray
@@ -395,14 +422,22 @@ class Caption:
             and cjk_diff_count / pair_count > 0.5
             and pair_coverage >= 0.2
         ):
-            return BilingualMode.ALTERNATING
+            return BilingualMode.SAME_TIMING_PAIRS
 
-        # 3. ASS style-based split (e.g., "中文 1080" vs "英文 1080")
+        # 3. ASS style-based split (e.g., "中文 1080" vs "英文 1080").
+        #
+        #    Distinct from SAME_TIMING_PAIRS even though both express
+        #    "two language tracks at the same timestamps". Style-grouped
+        #    ASS files can list each language in a contiguous run
+        #    (English rows 0-579, then Chinese rows 580-1161 at the
+        #    same start/duration as 0-579). Adjacent-pair detection
+        #    misses this — pairing has to go through (start, duration)
+        #    after grouping by style.
         #
         #    Both the high-CJK and low-CJK style must individually cover
         #    ≥ 20 % of all supervisions. Without this floor, a mono CJK
         #    caption with a handful of Latin "Sign" / "Title" rows trips
-        #    ALTERNATING because the Sign style averages cjk_ratio ≈ 0
+        #    bilingual because the Sign style averages cjk_ratio ≈ 0
         #    while the Default body averages ≈ 1 — the max-min spread
         #    looks like a real bilingual split even though Sign covers
         #    only 2/12 = 17 % of the file. The 20 % floor matches the
@@ -422,7 +457,7 @@ class Caption:
             spread = avg_ratios[high_style] - avg_ratios[low_style]
             min_coverage = min(counts[high_style], counts[low_style]) / len(sups)
             if spread > 0.4 and min_coverage >= 0.2:
-                return BilingualMode.ALTERNATING
+                return BilingualMode.STYLE_GROUPED
 
         return BilingualMode.NONE
 
@@ -647,7 +682,10 @@ class Caption:
                 if len(lines) >= 2:
                     raw_primary = lines[0]
                     raw_secondary = lines[1]
-            elif mode == BilingualMode.ALTERNATING and i + 1 < len(self.supervisions):
+            elif (
+                mode in (BilingualMode.SAME_TIMING_PAIRS, BilingualMode.STYLE_GROUPED)
+                and i + 1 < len(self.supervisions)
+            ):
                 next_sup = self.supervisions[i + 1]
                 if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
                     raw_secondary = next_sup.text or ""

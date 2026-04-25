@@ -524,7 +524,21 @@ class Caption:
                 return False
             return _ALIGNMENT_SCRIPT_BUCKETS.get(a, "latin") == _ALIGNMENT_SCRIPT_BUCKETS.get(b, "latin")
 
-        def _can_fast_extract_mono() -> bool:
+        def _is_simple_mono() -> bool:
+            """Performance gate: can this mono caption skip the structured loop?
+
+            **Not** a semantic gate. The bilingual question is settled
+            upstream by :meth:`detect_bilingual_mode`; this predicate
+            only asks whether the (already-mono) caption is shaped
+            simply enough to skip the per-row strip/classify pipeline
+            and go straight to a 1:1 supervision copy.
+
+            Returns ``False`` whenever a row needs *something* — ASS
+            override stripping, soft-newline collapse, branding/staff
+            removal, same-timing pair handling — even though the file
+            as a whole is mono. Those still produce a correct mono
+            extraction; they just go through the structured loop.
+            """
             if self.source_format in {"ass", "ssa"}:
                 return False
 
@@ -614,7 +628,7 @@ class Caption:
         primary, secondary = [], []
         primary_texts, secondary_texts = [], []
 
-        if mode == BilingualMode.NONE and _can_fast_extract_mono():
+        if mode == BilingualMode.NONE and _is_simple_mono():
             for i, sup in enumerate(self.supervisions):
                 text = _strip(sup.text)
                 side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))

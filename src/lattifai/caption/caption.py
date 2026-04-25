@@ -362,24 +362,31 @@ class Caption:
             return "alternating"
 
         # 3. ASS style-based split (e.g., "中文 1080" vs "英文 1080")
-        styles = set()
+        #
+        #    Both the high-CJK and low-CJK style must individually cover
+        #    ≥ 20 % of all supervisions. Without this floor, a mono CJK
+        #    caption with a handful of Latin "Sign" / "Title" rows trips
+        #    ALTERNATING because the Sign style averages cjk_ratio ≈ 0
+        #    while the Default body averages ≈ 1 — the max-min spread
+        #    looks like a real bilingual split even though Sign covers
+        #    only 2/12 = 17 % of the file. The 20 % floor matches the
+        #    other two branches and turns the script into a single
+        #    coherent definition of "bilingual coverage".
+        style_cjk: dict[str, list[float]] = {}
         for sup in sups:
             custom = getattr(sup, "custom", None) or {}
-            style = custom.get("ass_style")
-            if style:
-                styles.add(style)
-        if len(styles) >= 2:
-            style_cjk = {}
-            for sup in sups:
-                custom = getattr(sup, "custom", None) or {}
-                style = custom.get("ass_style", "")
-                if style and sup.text:
-                    style_cjk.setdefault(style, []).append(cjk_ratio(sup.text))
-            if len(style_cjk) >= 2:
-                avg_ratios = {s: sum(r) / len(r) for s, r in style_cjk.items() if r}
-                ratios = list(avg_ratios.values())
-                if max(ratios) - min(ratios) > 0.4:
-                    return "alternating"
+            style = custom.get("ass_style", "")
+            if style and sup.text:
+                style_cjk.setdefault(style, []).append(cjk_ratio(sup.text))
+        if len(style_cjk) >= 2:
+            avg_ratios = {s: sum(r) / len(r) for s, r in style_cjk.items()}
+            counts = {s: len(r) for s, r in style_cjk.items()}
+            high_style = max(avg_ratios, key=avg_ratios.get)
+            low_style = min(avg_ratios, key=avg_ratios.get)
+            spread = avg_ratios[high_style] - avg_ratios[low_style]
+            min_coverage = min(counts[high_style], counts[low_style]) / len(sups)
+            if spread > 0.4 and min_coverage >= 0.2:
+                return "alternating"
 
         return "none"
 

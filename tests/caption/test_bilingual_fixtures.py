@@ -27,19 +27,7 @@ FIXTURE_DIR = Path(__file__).resolve().parent.parent / "data" / "captions" / "bi
         # bilingual but fail one of the coverage / count guards.
         ("mono_with_sparse_newlines.srt", "none"),
         ("mono_with_sync_pairs.srt", "none"),
-        pytest.param(
-            "mono_with_ass_styles.ass",
-            "none",
-            marks=pytest.mark.xfail(
-                reason=(
-                    "style-based detection branch (caption.py:364) lacks a "
-                    "coverage floor — a handful of mono Sign-style rows trip "
-                    "ALTERNATING when their CJK ratio differs from the "
-                    "Default body. Fixed in Step 2 of the bilingual refactor."
-                ),
-                strict=True,
-            ),
-        ),
+        ("mono_with_ass_styles.ass", "none"),
     ],
 )
 def test_detect_bilingual_mode_on_fixture(filename, expected_mode):

@@ -605,10 +605,16 @@ class Caption:
 
         break_before = _compute_break_before()
 
+        # Single decision point: ask once whether the file shows a
+        # bilingual layout. Most captions are mono and skip every
+        # bilingual-shaped branch below; only files with a real
+        # bilingual structure pay the dual-side extraction cost.
+        mode = self.detect_bilingual_mode()
+
         primary, secondary = [], []
         primary_texts, secondary_texts = [], []
 
-        if _can_fast_extract_mono():
+        if mode == BilingualMode.NONE and _can_fast_extract_mono():
             for i, sup in enumerate(self.supervisions):
                 text = _strip(sup.text)
                 side = fastcopy(sup, text=text, translation=None, custom=dict(sup.custom or {}))
@@ -621,7 +627,6 @@ class Caption:
                 sup.language = p_lang
             return primary, []
 
-        mode = self._detect_bilingual_mode()
         i = 0
 
         while i < len(self.supervisions):
@@ -631,12 +636,12 @@ class Caption:
             raw_secondary = ""
             secondary_index = i
 
-            if mode == "line_by_line":
+            if mode == BilingualMode.LINE_BY_LINE:
                 lines = raw_primary.split("\n")
                 if len(lines) >= 2:
                     raw_primary = lines[0]
                     raw_secondary = lines[1]
-            elif mode == "alternating" and i + 1 < len(self.supervisions):
+            elif mode == BilingualMode.ALTERNATING and i + 1 < len(self.supervisions):
                 next_sup = self.supervisions[i + 1]
                 if abs(sup.start - next_sup.start) < 0.01 and abs(sup.duration - next_sup.duration) < 0.01:
                     raw_secondary = next_sup.text or ""

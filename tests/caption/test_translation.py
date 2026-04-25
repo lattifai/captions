@@ -17,15 +17,15 @@ class TestSupervisionTranslation:
         sup = Supervision(text="Hello", start=1.0, duration=2.0)
         assert sup.translation is None
         assert sup.target_lang is None
-        assert sup.is_bilingual is False
+        assert sup.has_translation is False
 
-    def test_is_bilingual(self):
+    def test_has_translation(self):
         sup = Supervision(text="Hello", translation="你好", start=1.0, duration=2.0)
-        assert sup.is_bilingual is True
+        assert sup.has_translation is True
 
-    def test_is_bilingual_empty_string(self):
+    def test_has_translation_empty_string(self):
         sup = Supervision(text="Hello", translation="", start=1.0, duration=2.0)
-        assert sup.is_bilingual is False
+        assert sup.has_translation is False
 
     def test_fastcopy_preserves_translation(self):
         sup = Supervision(text="Hello", translation="你好", target_lang="zh", start=1.0, duration=2.0)
@@ -57,7 +57,7 @@ class TestSupervisionTranslation:
         sup = Supervision.from_dict(d)
         assert sup.translation == "你好"
         assert sup.target_lang == "zh"
-        assert sup.is_bilingual is True
+        assert sup.has_translation is True
 
 
 # ---------------------------------------------------------------------------
@@ -73,14 +73,14 @@ class TestCaptionBilingual:
             c.set_translations(translations, target_lang="zh")
         return c
 
-    def test_is_bilingual_false(self):
+    def test_has_translation_false(self):
         c = self._make_caption(["Hello", "World"])
-        assert c.is_bilingual is False
+        assert c.has_translation is False
 
     def test_set_translations(self):
         c = self._make_caption(["Hello", "World"])
         c.set_translations(["你好", "世界"], target_lang="zh")
-        assert c.is_bilingual is True
+        assert c.has_translation is True
         assert c.target_lang == "zh"
         assert c.supervisions[0].translation == "你好"
         assert c.supervisions[1].translation == "世界"
@@ -92,9 +92,9 @@ class TestCaptionBilingual:
 
     def test_strip_translations(self):
         c = self._make_caption(["Hello"], ["你好"])
-        assert c.is_bilingual is True
+        assert c.has_translation is True
         c.strip_translations()
-        assert c.is_bilingual is False
+        assert c.has_translation is False
         assert c.supervisions[0].translation is None
 
     def test_merge_bilingual_line_by_line(self):
@@ -263,7 +263,7 @@ class TestEndToEnd:
         c2 = Caption.from_string(json_bytes.decode("utf-8"), format="json")
         assert c2.supervisions[0].translation == "你好"
         assert c2.supervisions[1].translation == "世界"
-        assert c2.supervisions[0].is_bilingual is True
+        assert c2.supervisions[0].has_translation is True
 
     def test_bilingual_srt_round_trip(self):
         """Write bilingual SRT, re-read, and verify text contains both lines."""

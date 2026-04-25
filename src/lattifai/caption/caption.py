@@ -186,9 +186,9 @@ class Caption:
         return sorted(speakers)
 
     @property
-    def is_bilingual(self) -> bool:
+    def has_translation(self) -> bool:
         """Check if any supervision has translation data."""
-        return any(sup.is_bilingual for sup in self.supervisions)
+        return any(sup.has_translation for sup in self.supervisions)
 
     def set_translations(self, translations: List[str], target_lang: Optional[str] = None) -> "Caption":
         """Set translations for supervisions.

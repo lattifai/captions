@@ -315,7 +315,7 @@ class Supervision:
     # =========================================================================
 
     @property
-    def is_bilingual(self) -> bool:
+    def has_translation(self) -> bool:
         return self.translation is not None and len(self.translation) > 0
 
     @property

@@ -197,3 +197,41 @@ class TestASSRawTextPreservation:
 
         # \N should be preserved, not \n
         assert r"\NHello World" in output_text or r"\N" in output_text
+
+    def test_roundtrip_preserves_trailing_break_with_speaker(self):
+        """Trailing ``\\N`` must survive even when ``Event.Name`` is set.
+
+        Regression: with ``include_speaker_in_text=True`` (the default),
+        the writer prepends ``"<speaker>: "`` to the rendered text. That
+        diverges from ``ass_raw_text``, so ``_create_event_from_supervision``
+        falls into the "text was modified" branch and only converts inner
+        ``\\n`` → ``\\N`` — any ``\\N`` that lived at the end of the raw
+        line is lost. End-users see a line like ``Hello\\N`` come back as
+        just ``11: Hello`` after roundtrip.
+        """
+        ass_content = (
+            "[Script Info]\nScriptType: v4.00+\n\n"
+            "[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, "
+            "Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            "Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+            "0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+            r"Dialogue: 0,0:00:01.00,0:00:05.00,Default,11,0,0,0,,Hello\N" + "\n"
+        )
+        parsed = ASSFormat.parse(ass_content)
+        output = ASSFormat.to_bytes(
+            parsed.supervisions,
+            metadata=parsed.format_metadata,
+            render=RenderConfig(include_speaker_in_text=True),
+        )
+        output_text = output.decode("utf-8")
+
+        dialogue_lines = [ln for ln in output_text.splitlines() if ln.startswith("Dialogue:")]
+        assert len(dialogue_lines) == 1
+        text_field = dialogue_lines[0].split(",", 9)[-1]
+        # Trailing \N from raw must be preserved end-to-end.
+        assert text_field.rstrip().endswith(r"\N"), (
+            f"trailing \\N lost after speaker-prefix injection: {text_field!r}"
+        )

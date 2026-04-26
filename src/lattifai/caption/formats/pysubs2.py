@@ -1524,6 +1524,17 @@ class ASSFormat(Pysubs2Format):
                 text = text.replace("\n", "\\N")
                 if tag_prefix:
                     text = tag_prefix + text
+                # Preserve any trailing ``\N`` line break(s) from the raw
+                # text. The most common reason we land here is that
+                # ``include_speaker_in_text=True`` prepended ``"<speaker>: "``
+                # to ``text`` — that is a leading-side mutation, but the
+                # trailing line break the user had at the end of the
+                # source line should still survive the roundtrip. Without
+                # this, ``Dialogue: …,Hello\N`` round-trips to
+                # ``Dialogue: …,11: Hello``.
+                trailing = re.search(r"((?:\\N)+)\s*$", ass_raw)
+                if trailing and not text.endswith(trailing.group(1)):
+                    text = text + trailing.group(1)
         else:
             # No raw text: just convert \n to \N for ASS format
             text = text.replace("\n", "\\N")

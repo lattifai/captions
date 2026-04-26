@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.11 - 2026-04-26
+
+### Fixes
+- **VTT: preserve explicit speaker prefix on consecutive cues.** Writers with `_dedup_speaker = True` (notably VTT) ran tracker dedup unconditionally, so a source author who explicitly tagged consecutive cues with the same speaker (two adjacent `<v BOB>` cues in a multi-speaker dialog) lost the second prefix on write — and the reader recovered the second cue as `speaker=None`, breaking roundtrip fidelity. `_should_include_speaker` now honours `Supervision.custom["original_speaker"]`: `True` (the default, "explicitly tagged") emits the prefix unconditionally while still advancing tracker state for later inherited cues; `False` ("inherited / back-filled by sentence splitter or alignment continuation") keeps tracker dedup active so rendered output stays clean. SRT/JSON/ASS/CSV are unaffected — SRT sets `_dedup_speaker = False` already, the others carry speaker in a dedicated field
+
 ## 0.4.10 - 2026-04-26
 
 ### Features

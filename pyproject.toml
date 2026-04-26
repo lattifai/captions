@@ -4,7 +4,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'lattifai-captions'
-version = '0.4.10'
+version = '0.4.11'
 description = "Caption/subtitle processing library with multi-format support (SRT, VTT, ASS, TTML, TextGrid, NLE formats)"
 keywords = ['captions', 'subtitles', 'srt', 'vtt', 'ass', 'ttml', 'textgrid', 'forced alignment']
 readme = 'README.md'

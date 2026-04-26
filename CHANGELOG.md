@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.10 - 2026-04-26
+
+### Features
+- **ASS karaoke `\k*` tags now parse into word-level alignment.** Reading a karaoke ASS populates `sup.alignment["word"]` with one `AlignmentItem` per syllable (handles `\k`, `\kf`, `\K`, `\ko`); the karaoke-stripped raw text is stored back into `custom["ass_raw_text"]` so a write-back without a fresh `karaoke_effect` no longer leaks stale `\k` timings. Fixes two scenarios that previously failed silently: re-aligning karaoke ASS → write with `karaoke_effect` (now uses fresh per-syllable timings), and re-aligning karaoke ASS → write without `karaoke_effect` (now emits clean plaintext instead of segment-level Start/End updated but stale per-syllable sweep). Non-karaoke override tags (`\an8`, `\pos`, `\fad`, …) are preserved verbatim
+- **`split_sentences` slices word alignment per fragment** instead of dropping it. Walks each overlapping source's text and word list with a cursor (per the multilingual-text rule) and keeps `AlignmentItem`s whose symbols overlap the global text range. Karaoke ASS workflows now retain per-syllable timings across sentence boundaries
+
+### Fixes
+- **ASS: preserve trailing `\\N` when speaker prefix is injected.** `include_speaker_in_text=True` (the `RenderConfig` default) prepends `<speaker>: ` to the rendered text, making it diverge from `custom['ass_raw_text']`. The "text was modified" branch in `_create_event_from_supervision` only converted inner `\n` → `\\N`; any trailing `\\N` from the raw line was silently dropped, turning `Dialogue: …,Hello\\N` into `Dialogue: …,11: Hello` once the `Event.Name` field gave the supervision a speaker. The trailing `\\N` run is now re-attached after the leading speaker prefix
+- **`split_sentences`: sanitize ASS roundtrip artifacts** that can't survive a split intact. `ass_raw_event_body` / `ass_raw_event_type` are dropped (the splice would otherwise force every fragment to re-emit the original full Text/Margins/Effect), and `ass_raw_text` is trimmed to its leading `{...}` override-tag block (`{\an8}{\fad(...)}`…) so positioning/animation tags propagate to each fragment via the writer's tag-prefix fallback while the now-stale text body is dropped
+
 ## 0.4.9 - 2026-04-26
 
 ### Fixes

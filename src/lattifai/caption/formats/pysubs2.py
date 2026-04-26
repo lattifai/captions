@@ -235,14 +235,14 @@ class Pysubs2Format(FormatHandler):
             supervisions, word_level=word_level, format_id=cls.format_id
         )
 
-        from .base import SpeakerTracker, render_bilingual_text
+        from .base import SpeakerTracker, format_text_with_translation
 
         subs = pysubs2.SSAFile()
 
         tf = behavior.translation_first
         tracker = SpeakerTracker() if cls._dedup_speaker else None
         for sup in supervisions:
-            text = render_bilingual_text(sup, translation_first=tf)
+            text = format_text_with_translation(sup, translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker, tracker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
 
@@ -462,7 +462,7 @@ class SRTFormat(Pysubs2Format):
     ) -> bytes:
         """Generate SRT with speaker names wrapped in <font color> tags."""
         from ..colors import resolve_speaker_color_rgb
-        from .base import maybe_expand_to_word_supervisions, render_bilingual_text
+        from .base import maybe_expand_to_word_supervisions, format_text_with_translation
 
         behavior, include_speaker, word_level = cls._unpack_render(**kwargs)
         supervisions = maybe_expand_to_word_supervisions(
@@ -477,7 +477,7 @@ class SRTFormat(Pysubs2Format):
 
         tracker = SpeakerTracker() if cls._dedup_speaker else None
         for sup in supervisions:
-            text = render_bilingual_text(sup, translation_first=tf)
+            text = format_text_with_translation(sup, translation_first=tf)
             if (
                 cls._should_include_speaker(sup, include_speaker, tracker)
                 and sup.speaker
@@ -1094,7 +1094,7 @@ class ASSFormat(Pysubs2Format):
                 # Bilingual karaoke: append the translation as a second plain
                 # line below (or above) the karaoke target line. Without this
                 # branch, translation would be silently dropped — only the
-                # non-karaoke path called render_bilingual_text.
+                # non-karaoke path called format_text_with_translation.
                 #
                 # COLOR JUMP FIX: \N is just a forced line break — it does
                 # NOT reset tag state. A \k tag applies to all following text
@@ -1134,9 +1134,9 @@ class ASSFormat(Pysubs2Format):
             else:
                 # Standard mode (no per-word \k tags). If kinetic_style is set,
                 # apply line-scope kinetic as a single {override} at text start.
-                from .base import render_bilingual_text
+                from .base import format_text_with_translation
 
-                text = render_bilingual_text(
+                text = format_text_with_translation(
                     sup, separator="\\N", translation_first=behavior.translation_first
                 )
                 if cls._should_include_speaker(sup, include_speaker, tracker):
@@ -1835,14 +1835,14 @@ class SSAFormat(ASSFormat):
             supervisions, word_level=word_level, format_id="ssa"
         )
 
-        from .base import SpeakerTracker, render_bilingual_text
+        from .base import SpeakerTracker, format_text_with_translation
 
         subs = cls._create_ass_file(metadata, config)
 
         tf = behavior.translation_first
         tracker = SpeakerTracker()
         for sup in supervisions:
-            text = render_bilingual_text(sup, separator="\\N", translation_first=tf)
+            text = format_text_with_translation(sup, separator="\\N", translation_first=tf)
             if cls._should_include_speaker(sup, include_speaker, tracker):
                 text = f"{cls._format_speaker_prefix(sup.speaker)}{text}"
             event = cls._create_event_from_supervision(sup, text)

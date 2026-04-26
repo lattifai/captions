@@ -18,7 +18,7 @@ from xml.dom import minidom
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter, ParseResult, render_bilingual_text, strip_standard_kwargs
+from ..base import FormatReader, FormatWriter, ParseResult, format_text_with_translation, strip_standard_kwargs
 
 
 @dataclass
@@ -252,7 +252,7 @@ class FCPXMLWriter:
 
             # Add text content
             text_elem = ET.SubElement(caption, "text")
-            text_elem.text = render_bilingual_text(sup)
+            text_elem.text = format_text_with_translation(sup)
 
             # Add style reference
             style_id = speaker_style_ids.get(sup.speaker, default_style_id)

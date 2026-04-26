@@ -18,7 +18,7 @@ from typing import List, Optional, Union
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter, ParseResult, render_bilingual_text, strip_standard_kwargs
+from ..base import FormatReader, FormatWriter, ParseResult, format_text_with_translation, strip_standard_kwargs
 
 
 @dataclass
@@ -131,7 +131,7 @@ class AuditionCSVWriter:
             duration = cls._format_time(sup.duration, config.time_format, config.sample_rate)
 
             if config.use_description:
-                description = render_bilingual_text(sup)
+                description = format_text_with_translation(sup)
             else:
                 description = ""
 
@@ -277,7 +277,7 @@ class EdiMarkerWriter:
 
             start_tc = cls._seconds_to_timecode(sup.start, fps)
             end_tc = cls._seconds_to_timecode(sup.end, fps)
-            text = render_bilingual_text(sup)
+            text = format_text_with_translation(sup)
 
             writer.writerow([name, start_tc, end_tc, text])
 

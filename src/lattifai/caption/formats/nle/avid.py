@@ -17,7 +17,7 @@ from typing import List, Optional, Union
 
 from ...supervision import Pathlike, Supervision
 from .. import register_reader, register_writer
-from ..base import FormatReader, FormatWriter, ParseResult, render_bilingual_text, strip_standard_kwargs
+from ..base import FormatReader, FormatWriter, ParseResult, format_text_with_translation, strip_standard_kwargs
 
 
 class FrameRate(Enum):
@@ -196,7 +196,7 @@ class AvidDSWriter:
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
             # Prepare text
-            text = render_bilingual_text(sup)
+            text = format_text_with_translation(sup)
 
             # Speaker label (dedup consecutive)
             if config.include_speaker and tracker.is_new(sup.speaker):
@@ -243,7 +243,7 @@ class AvidDSWriter:
             start_tc = cls.seconds_to_timecode(sup.start, config.fps, config.drop_frame)
             end_tc = cls.seconds_to_timecode(sup.end, config.fps, config.drop_frame)
 
-            text = render_bilingual_text(sup)
+            text = format_text_with_translation(sup)
 
             # Speaker label (dedup consecutive)
             if config.include_speaker and tracker.is_new(sup.speaker):

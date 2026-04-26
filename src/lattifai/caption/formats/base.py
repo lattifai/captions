@@ -280,8 +280,10 @@ ReaderType = type[FormatReader]
 WriterType = type[FormatWriter]
 
 
-def render_bilingual_text(sup: "Supervision", separator: str = "\n", translation_first: bool = False) -> str:
-    """Render supervision text with translation.
+def format_text_with_translation(sup: "Supervision", separator: str = "\n", translation_first: bool = False) -> str:
+    """Format supervision text, joining the translation if present.
+
+    When ``sup.translation`` is empty, returns ``sup.text`` unchanged.
 
     Args:
         sup: Supervision object

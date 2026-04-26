@@ -720,7 +720,7 @@ class VTTFormat(FormatHandler):
         """Generate standard VTT with full feature support."""
         from ..colors import resolve_speaker_color_rgb
         from ..config import VTTConfig
-        from .base import SpeakerTracker, render_bilingual_text
+        from .base import SpeakerTracker, format_text_with_translation
 
         vtt_config = vtt_config or VTTConfig()
         lines: List[str] = []
@@ -733,7 +733,7 @@ class VTTFormat(FormatHandler):
         skip_dedup = vtt_config.voice_tag or bool(speaker_color)
         tracker = None if skip_dedup else SpeakerTracker()
         for idx, sup in enumerate(supervisions, 1):
-            text = render_bilingual_text(sup, translation_first=translation_first)
+            text = format_text_with_translation(sup, translation_first=translation_first)
 
             # Speaker: voice tag or prefix
             show_speaker = (
@@ -786,7 +786,7 @@ class VTTFormat(FormatHandler):
         """
         from ..colors import resolve_speaker_color_rgb
         from ..config import VTTConfig
-        from .base import SpeakerTracker, render_bilingual_text
+        from .base import SpeakerTracker, format_text_with_translation
 
         vtt_config = vtt_config or VTTConfig()
         lines: List[str] = []
@@ -826,7 +826,7 @@ class VTTFormat(FormatHandler):
                     text_parts.append(f"<{cls._format_timestamp(word.start)}><c> {symbol}</c>")
                 lines.append("".join(text_parts))
             else:
-                text = render_bilingual_text(sup, translation_first=translation_first)
+                text = format_text_with_translation(sup, translation_first=translation_first)
                 lines.append(
                     f"{cls._format_timestamp(sup.start)} --> "
                     f"{cls._format_timestamp(sup.end)}{cue_settings_str}"

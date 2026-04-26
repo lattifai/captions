@@ -12,6 +12,12 @@ _MULTI_EVENT_RE = re.compile(r"\[[^\]]+\]")
 _TRAILING_EVENTS_RE = re.compile(r"^(.+?)\s+(\[[^\]]+\](?:\s+\[[^\]]+\])*)$")
 _LEADING_EVENTS_RE = re.compile(r"^(\[[^\]]+\](?:\s+\[[^\]]+\])*)\s+(.+)$")
 
+# Leading run of ASS override-tag blocks: ``{\an8}{\fad(0,500)}…``.
+# After a split we keep only this prefix on ``ass_raw_text`` so positioning /
+# fade tags propagate to each fragment via the ASS writer's tag-prefix
+# fallback, while the (now-stale) text body is dropped.
+_ASS_TAG_PREFIX_RE = re.compile(r"^(\{[^}]*\})+")
+
 
 class SentenceSplitter:
     """Lazy-initialized sentence splitter using wtpsplit."""
@@ -144,6 +150,7 @@ class SentenceSplitter:
             first_char_idx = None
             last_char_idx = None
             overlapping_customs = []
+            sliced_word_items: List = []
 
             for i in range(sup_idx, len(sup_ranges)):
                 sup_start, sup_end, sup = sup_ranges[i]
@@ -163,6 +170,29 @@ class SentenceSplitter:
 
                 if getattr(sup, "custom", None):
                     overlapping_customs.append(sup.custom)
+
+                # Slice this source's word-level alignment by the global text
+                # range, then collect the AlignmentItems whose symbol falls
+                # inside [local_start, local_end). Walk sup.text + words in
+                # order with a cursor (per the multilingual-text rule in
+                # CLAUDE.md) so CJK char-level symbols and Latin word symbols
+                # both map back to the right substring.
+                sup_alignment = getattr(sup, "alignment", None)
+                if sup_alignment and sup_alignment.get("word"):
+                    local_start = max(0, text_start - sup_start)
+                    local_end = min(len(sup.text or ""), text_end - sup_start)
+                    src_text = sup.text or ""
+                    cursor = 0
+                    for w in sup_alignment["word"]:
+                        if not w.symbol:
+                            continue
+                        pos = src_text.find(w.symbol, cursor)
+                        if pos < 0:
+                            continue
+                        word_end = pos + len(w.symbol)
+                        if word_end > local_start and pos < local_end:
+                            sliced_word_items.append(w)
+                        cursor = word_end
 
             if first_sup is None or last_sup is None:
                 raise ValueError(
@@ -190,16 +220,20 @@ class SentenceSplitter:
                 end_time = max(last_sup.start + last_sup.duration, start_time + 0.1)
 
             merged_custom = SentenceSplitter._merge_customs(overlapping_customs)
+            merged_custom = SentenceSplitter._sanitize_custom_for_split(merged_custom)
+
+            sliced_alignment = (
+                {"word": sliced_word_items} if sliced_word_items else None
+            )
 
             # Inherit all per-supervision fields (channel / language /
             # gender / score / translation / target_lang / recording_id /
             # …) from the first overlapping source so per-line caption
             # metadata (e.g. ASS Style, VTT voice) survives the split.
-            # Only text / start / duration / id / custom are freshly
-            # assigned; `alignment` is a pre-align artifact whose word
-            # indices no longer match the new text, and `speaker` is
-            # deferred to the Phase 5 assignment step, which owns the
-            # "only first sentence carries the speaker" semantics.
+            # ``text`` / ``start`` / ``duration`` / ``id`` / ``custom`` /
+            # ``alignment`` are freshly assigned; ``speaker`` is deferred
+            # to the Phase 5 assignment step, which owns the "only first
+            # sentence carries the speaker" semantics.
             result.append(
                 fastcopy(
                     first_sup,
@@ -208,7 +242,7 @@ class SentenceSplitter:
                     start=start_time,
                     duration=end_time - start_time,
                     custom=merged_custom,
-                    alignment=None,
+                    alignment=sliced_alignment,
                     speaker=None,
                 )
             )
@@ -244,6 +278,40 @@ class SentenceSplitter:
             merged["_split_from_multiple"] = True
             merged["_source_count"] = len(non_empty)
         return merged
+
+    @staticmethod
+    def _sanitize_custom_for_split(
+        custom: Optional[dict],
+    ) -> Optional[dict]:
+        """Strip ASS roundtrip artifacts that can't survive a split intact.
+
+        - ``ass_raw_event_body`` / ``ass_raw_event_type``: the raw Dialogue
+          line refers to the *un-split* text. Letting the splicer reuse it
+          would force every fragment to re-emit the original full
+          Text/Margins/Effect/etc., undoing the split. Drop both so
+          ``_splice_raw_event_bodies`` skips these events and pysubs2's
+          per-fragment output becomes authoritative.
+        - ``ass_raw_text``: trim down to the leading override-tag block
+          (``{\\an8}{\\fad(0,500)}…``) so positioning / animation tags
+          propagate to each fragment via the writer's tag-prefix fallback.
+          The text body wouldn't survive a split byte-faithfully and
+          would otherwise trigger spurious raw-text restoration when a
+          fragment happens to ``_norm``-equal the full original.
+        """
+        if not custom:
+            return custom
+        new_custom = dict(custom)
+        new_custom.pop("ass_raw_event_body", None)
+        new_custom.pop("ass_raw_event_type", None)
+        raw_text = new_custom.get("ass_raw_text")
+        if raw_text is not None:
+            m = _ASS_TAG_PREFIX_RE.match(raw_text)
+            prefix = m.group(0) if m else ""
+            if prefix:
+                new_custom["ass_raw_text"] = prefix
+            else:
+                new_custom.pop("ass_raw_text", None)
+        return new_custom
 
     @staticmethod
     def _is_event_text(text: str) -> bool:

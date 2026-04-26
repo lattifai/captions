@@ -697,8 +697,11 @@ def test_distribute_time_info_cross_boundary_custom_conflict_marked():
     assert custom.get("_source_count") == 2
 
 
-def test_distribute_time_info_clears_alignment_on_split():
-    """alignment is pre-align state — must not leak into split children."""
+def test_distribute_time_info_drops_malformed_alignment():
+    """Alignment shaped with the wrong key (``words`` plural / tuples) is
+    silently ignored — the slicer only recognizes the canonical
+    ``{"word": [AlignmentItem, ...]}`` schema.
+    """
     sup = _make_sup(0, "Hello. World.", start=0.0, duration=2.0)
     sup.alignment = {"words": [("Hello", 0.0, 0.5, 0.9)]}
 
@@ -707,6 +710,113 @@ def test_distribute_time_info_clears_alignment_on_split():
     assert len(result) == 2
     for new_sup in result:
         assert new_sup.alignment is None
+
+
+def test_distribute_time_info_slices_word_alignment_per_sentence():
+    """Word-level alignment is sliced so each sentence keeps only the
+    AlignmentItems whose symbols fall inside its text range.
+
+    Regression for the karaoke-ASS workflow: reader populates
+    ``sup.alignment["word"]`` from ``\\k*`` tags; if a downstream sentence
+    splitter wiped that alignment, downstream regeneration of karaoke
+    would have to re-run forced alignment from scratch.
+    """
+    from lattifai.caption.supervision import AlignmentItem
+
+    sup = _make_sup(0, "Hello beautiful world.", start=0.0, duration=3.0)
+    sup.alignment = {
+        "word": [
+            AlignmentItem(symbol="Hello",     start=0.0, duration=0.5),
+            AlignmentItem(symbol="beautiful", start=0.5, duration=1.5),
+            AlignmentItem(symbol="world",     start=2.0, duration=1.0),
+        ]
+    }
+
+    result = SentenceSplitter._distribute_time_info(
+        [sup], ["Hello beautiful", "world."]
+    )
+
+    assert len(result) == 2
+    assert result[0].alignment is not None
+    assert [w.symbol for w in result[0].alignment["word"]] == ["Hello", "beautiful"]
+    assert result[1].alignment is not None
+    assert [w.symbol for w in result[1].alignment["word"]] == ["world"]
+
+
+def test_distribute_time_info_drops_ass_raw_event_body_on_split():
+    """``ass_raw_event_body`` / ``ass_raw_event_type`` refer to the un-split
+    Dialogue line; keeping them across a split would force the ASS
+    writer's splice to re-emit the original full Text on every fragment.
+    The split must drop them so pysubs2's per-fragment output wins.
+    """
+    sup = _make_sup(
+        0,
+        "Hello there. General Kenobi.",
+        start=0.0,
+        duration=2.8,
+        custom={
+            "ass_style": "Narrator",
+            "ass_raw_event_type": "Dialogue",
+            "ass_raw_event_body": "0,0:00:00.00,0:00:02.80,Narrator,,0,0,0,,Hello there. General Kenobi.",
+        },
+    )
+
+    result = SentenceSplitter._distribute_time_info(
+        [sup], ["Hello there.", "General Kenobi."]
+    )
+
+    assert len(result) == 2
+    for new_sup in result:
+        assert new_sup.custom is not None
+        # ass_style still inherited (structural roundtrip metadata).
+        assert new_sup.custom["ass_style"] == "Narrator"
+        # raw event body / type stripped — splice must skip these events.
+        assert "ass_raw_event_body" not in new_sup.custom
+        assert "ass_raw_event_type" not in new_sup.custom
+
+
+def test_distribute_time_info_keeps_only_override_tag_prefix_in_ass_raw_text():
+    """``ass_raw_text`` is trimmed to the leading ``{...}`` override-tag
+    block so positioning / fade tags propagate to each fragment via the
+    writer's tag-prefix fallback. The (now-stale) text body is dropped.
+    """
+    sup = _make_sup(
+        0,
+        "Hello there. General Kenobi.",
+        start=0.0,
+        duration=2.8,
+        custom={"ass_raw_text": r"{\an8}{\fad(0,500)}Hello there. General Kenobi."},
+    )
+
+    result = SentenceSplitter._distribute_time_info(
+        [sup], ["Hello there.", "General Kenobi."]
+    )
+
+    assert len(result) == 2
+    for new_sup in result:
+        assert new_sup.custom is not None
+        assert new_sup.custom["ass_raw_text"] == r"{\an8}{\fad(0,500)}"
+
+
+def test_distribute_time_info_drops_ass_raw_text_when_no_override_tags():
+    """If the original ass_raw_text has no leading override block, the key
+    is removed entirely so the writer doesn't see a stale text body.
+    """
+    sup = _make_sup(
+        0,
+        "Hello there. General Kenobi.",
+        start=0.0,
+        duration=2.8,
+        custom={"ass_raw_text": "Hello there. General Kenobi."},
+    )
+
+    result = SentenceSplitter._distribute_time_info(
+        [sup], ["Hello there.", "General Kenobi."]
+    )
+
+    assert len(result) == 2
+    for new_sup in result:
+        assert "ass_raw_text" not in (new_sup.custom or {})
 
 
 if __name__ == "__main__":

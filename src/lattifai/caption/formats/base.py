@@ -204,18 +204,41 @@ class FormatWriter(ABC):
     ) -> bool:
         """Check if speaker should be included in output text.
 
-        Considers the global *include_speaker* flag, the segment-level
-        ``original_speaker`` flag in custom metadata, and — when a
-        *tracker* is provided — suppresses consecutive duplicates so a
-        speaker label is only emitted when it changes.
+        Semantics:
+
+        * ``include_speaker=False`` or ``sup.speaker`` empty → never include.
+        * ``custom["original_speaker"]`` is ``True`` (the default) → the
+          speaker was *explicitly* tagged by the source author or upstream
+          producer. Emit the prefix unconditionally, even when consecutive
+          cues share the same speaker. This preserves user intent and
+          guarantees lossless round-trips for formats that recover speaker
+          from cue text (e.g. SRT, VTT).
+        * ``custom["original_speaker"]`` is ``False`` → the speaker was
+          inherited or back-filled (e.g. by a sentence splitter that broke
+          one author's utterance into multiple cues). When a *tracker* is
+          provided, suppress the prefix on consecutive duplicates so the
+          rendered output stays readable.
+
+        In both branches the *tracker* (if provided) is advanced so a later
+        inherited cue can correctly detect a speaker change.
         """
         if not include_speaker or not getattr(sup, "speaker", None):
             return False
         custom = getattr(sup, "custom", None)
+        # Legacy semantic: an explicit ``original_speaker=False`` flag means
+        # the caller has already determined this cue's speaker should not be
+        # rendered (e.g. it was back-filled by a sentence splitter and is
+        # inherited from a neighbour). Suppress unconditionally.
         if custom and not custom.get("original_speaker", True):
             return False
-        if tracker is not None and not tracker.is_new(sup.speaker):
-            return False
+        # The speaker was explicitly tagged on this cue. Emit the prefix
+        # unconditionally, even when it equals the previous cue's speaker —
+        # tracker dedup is a display optimisation that must not erase the
+        # user's intent and would otherwise break read-back fidelity for
+        # text-encoded formats (VTT, etc.). Advance tracker state so a
+        # later inherited cue still sees the correct previous speaker.
+        if tracker is not None:
+            tracker.is_new(sup.speaker)
         return True
 
     @staticmethod

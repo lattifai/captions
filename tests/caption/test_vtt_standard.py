@@ -792,5 +792,158 @@ Centered text
         assert "align:center" in output
 
 
+# =============================================================================
+# Speaker preservation across consecutive cues
+#
+# The text-prefix encoding of speakers ("ALICE: hello") on VTT historically
+# applied a tracker-based dedup, dropping the prefix on the second cue when
+# the speaker hadn't changed. That broke fidelity for roundtrips and for
+# cases where the source explicitly tagged every cue. The contract is now:
+#
+#   - ``original_speaker=True`` (the default) → emit the prefix on every
+#     cue with a speaker, regardless of the previous cue's speaker. This
+#     guarantees the read side can always recover the speaker and matches
+#     the source author's intent.
+#   - ``original_speaker=False`` → speaker was inherited / back-filled by
+#     the producer (e.g. sentence splitter); suppress the prefix when it
+#     equals the previous cue's speaker so display stays clean.
+#
+# These tests pin both halves of that contract.
+# =============================================================================
+
+
+class TestVTTSpeakerConsecutivePreservation:
+    """Cover the speaker-front-to-back change matrix on VTT writes."""
+
+    def _write_and_reparse(self, sups):
+        caption = Caption.from_supervisions(sups)
+        text = caption.to_bytes(output_format="vtt").decode("utf-8")
+        reparsed = VTTFormat.parse(text).supervisions
+        return text, reparsed
+
+    def test_consecutive_same_explicit_speaker_preserved(self):
+        """ALICE → ALICE (both explicit) must keep prefix on both cues."""
+        sups = [
+            Supervision(text="hello", start=0.0, duration=1.0, speaker="ALICE"),
+            Supervision(text="hello again", start=1.5, duration=1.0, speaker="ALICE"),
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        # Wire-level: every cue line carries its speaker prefix.
+        assert text.count("ALICE:") == 2, f"Expected two ALICE: prefixes; output:\n{text}"
+        # Roundtrip: speaker recovered on both cues. Reader keeps the
+        # trailing colon as part of the parsed speaker label.
+        assert [s.speaker for s in reparsed] == ["ALICE:", "ALICE:"]
+
+    def test_three_consecutive_same_explicit_speaker_all_preserved(self):
+        """A → A → A keeps the prefix on every cue (no silent drop in the middle)."""
+        sups = [
+            Supervision(text="line one", start=0.0, duration=1.0, speaker="A"),
+            Supervision(text="line two", start=1.5, duration=1.0, speaker="A"),
+            Supervision(text="line three", start=3.0, duration=1.0, speaker="A"),
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        assert text.count("A:") == 3, f"Expected three A: prefixes; output:\n{text}"
+        assert [s.speaker for s in reparsed] == ["A:", "A:", "A:"]
+
+    def test_speaker_change_pattern_alice_none_alice(self):
+        """ALICE → None → ALICE. The continuation cue stays empty; the
+        recurrence carries its own prefix."""
+        sups = [
+            Supervision(text="first", start=0.0, duration=1.0, speaker="ALICE"),
+            Supervision(text="middle continuation", start=1.5, duration=1.0, speaker=None),
+            Supervision(text="alice again", start=3.0, duration=1.0, speaker="ALICE"),
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        assert [s.speaker for s in reparsed] == ["ALICE:", None, "ALICE:"], reparsed
+        assert text.count("ALICE:") == 2
+
+    def test_alternating_speakers_each_prefix_kept(self):
+        """ALICE → BOB → ALICE → BOB; every cue keeps its prefix."""
+        sups = [
+            Supervision(text=f"line {i}", start=i * 1.5, duration=1.0, speaker=("ALICE" if i % 2 == 0 else "BOB"))
+            for i in range(4)
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        assert text.count("ALICE:") == 2
+        assert text.count("BOB:") == 2
+        assert [s.speaker for s in reparsed] == ["ALICE:", "BOB:", "ALICE:", "BOB:"]
+
+    def test_inherited_speaker_consecutive_dedup_suppresses_prefix(self):
+        """Legacy contract: when the producer flags a cue as inherited
+        (``custom['original_speaker']=False``), the writer should suppress
+        the prefix on consecutive duplicates so the rendered output stays
+        clean. The first cue still emits."""
+        sups = [
+            Supervision(
+                text="first part",
+                start=0.0,
+                duration=1.0,
+                speaker="ALICE",
+                custom={"original_speaker": True},
+            ),
+            Supervision(
+                text="continuation chunk",
+                start=1.5,
+                duration=1.0,
+                speaker="ALICE",
+                custom={"original_speaker": False},  # inherited from neighbour
+            ),
+            Supervision(
+                text="another inherited",
+                start=3.0,
+                duration=1.0,
+                speaker="ALICE",
+                custom={"original_speaker": False},
+            ),
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        # Only the first cue emits ALICE: ; the two inherited cues are suppressed.
+        assert text.count("ALICE:") == 1, f"Expected exactly one ALICE: prefix; got:\n{text}"
+        # Roundtrip then collapses the inherited speakers to None on read.
+        assert [s.speaker for s in reparsed] == ["ALICE:", None, None], reparsed
+
+    def test_explicit_after_inherited_resumes_prefix(self):
+        """Inherited duplicates suppress the prefix, but a subsequent
+        explicit cue (even with the same speaker) must re-emit so the
+        reader can recover the speaker again."""
+        sups = [
+            Supervision(text="first", start=0.0, duration=1.0, speaker="ALICE"),  # default original
+            Supervision(
+                text="inherited",
+                start=1.5,
+                duration=1.0,
+                speaker="ALICE",
+                custom={"original_speaker": False},
+            ),
+            Supervision(text="explicit again", start=3.0, duration=1.0, speaker="ALICE"),  # default original
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        # First and third explicit cues emit prefix; middle inherited is suppressed.
+        assert text.count("ALICE:") == 2, f"Expected two ALICE: prefixes; got:\n{text}"
+        assert [s.speaker for s in reparsed] == ["ALICE:", None, "ALICE:"], reparsed
+
+    def test_eight_supervision_multi_speaker_layout_roundtrips(self):
+        """End-to-end: the eight-cue multi-speaker layout used by the
+        backend regression suite must roundtrip without dropping the
+        explicitly-tagged BOB on the second consecutive BOB cue."""
+        # Use colon-suffixed labels to match what the parser returns on
+        # read-back (``parse_speaker_text`` keeps the trailing colon).
+        layout = [
+            "ALICE:",
+            None,
+            "BOB:",
+            "BOB:",  # ← previously dropped by VTT dedup
+            "[SPEAKER_02]:",
+            None,
+            ">> DAVID:",
+            "ALICE:",
+        ]
+        sups = [
+            Supervision(text=f"line {i}", start=i * 2.0, duration=1.5, speaker=sp) for i, sp in enumerate(layout)
+        ]
+        text, reparsed = self._write_and_reparse(sups)
+        assert [s.speaker for s in reparsed] == layout, reparsed
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

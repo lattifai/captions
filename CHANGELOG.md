@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.9 - 2026-04-26
+
+### Fixes
+- **ASS: honor `include_speaker_in_text=True` on ASS-sourced supervisions.** Two layers were silently ignoring the flag — `ASSFormat._should_include_speaker` short-circuited based on `custom['ass_raw_text']`, and `_splice_raw_event_bodies` unconditionally restored the pre-mutation Text field. The override is removed and the splice now uses a per-field policy: Start/End from pysubs2, Name/Text rstrip-compared against raw (match → keep raw to preserve trailing whitespace, differ → use pysubs2 so user mutations survive), structural fields (Layer/Style/Margins/Effect) always from raw to preserve byte-level quirks like zero-padded margins
+
+### Internal
+- Rename `render_bilingual_text` → `format_text_with_translation`. The old name implied a bilingual-only operation, but the helper also returns supervision text unchanged when no translation is set; the new name describes the actual behavior
+
 ## 0.4.8 - 2026-04-25
 
 ### Fixes (Windows)

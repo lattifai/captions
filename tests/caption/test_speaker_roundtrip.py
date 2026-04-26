@@ -387,6 +387,54 @@ BOB: Third speaker format
         assert "#000000" not in bg_line, \
             f"VTT background-color is shadow color (black) instead of fill (red):\n{bg_line}"
 
+    def test_ass_sourced_include_speaker_true_emits_inline_prefix(self, tmp_path):
+        """ASS read → ASS write with include_speaker_in_text=True must add inline prefix.
+
+        Regression: previously the writer suppressed the inline prefix on any
+        ASS-sourced supervision (because ``custom['ass_raw_text']`` was set),
+        and the raw-event-body splice unconditionally restored the
+        pre-mutation Text field. Together they silently ignored the user's
+        explicit ``include_speaker_in_text=True`` request.
+        """
+        ass_src = (
+            "[Script Info]\n"
+            "ScriptType: v4.00+\n\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+            "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+            "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\n"
+            "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+            "0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,0,1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+            "Dialogue: 0,0:00:01.00,0:00:03.00,Default,Bob,0,0,0,,hello\n"
+        )
+        src = tmp_path / "src.ass"
+        src.write_text(ass_src)
+
+        out = tmp_path / "out.ass"
+        Caption.read(src).write(
+            out, render=RenderConfig(include_speaker_in_text=True)
+        )
+        content = out.read_text()
+        dialogue_lines = [ln for ln in content.splitlines() if ln.startswith("Dialogue:")]
+        assert len(dialogue_lines) == 1
+        # Both the Name field and the inline prefix must be present.
+        assert ",Bob," in dialogue_lines[0], dialogue_lines[0]
+        assert dialogue_lines[0].rstrip().endswith("Bob: hello"), dialogue_lines[0]
+
+        # include_speaker_in_text=False on the same source must NOT emit the
+        # inline prefix; raw Text bytes are preserved.
+        out2 = tmp_path / "out2.ass"
+        Caption.read(src).write(
+            out2, render=RenderConfig(include_speaker_in_text=False)
+        )
+        content2 = out2.read_text()
+        dialogue_lines2 = [ln for ln in content2.splitlines() if ln.startswith("Dialogue:")]
+        assert len(dialogue_lines2) == 1
+        assert ",Bob," in dialogue_lines2[0], dialogue_lines2[0]
+        assert dialogue_lines2[0].rstrip().endswith(",,hello"), dialogue_lines2[0]
+
     def test_ass_speaker_roundtrip_without_include(self, tmp_path):
         """Test ASS roundtrip: include_speaker_in_text=False uses Name field only."""
         supervisions = [

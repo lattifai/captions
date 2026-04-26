@@ -517,21 +517,6 @@ class ASSFormat(Pysubs2Format):
     )
 
     @classmethod
-    def _should_include_speaker(cls, sup, include_speaker, tracker=None):
-        """ASS has a dedicated ``Name`` event field that already carries the
-        speaker. When the supervision was read from ASS (``ass_raw_text`` is
-        present), roundtripping ``include_speaker_in_text=True`` would
-        produce a duplicate ``Name: text`` prefix inside the text body.
-        Suppress the text-level prefix for ASS-sourced supervisions;
-        downstream callers that genuinely want an inline prefix can clear
-        ``custom['ass_raw_text']`` before writing.
-        """
-        custom = getattr(sup, "custom", None) or {}
-        if "ass_raw_text" in custom:
-            return False
-        return super()._should_include_speaker(sup, include_speaker, tracker)
-
-    @classmethod
     def _sanitize_ass_timestamp_field(cls, value: str) -> Tuple[str, bool]:
         """Clamp malformed component-negative ASS timestamps to zero.
 
@@ -1222,12 +1207,22 @@ class ASSFormat(Pysubs2Format):
 
     @staticmethod
     def _splice_raw_event_bodies(output: str, supervisions: List[Supervision]) -> str:
-        """Replace each pysubs2-emitted Dialogue/Comment body with its raw copy.
+        """Merge each pysubs2-emitted Dialogue/Comment body with its raw copy.
 
-        Only the Start/End fields (positions 1 and 2) from the pysubs2 output
-        are kept — those reflect current supervision timings. Everything else
-        (Layer, Style, Name, MarginL/R/V, Effect, Text) uses the raw body so
-        zero-padded margins and trailing whitespace inside Text survive.
+        Per-field policy:
+
+          * Start, End (idx 1, 2)        — always from pysubs2 (current timing).
+          * Name (idx 4), Text (idx 9)   — rstrip-compared against raw. Match
+            → keep raw (preserves trailing ws inside Text). Differ → use
+            pysubs2's value so user mutations to ``sup.text`` / ``sup.speaker``
+            (including the inline ``Speaker:`` prefix from
+            ``include_speaker_in_text=True``) survive the splice.
+          * Layer, Style, Margins, Effect (idx 0, 3, 5, 6, 7, 8)
+                                         — always from raw. pysubs2
+            normalizes some of these (e.g. ``0000`` → ``0``), so a byte-
+            compare here would falsely flag every margin as mutated; we
+            instead unconditionally trust raw the way the original splice
+            did.
 
         Skipped when:
           * no supervision has ``ass_raw_event_body`` (nothing to splice)
@@ -1267,10 +1262,15 @@ class ASSFormat(Pysubs2Format):
             raw_fields = raw_body.split(",", 9)
             if len(pysubs_fields) < 10 or len(raw_fields) < 10:
                 continue
-            # Preserve pysubs2's Start/End (reflects current sup timing);
-            # everything else comes from the raw body.
+            # Start/End: always from pysubs (current timing).
             raw_fields[1] = pysubs_fields[1]
             raw_fields[2] = pysubs_fields[2]
+            # Name/Text: keep raw when pysubs matches modulo trailing
+            # whitespace (no mutation); otherwise use pysubs so user
+            # mutations and render-config-driven changes survive.
+            for i in (4, 9):
+                if pysubs_fields[i].rstrip() != raw_fields[i].rstrip():
+                    raw_fields[i] = pysubs_fields[i]
             final_prefix = raw_type or prefix
             lines[line_idx] = f"{final_prefix}: " + ",".join(raw_fields)
 

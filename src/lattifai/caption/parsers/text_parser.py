@@ -357,6 +357,87 @@ _ASS_POS_RE = re.compile(r"\\pos\(")
 _ASS_T_FS_RE = re.compile(r"\\t\([^)]*\\fs")  # \t(...\fs... — animated font size
 _ASS_KARAOKE_RE = re.compile(r"\\k[fo]?\d+")
 
+# Karaoke tag with capture group for parsing.
+# Covers \k, \kf, \ko, and \K (Aegisub alias for \kf).
+_ASS_KARAOKE_PARSE_RE = re.compile(r"\\(?:k[fo]?|K)(\d+)")
+
+
+def parse_ass_karaoke(raw_text: str) -> Tuple[list, str]:
+    """Parse karaoke ``\\k*`` tags from an ASS event Text field.
+
+    Splits the text into syllables on each karaoke tag and produces a
+    karaoke-stripped version of the original text (other override tags like
+    ``\\an8``, ``\\pos(...)``, ``\\fad(...)`` are preserved).
+
+    Each karaoke tag (``\\k``, ``\\kf``, ``\\K``, ``\\ko``) marks the start
+    of a new syllable; the syllable's symbol is the visible text from this
+    tag up to the next karaoke tag (or end of input). Duration is in
+    centiseconds in ASS, returned here in seconds.
+
+    Args:
+        raw_text: Raw ASS event Text field, e.g. ``"{\\kf30}hello {\\kf50}world"``.
+
+    Returns:
+        ``(syllables, stripped_text)``:
+          * ``syllables``: ``list[tuple[str, float]]`` — ``(symbol, duration_s)``
+            per syllable in order. Empty list when no ``\\k*`` tag found.
+          * ``stripped_text``: ``raw_text`` with karaoke tags removed and
+            override blocks that contained only karaoke tags collapsed away.
+            Non-karaoke override blocks are preserved verbatim.
+    """
+    if not raw_text or not _ASS_KARAOKE_PARSE_RE.search(raw_text):
+        return [], raw_text
+
+    syllables: list = []
+    stripped_parts: list = []
+    current_symbol = ""
+    current_duration_cs: Optional[int] = None
+
+    pos = 0
+    n = len(raw_text)
+    while pos < n:
+        ch = raw_text[pos]
+        if ch == "{":
+            end = raw_text.find("}", pos)
+            if end == -1:
+                # Malformed override block: treat the rest as plain text.
+                tail = raw_text[pos:]
+                current_symbol += tail
+                stripped_parts.append(tail)
+                break
+            block_inner = raw_text[pos + 1 : end]
+            kara_matches = list(_ASS_KARAOKE_PARSE_RE.finditer(block_inner))
+            if kara_matches:
+                cursor = 0
+                pre_text = ""
+                for m in kara_matches:
+                    pre_text += block_inner[cursor : m.start()]
+                    if current_duration_cs is not None:
+                        syllables.append(
+                            (current_symbol, current_duration_cs / 100.0)
+                        )
+                    current_symbol = ""
+                    current_duration_cs = int(m.group(1))
+                    cursor = m.end()
+                pre_text += block_inner[cursor:]
+                # Drop empty residuals — preserves non-karaoke override tags
+                # that shared a block with karaoke tags (``\an8\kf30``).
+                if pre_text.strip():
+                    stripped_parts.append("{" + pre_text + "}")
+            else:
+                # No karaoke tag in this block — pass through verbatim.
+                stripped_parts.append(raw_text[pos : end + 1])
+            pos = end + 1
+        else:
+            current_symbol += ch
+            stripped_parts.append(ch)
+            pos += 1
+
+    if current_duration_cs is not None:
+        syllables.append((current_symbol, current_duration_cs / 100.0))
+
+    return syllables, "".join(stripped_parts)
+
 
 def _extract_ass_signals(ass_raw_text: str) -> dict:
     """Pull the override-tag signals relevant to line-type classification.

@@ -14,8 +14,8 @@ from ..colors import SPEAKER_PALETTE, hex_rgb_to_bgr, resolve_speaker_color
 from ..config import ASSConfig
 from ..parsers.text_parser import detect_speaker_candidates
 from ..parsers.text_parser import normalize_text as normalize_text_fn
-from ..parsers.text_parser import parse_speaker_text, set_speaker_candidates
-from ..supervision import Supervision
+from ..parsers.text_parser import parse_ass_karaoke, parse_speaker_text, set_speaker_candidates
+from ..supervision import AlignmentItem, Supervision
 from . import register_format
 from .base import FormatHandler, ParseResult
 
@@ -718,6 +718,16 @@ class ASSFormat(Pysubs2Format):
                         plaintext = plaintext[len(prefix) :]
                         break
 
+            # Parse ASS karaoke ``\k*`` tags into word-level alignment.
+            # Promotes karaoke ASS to a first-class word-aligned format so
+            # downstream pipelines (forced alignment, splitting, translation)
+            # can operate uniformly. The karaoke-stripped raw text is stored
+            # back into ``ass_raw_text`` so a write-back without a fresh
+            # ``karaoke_effect`` doesn't bring stale ``\k`` timings along —
+            # otherwise the supervision-level Start/End would update from
+            # forced alignment while per-syllable sweep stayed wrong.
+            syllables, stripped_raw = parse_ass_karaoke(event.text)
+
             custom = {
                 "ass_style": event.style,
                 "ass_layer": event.layer,
@@ -725,7 +735,7 @@ class ASSFormat(Pysubs2Format):
                 "ass_margin_r": event.marginr,
                 "ass_margin_v": event.marginv,
                 "ass_effect": event.effect,
-                "ass_raw_text": event.text,
+                "ass_raw_text": stripped_raw if syllables else event.text,
                 "ass_is_comment": event.is_comment,
             }
             if idx < len(raw_event_bodies):
@@ -735,17 +745,34 @@ class ASSFormat(Pysubs2Format):
             if r"\p1" in event.text or re.match(r"^\s*m\s+\d+", event.plaintext):
                 custom["line_type"] = "drawing"
 
+            sup_start = event.start / 1000.0 if event.start is not None else 0
+            sup_duration = (
+                (event.end - event.start) / 1000.0 if event.end is not None else 0
+            )
+
+            sup_alignment: Optional[Dict[str, List[AlignmentItem]]] = None
+            if syllables:
+                word_items: List[AlignmentItem] = []
+                cursor = sup_start
+                for symbol, dur in syllables:
+                    word_items.append(
+                        AlignmentItem(
+                            symbol=symbol,
+                            start=round(cursor, 4),
+                            duration=round(dur, 4),
+                        )
+                    )
+                    cursor += dur
+                sup_alignment = {"word": word_items}
+
             supervisions.append(
                 Supervision(
                     text=plaintext,
                     speaker=speaker or event.name or None,
-                    start=event.start / 1000.0 if event.start is not None else 0,
-                    duration=(
-                        (event.end - event.start) / 1000.0
-                        if event.end is not None
-                        else 0
-                    ),
+                    start=sup_start,
+                    duration=sup_duration,
                     custom=custom,
+                    alignment=sup_alignment,
                 )
             )
 

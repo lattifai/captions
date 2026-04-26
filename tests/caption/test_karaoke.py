@@ -502,3 +502,161 @@ class TestNewKaraokeAPI:
         content = result.decode("utf-8")
         # Enhanced LRC has inline timestamps
         assert "<" in content
+
+
+_KARAOKE_ASS_HEADER = (
+    "[Script Info]\n"
+    "ScriptType: v4.00+\n\n"
+    "[V4+ Styles]\n"
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+    "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+    "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+    "Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\n"
+    "Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,"
+    "0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,0,1\n\n"
+    "[Events]\n"
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
+    "Effect, Text\n"
+)
+
+
+class TestASSKaraokeReader:
+    """ASS karaoke ``\\k*`` tags must parse into word-level alignment so
+    downstream pipelines (forced alignment, sentence splitting, translation)
+    can operate uniformly.
+    """
+
+    def test_kf_tags_populate_word_alignment(self, tmp_path):
+        from lattifai.caption import Caption
+
+        ass_src = (
+            _KARAOKE_ASS_HEADER
+            + "Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,"
+            + r"{\kf100}hello {\kf100}beautiful {\kf100}world"
+            + "\n"
+        )
+        src = tmp_path / "k.ass"
+        src.write_text(ass_src)
+
+        cap = Caption.read(src)
+        sup = cap.supervisions[0]
+
+        assert sup.text == "hello beautiful world"
+        assert sup.alignment is not None
+        words = sup.alignment["word"]
+        assert [w.symbol for w in words] == ["hello ", "beautiful ", "world"]
+        assert [w.duration for w in words] == [1.0, 1.0, 1.0]
+        # Each syllable's start advances by previous duration, anchored to event start.
+        assert words[0].start == 1.0
+        assert words[1].start == 2.0
+        assert words[2].start == 3.0
+        # ass_raw_text must be stripped of \k tags so write-back without
+        # karaoke_effect doesn't leak stale timings.
+        assert "\\k" not in sup.custom["ass_raw_text"]
+        assert sup.custom["ass_raw_text"] == "hello beautiful world"
+
+    def test_non_karaoke_override_tags_preserved(self, tmp_path):
+        from lattifai.caption import Caption
+
+        ass_src = (
+            _KARAOKE_ASS_HEADER
+            + "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,"
+            + r"{\an8\kf30}hi{\kf20}there{\fad(0,500)}"
+            + "\n"
+        )
+        src = tmp_path / "k.ass"
+        src.write_text(ass_src)
+
+        sup = Caption.read(src).supervisions[0]
+        # \an8 and \fad survive; \kf gone
+        assert "\\an8" in sup.custom["ass_raw_text"]
+        assert "\\fad" in sup.custom["ass_raw_text"]
+        assert "\\k" not in sup.custom["ass_raw_text"]
+
+    def test_no_karaoke_keeps_raw_text_intact(self, tmp_path):
+        from lattifai.caption import Caption
+
+        ass_src = (
+            _KARAOKE_ASS_HEADER
+            + "Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,"
+            + r"{\an8}plain text"
+            + "\n"
+        )
+        src = tmp_path / "k.ass"
+        src.write_text(ass_src)
+
+        sup = Caption.read(src).supervisions[0]
+        assert sup.alignment is None
+        # Non-karaoke event: raw text is verbatim from event.text
+        assert sup.custom["ass_raw_text"] == r"{\an8}plain text"
+
+    def test_regenerate_with_new_alignment_produces_new_kf_values(self, tmp_path):
+        """Read karaoke ASS, replace alignment with new timings, write with
+        karaoke_effect — output must reflect the NEW timings, not the old ones.
+        """
+        from lattifai.caption import Caption
+        from lattifai.caption.config import ASSConfig, RenderConfig
+        from lattifai.caption.supervision import AlignmentItem
+
+        ass_src = (
+            _KARAOKE_ASS_HEADER
+            + "Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,"
+            + r"{\kf100}hello {\kf100}beautiful {\kf100}world"
+            + "\n"
+        )
+        src = tmp_path / "k.ass"
+        src.write_text(ass_src)
+
+        cap = Caption.read(src)
+        sup = cap.supervisions[0]
+        sup.alignment = {
+            "word": [
+                AlignmentItem(symbol="hello",     start=1.00, duration=0.30),
+                AlignmentItem(symbol="beautiful", start=1.30, duration=0.50),
+                AlignmentItem(symbol="world",     start=1.80, duration=0.40),
+            ]
+        }
+        sup.start = 1.00
+        sup.duration = 1.20
+
+        out = tmp_path / "out.ass"
+        cap.write(
+            out,
+            format_config=ASSConfig(karaoke_effect="basic"),
+            render=RenderConfig(word_level=True),
+        )
+        content = out.read_text()
+        dialogue = next(
+            ln for ln in content.splitlines() if ln.startswith("Dialogue:")
+        )
+        # New per-syllable durations: 30cs, 50cs, 40cs (was 100cs each).
+        assert "\\kf30" in dialogue
+        assert "\\kf50" in dialogue
+        assert "\\kf40" in dialogue
+        assert "\\kf100" not in dialogue
+
+    def test_write_without_karaoke_effect_drops_stale_kf(self, tmp_path):
+        """Read karaoke ASS, write back without karaoke_effect — output must
+        be plaintext (no stale ``\\k`` tags). The previous behavior silently
+        kept the original ``\\kf100`` in the Text field even after the
+        segment-level Start/End was updated.
+        """
+        from lattifai.caption import Caption
+
+        ass_src = (
+            _KARAOKE_ASS_HEADER
+            + "Dialogue: 0,0:00:01.00,0:00:05.00,Default,,0,0,0,,"
+            + r"{\kf100}hello {\kf100}beautiful {\kf100}world"
+            + "\n"
+        )
+        src = tmp_path / "k.ass"
+        src.write_text(ass_src)
+
+        out = tmp_path / "out.ass"
+        Caption.read(src).write(out)
+        content = out.read_text()
+        dialogue = next(
+            ln for ln in content.splitlines() if ln.startswith("Dialogue:")
+        )
+        assert "\\k" not in dialogue, dialogue
+        assert dialogue.endswith("hello beautiful world")

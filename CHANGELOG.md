@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.14 - 2026-04-27
+
+### Internal
+- **CI**: pass ``encoding="utf-8"`` to ``TestSrtRawTextSplice`` file I/O so the bilingual round-trip test decodes CJK on Windows, where ``pathlib.Path.read_text`` defaults to ``cp1252`` and chokes on the UTF-8 bytes the SRT writer always emits. No library code change vs ``0.4.13``
+
 ## 0.4.13 - 2026-04-27
 
 ### Fixes

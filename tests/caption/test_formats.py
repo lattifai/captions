@@ -467,13 +467,16 @@ Hello world
 Another line
 """
         srt_file = tmp_path / "in.srt"
-        srt_file.write_text(srt_in)
+        srt_file.write_text(srt_in, encoding="utf-8")
         caption = Caption.read(srt_file)
         for sup in caption.supervisions:
             mutate(sup)
         out = tmp_path / "out.srt"
         caption.write(out)
-        text = out.read_text()
+        # Caption writer always emits UTF-8; specify it explicitly so this
+        # test passes on Windows where ``read_text`` defaults to cp1252 and
+        # cannot decode CJK bytes injected by the bilingual mutation.
+        text = out.read_text(encoding="utf-8")
         for needle in expect_in_output:
             assert needle in text, f"expected {needle!r} in:\n{text}"
         for needle in must_not_in_output:
@@ -519,12 +522,12 @@ Another line
 {\\pos(960,540)}Centered
 """
         srt_file = tmp_path / "in.srt"
-        srt_file.write_text(srt_in)
+        srt_file.write_text(srt_in, encoding="utf-8")
         caption = Caption.read(srt_file)
         # NO mutation — pure round-trip
         out = tmp_path / "out.srt"
         caption.write(out)
-        text = out.read_text()
+        text = out.read_text(encoding="utf-8")
         assert "{\\an8}Top line" in text, f"override tag dropped:\n{text}"
         assert "{\\pos(960,540)}Centered" in text, f"override tag dropped:\n{text}"
 

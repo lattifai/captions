@@ -662,7 +662,7 @@ class SentenceSplitter:
         self,
         supervisions: List[Supervision],
         strip_whitespace: bool = True,
-        threshold: float = 0.20,
+        threshold: float = 0.35,
     ) -> List[Supervision]:
         """Split supervisions into sentences using the sentence splitter.
 
@@ -677,13 +677,14 @@ class SentenceSplitter:
                 proper-noun phrases like "Terry Tao" from being torn apart on
                 sparse-context fragments.
 
-                Default 0.20 is tuned for real-world transcripts where filler
-                words ("um", "you know") and self-repairs fuse multiple
-                semantic sentences into a single cue — covers ASR output,
-                rolling-caption YouTube subtitles, podcast transcripts,
-                interviews, and lectures. Use 0.35 when the input already has
-                clean sentence boundaries (e.g. proofread bilingual subs) and
-                you only want to sub-divide the longest cues.
+                Default 0.35 is the empirically validated sweet spot across
+                ASR output, rolling-caption YouTube subtitles, podcast
+                transcripts, interviews, and lectures: it preserves long-
+                segment subdivision while avoiding the junk cuts that
+                lower thresholds produce around fillers ("um", "you know")
+                and self-repairs. Use 0.20 only for dense monologues where
+                0.35 leaves overly long supervisions; values <= 0.15 tend
+                to fragment fillers into sub-second standalone cues.
 
         Returns:
             List of Supervision objects with split sentences

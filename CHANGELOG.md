@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.12 - 2026-04-27
+
+### Features
+- **High-level ASS style presets** — ``ASSConfig.style_preset`` and ``ASSConfig.from_preset(name)`` deliver six one-shot looks aligned to short-video editor visuals: ``classic`` (opaque 80% black box, white normal-weight Arial), ``tiktok`` (Arial Black bold uppercase + spotlight kinetic + ``yellow-pop`` karaoke scheme so the active word turns saturated yellow), ``modern_box`` (solid white box with bold black Helvetica — inverse of classic), ``cinematic`` (italic light-weight Helvetica Neue + wide tracking + soft shadow), ``outline`` (white bold + thin 1.5px black stroke + light shadow), ``bold_center`` (Arial Black 100px screen-centre with half-opaque black stroke + word-by-word reveal fade-in). A preset only fills fields the caller did NOT explicitly set, so any explicit kwarg wins. New module ``lattifai.caption.styles`` exposes ``STYLE_PRESETS``, ``list_style_presets()``, ``resolve_style_preset(name)``
+- **New kinetic preset ``reveal``** — gentle word-by-word "gradual appear" via 180ms alpha fade-in per word, with a line-scope ``\\fad(180,0)`` fallback for cues lacking word-level alignment. Used by the ``bold_center`` preset to drive the per-word reveal effect
+- **New karaoke colour scheme ``yellow-pop``** — white inactive / saturated yellow (#FACC15) active, with a black outline. Used by the ``tiktok`` preset to highlight the currently-active word
+
+### Fixes
+- **`standardize`: clamp `min_duration` to parent supervision boundary.** When a sub-cue's natural span was shorter than `min_duration` (e.g. a 0.46s "Um" group with `min_duration=0.8`), the floor inflated the end past the source supervision's `end_time`. At `\\an5` / `\\an2` alignment libass then stacked the inflated cue on top of the next speaker's first sub-cue — visible as overlapping rows under the new `bold_center` single-row preset. The inflated duration is now capped to whichever room exists between `seg_start` and the parent supervision's end; `min_duration` stays a *soft* floor
+- **SRT byte-roundtrip: only splice the raw cue body when the supervision is unchanged.** Previously the writer reused the original SRT raw text even after the caller mutated `Supervision.text`, silently dropping user edits in the rendered file. Splice now only fires when the post-mutation text matches the source byte-for-byte
+
 ## 0.4.11 - 2026-04-26
 
 ### Fixes

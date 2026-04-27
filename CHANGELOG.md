@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.13 - 2026-04-27
+
+### Fixes
+- **SRT byte-roundtrip: preserve inline override tags on cues with collapsed whitespace.** ``_should_splice_raw`` compared cached raw body to ``sup.text`` byte-for-byte after stripping ``{\\…}`` override tags, but pysubs2 collapses runs of whitespace on read (``翻|校|监        草草`` → ``翻|校|监 草草``). The mismatch made the writer skip the splice and silently drop the ``{\\an4}{\\pos(...)}`` tags that subtitle-group SRTs use to position sign/credit/title rows. Both sides are now whitespace-normalised (``\\s+`` → single space) before the equality check so the cosmetic collapse no longer defeats the splice while genuine user edits still bypass it
+
 ## 0.4.12 - 2026-04-27
 
 ### Features

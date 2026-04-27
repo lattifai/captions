@@ -6,7 +6,7 @@ orthogonal:
 
     karaoke_effect       -> how to reveal     (\\k, \\kf, \\ko)
     karaoke_color_scheme -> what color        (12 presets)
-    kinetic_style        -> how to move       (15 presets, this module)
+    kinetic_style        -> how to move       (17 presets, this module)
 
 Each preset (KineticPreset) holds up to two implementations (KineticImpl),
 one for each scope:
@@ -114,11 +114,13 @@ KINETIC_STYLE_NAMES: Tuple[str, ...] = (
     "rise",
     "blur_in",
     "pop",
+    "reveal",
     # Impact
     "bounce",
     "shake",
     "pulse",
     "swing",
+    "spotlight",
     # Stylized
     "glow",
     "neon",
@@ -130,7 +132,7 @@ KINETIC_STYLE_NAMES: Tuple[str, ...] = (
 
 
 # =============================================================================
-# Preset registry — 15 presets with line and/or word impls
+# Preset registry — 17 presets with line and/or word impls
 # =============================================================================
 
 _PRESETS: "dict[str, KineticPreset]" = {
@@ -266,6 +268,20 @@ _PRESETS: "dict[str, KineticPreset]" = {
             ),
         ),
     ),
+    # spotlight — active word looks crisp and fully opaque; inactive ones
+    # appear dim and slightly blurred. Short-form social-video emphasis
+    # aesthetic. Implemented via alpha + bord + blur contrast (NOT font
+    # size) to stay metric-safe — any \fscx/\fscy/\fs in a word-scope
+    # impl would trigger libass line reflow and visibly shake the line
+    # during rapid speech. Static reset on each word neutralizes leaking
+    # state from the prior syllable's transition.
+    "spotlight": KineticPreset(
+        line=None,
+        word=KineticImpl(
+            initial=r"\alpha&H50&\bord1\blur1",
+            transitions=((0, 80, r"\alpha&H00&\bord4\blur0"),),
+        ),
+    ),
     # ===== Stylized ===========================================================
     # glow — outline + blur pulse. Word static reset \bord2\blur0 neutralizes
     # any in-flight animation inherited from prior words.
@@ -351,6 +367,19 @@ _PRESETS: "dict[str, KineticPreset]" = {
             transitions=((0, 1, r"\alpha&H00&"),),
         ),
     ),
+    # reveal — gentle word-by-word "gradual appear" (180ms alpha fade-in
+    # per word). Distinguished from typewriter by the soft transition
+    # (180ms vs 1ms hard cut) — reveal is the visual used by the
+    # bold_center social-video preset where each word should melt in
+    # rather than snap. The line-scope fallback (\fad(180,0)) keeps the
+    # same "soft entrance" feel for cues that lack word-level alignment.
+    "reveal": KineticPreset(
+        line=KineticImpl(initial=r"\fad(180,0)"),
+        word=KineticImpl(
+            initial=r"\alpha&HFF&",
+            transitions=((0, 180, r"\alpha&H00&"),),
+        ),
+    ),
     # stagger — word-scope only; char-level expansion handled by
     # expand_stagger_word(), not this transition table. The KineticImpl is
     # a sentinel so that resolve_kinetic() succeeds.
@@ -380,11 +409,15 @@ _NATURAL_SCOPE: "dict[str, Scope]" = {
     "rise": "line",
     "blur_in": "line",
     "pop": "line",
+    # reveal sits in "smooth entrance" by feel but its identity is
+    # word-by-word, so it lives in word-scope alongside typewriter.
+    "reveal": "word",
     # Impact — per-word default (emphasis on each activated word)
     "bounce": "word",
     "shake": "word",
     "pulse": "word",
     "swing": "word",
+    "spotlight": "word",
     # Stylized — per-word default (highlights active word)
     "glow": "word",
     "neon": "word",
@@ -401,7 +434,7 @@ _NATURAL_SCOPE: "dict[str, Scope]" = {
 
 
 def list_kinetic_styles() -> List[str]:
-    """Return all 15 supported kinetic style names, in canonical order."""
+    """Return all supported kinetic style names, in canonical order."""
     return list(KINETIC_STYLE_NAMES)
 
 

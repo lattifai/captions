@@ -81,14 +81,17 @@ def _render_line(sup, **ass_kwargs):
 
 
 class TestKineticModuleAPI:
-    def test_all_15_styles_listed(self):
-        assert len(KINETIC_STYLE_NAMES) == 15
-        assert len(list_kinetic_styles()) == 15
+    def test_all_styles_listed(self):
+        # 17 presets: 6 smooth + 5 impact + 6 stylized.
+        assert len(KINETIC_STYLE_NAMES) == 17
+        assert len(list_kinetic_styles()) == 17
 
     def test_style_groups_present(self):
         names = set(KINETIC_STYLE_NAMES)
-        smooth = {"fade", "zoom", "rise", "blur_in", "pop"}
-        impact = {"bounce", "shake", "pulse", "swing"}
+        # reveal sits in smooth-entrance (gradual word fade-in) alongside
+        # the other entrance effects.
+        smooth = {"fade", "zoom", "rise", "blur_in", "pop", "reveal"}
+        impact = {"bounce", "shake", "pulse", "swing", "spotlight"}
         stylized = {"glow", "neon", "wave", "flicker", "typewriter", "stagger"}
         assert smooth | impact | stylized == names
 
@@ -220,6 +223,14 @@ class TestBuildLineOverride:
         _, impl = resolve_kinetic("typewriter", word_level=False)
         out = build_line_override(impl)
         assert out == r"\fad(1,0)"
+
+    def test_reveal_line_fallback_uses_180ms_fad(self):
+        # reveal is naturally word-scope but ships a line-scope fallback so
+        # cues without word-level alignment still get a "soft entrance"
+        # rather than raising. That fallback is a 180ms whole-line \fad.
+        _, impl = resolve_kinetic("reveal", word_level=False)
+        out = build_line_override(impl)
+        assert out == r"\fad(180,0)"
 
 
 class TestBuildWordOverrides:
@@ -470,14 +481,28 @@ class TestLineScopeIntegration:
         content = _render_line(sup_no_alignment, kinetic_style="typewriter")
         assert r"{\fad(1,0)}" in content
 
+    def test_reveal_line_uses_180ms_fad(self, sup_no_alignment):
+        # reveal's natural scope is "word"; the line fallback is a soft
+        # 180ms whole-line \fad so segment-level rendering still feels
+        # like a "gradual entrance" rather than a hard cut.
+        content = _render_line(sup_no_alignment, kinetic_style="reveal")
+        assert r"{\fad(180,0)}" in content
+
     def test_stagger_line_raises(self, sup_no_alignment):
         """stagger has no line-scope impl — must fail fast."""
         with pytest.raises(ValueError, match="requires word_level"):
             _render_line(sup_no_alignment, kinetic_style="stagger")
 
+    def test_spotlight_line_raises(self, sup_no_alignment):
+        """spotlight has no line-scope impl — must fail fast."""
+        with pytest.raises(ValueError, match="requires word_level"):
+            _render_line(sup_no_alignment, kinetic_style="spotlight")
+
+    # Word-only presets (line=None) are excluded from the universal render
+    # check below; they have dedicated *_line_raises tests above.
     @pytest.mark.parametrize(
         "style",
-        [s for s in KINETIC_STYLE_NAMES if s != "stagger"],
+        [s for s in KINETIC_STYLE_NAMES if s not in {"stagger", "spotlight"}],
     )
     def test_line_scope_renders_without_error(self, sup_no_alignment, style):
         content = _render_line(sup_no_alignment, kinetic_style=style)
@@ -502,7 +527,7 @@ class TestASSConfigKineticValidation:
         with pytest.raises(ValueError, match="Unknown kinetic_style"):
             ASSConfig(kinetic_style="totally_fake")  # type: ignore[arg-type]
 
-    def test_all_15_styles_accepted(self):
+    def test_all_styles_accepted(self):
         for style in KINETIC_STYLE_NAMES:
             config = ASSConfig(kinetic_style=style)
             assert config.kinetic_style == style

@@ -1,7 +1,7 @@
 """Caption I/O configuration for LattifAI."""
 
-from dataclasses import dataclass, field
-from typing import Dict, Literal, Optional, get_args  # noqa: F401
+from dataclasses import dataclass, field, fields
+from typing import Any, Dict, Literal, Optional, get_args  # noqa: F401
 
 # Re-export color data for backward compatibility (canonical source: colors.py)
 from .colors import KARAOKE_COLOR_SCHEMES, resolve_karaoke_color_scheme  # noqa: F401
@@ -240,9 +240,11 @@ class ASSConfig:
             "shake",
             "pulse",
             "swing",
+            "spotlight",
             "fade",
             "zoom",
             "rise",
+            "reveal",
             "typewriter",
             "blur_in",
             "glow",
@@ -256,23 +258,86 @@ class ASSConfig:
 
     Composes orthogonally with karaoke_effect and karaoke_color_scheme:
         karaoke_effect       -> how to reveal (sweep/instant/outline)
-        karaoke_color_scheme -> what color    (12 presets)
-        kinetic_style        -> how to move   (15 presets)
+        karaoke_color_scheme -> what color    (13 presets)
+        kinetic_style        -> how to move   (17 presets)
 
     Styles grouped by feel:
-        Impact:    bounce, pop, shake, pulse, swing
-        Smooth:    fade, zoom, rise, typewriter, blur_in
+        Impact:    bounce, pop, shake, pulse, swing, spotlight
+        Smooth:    fade, zoom, rise, reveal, typewriter, blur_in
         Stylized:  glow, neon, wave, flicker, stagger
 
     Unknown values raise ValueError at construction (fail-fast).
     """
 
+    # -- High-level style preset --
+
+    style_preset: Optional[
+        Literal[
+            "classic",
+            "tiktok",
+            "modern_box",
+            "cinematic",
+            "outline",
+            "bold_center",
+        ]
+    ] = None
+    """High-level visual preset that bundles font / colour / alignment /
+    karaoke / kinetic values into a single named look.
+
+    Composition: a preset only fills fields the user did NOT explicitly
+    override. Any kwarg passed alongside ``style_preset`` wins over the
+    preset's value. See ``styles.py`` for the registered presets.
+    """
+
+    @classmethod
+    def from_preset(cls, name: str, **overrides: Any) -> "ASSConfig":
+        """Build an ASSConfig from a named preset, optionally overriding
+        individual fields. Equivalent to ``ASSConfig(style_preset=name,
+        **overrides)`` but reads more declaratively at call sites."""
+        return cls(style_preset=name, **overrides)
+
     def __post_init__(self) -> None:
-        # Lazy import — kinetic imports nothing from config, but we keep
+        # 1) Apply preset BEFORE validation so spotlight/kinetic introduced
+        # by the preset gets validated below.
+        if self.style_preset is not None:
+            self._apply_style_preset()
+
+        # 2) Validate kinetic_style (after preset injection — preset may
+        # have set it).
+        # Lazy import: kinetic imports nothing from config, but we keep
         # the dependency direction one-way to avoid circulars.
         from .kinetic import validate_kinetic_style
 
         validate_kinetic_style(self.kinetic_style)
+
+    def _apply_style_preset(self) -> None:
+        """Fill unset fields from the named preset.
+
+        A field is considered "unset" when its current value equals the
+        dataclass default. Explicit overrides (kwargs that happen to equal
+        the default) will be re-filled by the preset — this is acceptable
+        because the user's intent in that case is identical to the
+        preset's value.
+        """
+        from .styles import resolve_style_preset
+
+        preset = resolve_style_preset(self.style_preset)
+
+        # Build a {field_name: default_value} map once.
+        defaults = {f.name: f.default for f in fields(self) if f.name != "style_preset"}
+
+        for fname, pvalue in preset.items():
+            if fname not in defaults:
+                # Preset references a field not declared on ASSConfig —
+                # styles.py is misaligned with the dataclass schema.
+                raise AttributeError(
+                    f"style_preset {self.style_preset!r} sets unknown ASSConfig field {fname!r}"
+                )
+            current = getattr(self, fname)
+            if current != defaults[fname]:
+                # User explicitly set this field — preset stays out.
+                continue
+            setattr(self, fname, pvalue)
 
 
 @dataclass

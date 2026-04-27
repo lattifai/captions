@@ -145,10 +145,12 @@ class TestColorSchemes:
         assert new_config.primary_color == "#F7C3D9"
         assert config.primary_color == "#FF0000"  # original unchanged
 
-    def test_all_12_schemes_resolve(self):
+    def test_all_schemes_resolve(self):
         from lattifai.caption.config import KARAOKE_COLOR_SCHEMES, resolve_karaoke_color_scheme
 
-        assert len(KARAOKE_COLOR_SCHEMES) == 12
+        # 13 schemes: 12 stylistic palettes + yellow-pop (TikTok-style
+        # active-word highlight). Add new schemes here when registered.
+        assert len(KARAOKE_COLOR_SCHEMES) == 13
         for name in KARAOKE_COLOR_SCHEMES:
             result = resolve_karaoke_color_scheme(name)
             assert result is not None

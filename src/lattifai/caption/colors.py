@@ -101,6 +101,17 @@ KARAOKE_COLOR_SCHEMES: Dict[str, Dict[str, str]] = {
         "back_color": "#1A1A28",
         "outline_width": 0.0,
     },
+    # TikTok-style yellow pop. Inactive words render in white, the active
+    # word swaps to a saturated yellow (#FACC15, the same hue used for
+    # the highlight pill in popular short-video editors). Outline stays
+    # black for legibility on busy footage.
+    "yellow-pop": {
+        "primary_color": "#FACC15",  # active (sung) word — yellow
+        "secondary_color": "#FFFFFF",  # inactive (unsung) word — white
+        "outline_color": "#000000",
+        "back_color": "#000000",
+        "outline_width": 3.0,
+    },
 }
 
 

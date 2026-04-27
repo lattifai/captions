@@ -445,5 +445,89 @@ Another line
         print("✓ Normal SRT still works correctly")
 
 
+class TestSrtRawTextSplice:
+    """Tests for SRT writer's raw-cue splicing behavior.
+
+    The reader caches each cue's raw text in `sup.custom['srt_raw_text']` so
+    override tags (e.g. `{\\an1}{\\pos(...)}`) can be preserved on a
+    pure round-trip. The writer must NOT splice when the user has mutated
+    `sup.text` or set `sup.translation`, otherwise translation work is
+    silently discarded.
+    """
+
+    def _round_trip_with_mutation(
+        self, tmp_path, mutate, expect_in_output, must_not_in_output
+    ):
+        srt_in = """1
+00:00:01,000 --> 00:00:03,000
+Hello world
+
+2
+00:00:04,000 --> 00:00:06,000
+Another line
+"""
+        srt_file = tmp_path / "in.srt"
+        srt_file.write_text(srt_in)
+        caption = Caption.read(srt_file)
+        for sup in caption.supervisions:
+            mutate(sup)
+        out = tmp_path / "out.srt"
+        caption.write(out)
+        text = out.read_text()
+        for needle in expect_in_output:
+            assert needle in text, f"expected {needle!r} in:\n{text}"
+        for needle in must_not_in_output:
+            assert needle not in text, f"unexpected {needle!r} in:\n{text}"
+
+    def test_replace_mode_no_silent_drop(self, tmp_path):
+        """Mutating sup.text must propagate to the SRT output (no splice override)."""
+        replacements = ["Hola mundo", "Otra linea"]
+
+        def mutate(sup):
+            sup.text = replacements.pop(0)
+
+        self._round_trip_with_mutation(
+            tmp_path,
+            mutate=mutate,
+            expect_in_output=["Hola mundo", "Otra linea"],
+            must_not_in_output=["Hello world", "Another line"],
+        )
+
+    def test_bilingual_translation_preserved(self, tmp_path):
+        """Setting sup.translation must produce a bilingual SRT (no splice override)."""
+        translations = ["你好世界", "另一行"]
+
+        def mutate(sup):
+            sup.translation = translations.pop(0)
+            sup.target_lang = "zh"
+
+        self._round_trip_with_mutation(
+            tmp_path,
+            mutate=mutate,
+            expect_in_output=["Hello world", "你好世界", "Another line", "另一行"],
+            must_not_in_output=[],
+        )
+
+    def test_unchanged_round_trip_still_splices_overrides(self, tmp_path):
+        """Pure round-trip with override tags still preserves them."""
+        srt_in = """1
+00:00:01,000 --> 00:00:03,000
+{\\an8}Top line
+
+2
+00:00:04,000 --> 00:00:06,000
+{\\pos(960,540)}Centered
+"""
+        srt_file = tmp_path / "in.srt"
+        srt_file.write_text(srt_in)
+        caption = Caption.read(srt_file)
+        # NO mutation — pure round-trip
+        out = tmp_path / "out.srt"
+        caption.write(out)
+        text = out.read_text()
+        assert "{\\an8}Top line" in text, f"override tag dropped:\n{text}"
+        assert "{\\pos(960,540)}Centered" in text, f"override tag dropped:\n{text}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -406,6 +406,12 @@ class SRTFormat(Pysubs2Format):
 
         return content
 
+    # Override tags pysubs2 strips on read (e.g. {\an1}, {\pos(960,540)}).
+    # Used to compare cached raw text against the parsed sup.text — if the
+    # raw text equals sup.text after stripping these, the supervision is
+    # unchanged and worth preserving verbatim.
+    _OVERRIDE_TAG_RE = re.compile(r"\{\\[^}]*\}")
+
     @classmethod
     def _splice_raw_cue_texts(
         cls, content: bytes, supervisions: List[Supervision]
@@ -415,7 +421,22 @@ class SRTFormat(Pysubs2Format):
         pysubs2's SRT writer emits plain text (override tags stripped on read).
         For supervisions that carry ``custom['srt_raw_text']`` (set by the SRT
         reader), replace the pysubs2-emitted text block with the original raw
-        text. No-op when cue count mismatches (e.g., word-level expansion).
+        text — but only when the supervision is *unchanged*, so user edits
+        (translation, text replacement) are not silently overwritten.
+
+        Per-supervision decision:
+          * ``sup.translation`` set       → bilingual rendering already in
+            ``block``; do not overwrite.
+          * cached raw stripped of override tags ``!=`` ``sup.text``
+                                          → user mutated text; trust the new
+            rendering, do not overwrite.
+          * cached raw has no override tags
+                                          → splicing would be a no-op at best
+            and a footgun at worst; skip.
+          * otherwise                     → splice raw text back to preserve
+            ``{\\an1}{\\pos(...)}`` override tags that pysubs2 strips on read.
+
+        No-op when cue count mismatches (e.g., word-level expansion).
         """
         raw_texts = [
             (sup.custom or {}).get("srt_raw_text") if sup.custom else None
@@ -438,8 +459,8 @@ class SRTFormat(Pysubs2Format):
             return content
 
         out_blocks = []
-        for block, raw in zip(cue_blocks, raw_texts):
-            if raw is None:
+        for block, sup, raw in zip(cue_blocks, supervisions, raw_texts):
+            if raw is None or not cls._should_splice_raw(sup, raw):
                 out_blocks.append(block)
                 continue
             lines = block.split("\n")
@@ -452,6 +473,30 @@ class SRTFormat(Pysubs2Format):
             out_blocks.append(new_block)
 
         return ("\n\n".join(out_blocks) + trailing).encode("utf-8")
+
+    @classmethod
+    def _should_splice_raw(cls, sup: Supervision, raw: str) -> bool:
+        """Return True when the cached raw cue text should overwrite the
+        pysubs2-rendered block, i.e. the supervision is unchanged AND the raw
+        text actually carries override tags worth preserving."""
+        # Bilingual rendering: the writer has already produced a multi-line
+        # block containing translation; cached source-only raw text would
+        # silently drop the translation.
+        if getattr(sup, "translation", None):
+            return False
+        # If cached raw has no override tags, splicing has no value and risks
+        # overwriting user-mutated text with the cached source.
+        if not cls._OVERRIDE_TAG_RE.search(raw):
+            return False
+        # Compare visible-text-only forms (override tags stripped) of cached
+        # raw vs current sup.text. pysubs2 leaves override tags in sup.text
+        # on read, so we must strip both sides to detect user mutation. If
+        # the visible text is unchanged we can safely splice the raw form
+        # back in to preserve override tags; otherwise the user has edited
+        # the text and we must not overwrite their edit.
+        raw_visible = cls._OVERRIDE_TAG_RE.sub("", raw).strip()
+        text_visible = cls._OVERRIDE_TAG_RE.sub("", sup.text or "").strip()
+        return raw_visible == text_visible
 
     @classmethod
     def _to_bytes_with_speaker_color(

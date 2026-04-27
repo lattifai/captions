@@ -494,8 +494,15 @@ class SRTFormat(Pysubs2Format):
         # the visible text is unchanged we can safely splice the raw form
         # back in to preserve override tags; otherwise the user has edited
         # the text and we must not overwrite their edit.
-        raw_visible = cls._OVERRIDE_TAG_RE.sub("", raw).strip()
-        text_visible = cls._OVERRIDE_TAG_RE.sub("", sup.text or "").strip()
+        #
+        # pysubs2 collapses runs of whitespace on read (e.g. ``翻|校|监
+        # 草草`` → ``翻|校|监 草草``) — normalize consecutive whitespace on
+        # both sides so this purely cosmetic transform doesn't defeat the
+        # splice and silently drop the override tags.
+        raw_visible = re.sub(r"\s+", " ", cls._OVERRIDE_TAG_RE.sub("", raw)).strip()
+        text_visible = re.sub(
+            r"\s+", " ", cls._OVERRIDE_TAG_RE.sub("", sup.text or "")
+        ).strip()
         return raw_visible == text_visible
 
     @classmethod

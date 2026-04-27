@@ -345,7 +345,19 @@ class CaptionStandardizer:
                 if seg_start < prev_end + self.config.min_gap:
                     seg_start = prev_end + self.config.min_gap
 
-            duration = max(self.config.min_duration, seg_end - seg_start)
+            # min_duration is a soft floor — it must NOT push end past
+            # the parent supervision's boundary or into the next cue.
+            # Without this clamp, very short trailing groups (e.g. 0.46 s
+            # "Um") get inflated to min_duration (0.6-0.8 s by default),
+            # the new end overruns the source cue's end_time, and at
+            # \an5/\an2 alignment libass stacks the inflated cue on top
+            # of the next speaker's first sub-cue. Clamp first to the
+            # parent supervision's end, then to the original word group
+            # span — whichever room exists.
+            seg_floor = max(self.config.min_duration, seg_end - seg_start)
+            parent_end = seg.start + seg.duration
+            available = max(0.0, parent_end - seg_start)
+            duration = min(seg_floor, available) if available > 0 else seg_floor
 
             result.append(self._copy_segment(
                 seg,

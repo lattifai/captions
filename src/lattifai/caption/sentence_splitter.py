@@ -336,8 +336,21 @@ class SentenceSplitter:
     def _split_inline_events(text: str) -> List[str]:
         """Split trailing/leading event markers from normal text.
 
+        Non-speech events (``[Laughter]``, ``[Applause]``, ``[Music]``, …) are
+        not pronounceable text and must live in their own supervision so TTS
+        skips them and translation handles them as discrete units. They are
+        split out whenever they sit at the start or end of a segment,
+        independent of whether the spoken side ends with sentence punctuation
+        — speakers often trail off into laughter without a period.
+
+        Inline events embedded mid-sentence (e.g. ``"he said [INAUDIBLE]
+        something"``) are preserved as-is: the surrounding speech is one
+        continuous utterance, and splitting at the event would fragment a
+        single semantic clause.
+
         Examples:
             "And breathe out. [Breathes out]" -> ["And breathe out.", "[Breathes out]"]
+            "It's nice for [laughter]"        -> ["It's nice for", "[laughter]"]
             "[Breathes in] And breathe in."   -> ["[Breathes in]", "And breathe in."]
             "he said [INAUDIBLE] something"   -> ["he said [INAUDIBLE] something"]
         """
@@ -345,13 +358,14 @@ class SentenceSplitter:
         if not text:
             return [text]
 
-        # Check trailing events: "text. [Event1] [Event2]"
+        # Check trailing events: "text [Event1] [Event2]"
+        # Always split — the event tokens themselves are not speech and
+        # belong in their own supervision regardless of preceding punctuation.
         match = _TRAILING_EVENTS_RE.match(text)
         if match:
             prefix = match.group(1).strip()
             events_str = match.group(2)
-            # Only split if the text part ends with punctuation
-            if prefix and any(prefix.endswith(p) for p in END_PUNCTUATION):
+            if prefix:
                 events = _MULTI_EVENT_RE.findall(events_str)
                 return [prefix] + events
 

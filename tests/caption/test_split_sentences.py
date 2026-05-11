@@ -511,6 +511,98 @@ def test_split_sentences_separates_inline_trailing_event():
     )
 
 
+# ─── Trailing event splitting — no terminal punctuation ──────────────────────
+# Speakers commonly trail off into laughter / applause without a period:
+#   "It's nice for [laughter]"     (no punctuation at all)
+#   "well, [laughter]"             (comma only — mid-thought, the speaker
+#                                   started laughing instead of continuing)
+#   "That's [laughter]"            (apostrophe-ending verb, then laughter)
+# Each of these must produce a standalone [event] supervision so:
+#   - TTS skips it instead of literally pronouncing "[laughter]"
+#   - Translation handles the event as a discrete unit
+#   - Duration budget reflects the actual spoken portion only
+# Inline events embedded mid-sentence ("he said [INAUDIBLE] something")
+# must NOT split — that would fragment one continuous clause.
+
+
+def test_split_inline_events_trailing_no_punctuation():
+    result = SentenceSplitter._split_inline_events(
+        "It's nice to be in your neck of the woods for [laughter]"
+    )
+    assert result == [
+        "It's nice to be in your neck of the woods for",
+        "[laughter]",
+    ]
+
+
+def test_split_inline_events_trailing_comma_only():
+    result = SentenceSplitter._split_inline_events(
+        "I mean, that stuff does do really well, [laughter]"
+    )
+    assert result == [
+        "I mean, that stuff does do really well,",
+        "[laughter]",
+    ]
+
+
+def test_split_inline_events_trailing_short_phrase():
+    result = SentenceSplitter._split_inline_events("That's [laughter]")
+    assert result == ["That's", "[laughter]"]
+
+
+def test_split_inline_events_trailing_multi_event_no_punct():
+    result = SentenceSplitter._split_inline_events(
+        "and then [Laughter] [Applause]"
+    )
+    assert result == ["and then", "[Laughter]", "[Applause]"]
+
+
+def test_split_inline_events_inline_event_still_preserved():
+    """Regression guard: a single embedded event inside a clause must NOT
+    be split. Only events that anchor at the start or end qualify.
+    """
+    cases = [
+        "he said [INAUDIBLE] something",
+        "the room [audience laughs] was quiet again",
+        "[Music] continued in the background",  # leading + suffix → leading split
+    ]
+    # First two are inline and must stay intact.
+    assert SentenceSplitter._split_inline_events(cases[0]) == [cases[0]]
+    assert SentenceSplitter._split_inline_events(cases[1]) == [cases[1]]
+    # The third has a leading event — leading-split path handles it.
+    assert SentenceSplitter._split_inline_events(cases[2]) == [
+        "[Music]",
+        "continued in the background",
+    ]
+
+
+def test_split_sentences_separates_trailing_event_without_punctuation():
+    """Integration: confirm the splitter pipeline produces a standalone
+    [laughter] supervision even when the preceding utterance has no
+    terminal punctuation. This is the bug case from
+    data/LatentSpace/2026-05-07_rlM_fAKxB3Q (id=0004).
+    """
+    splitter = SentenceSplitter()
+    supervisions = [
+        make_supervision(
+            0,
+            "It's nice to be in your neck of the woods for [laughter]",
+            speaker="Shawn Wang",
+        ),
+    ]
+
+    result = splitter.split_sentences(supervisions)
+    texts = [sup.text for sup in result]
+    assert "[laughter]" in texts, (
+        f"Expected '[laughter]' as a standalone segment, got: {texts}"
+    )
+    # The spoken portion is preserved on its own row (event tokens stripped).
+    spoken_rows = [sup.text for sup in result if not sup.text.startswith("[")]
+    assert any("neck of the woods" in t for t in spoken_rows), (
+        f"Spoken portion lost during split: {texts}"
+    )
+
+
 def test_overlapping_youtube_scroll_vtt_no_negative_duration():
     """YouTube scroll-style VTT has overlapping cue timestamps.
 

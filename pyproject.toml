@@ -34,26 +34,26 @@ classifiers = [
 ]
 
 dependencies = [
-    "pysubs2>=1.6.0",
-    "praatio>=6.0.0",
-    "tgt>=1.4.0",
-    "lingua-language-detector>=2.0",
+    "pysubs2>=1.8.1",
+    "praatio>=6.2.2",
+    "tgt>=1.5",
+    "lingua-language-detector>=2.1.1",
 ]
 
 [project.optional-dependencies]
 splitting = [
-    "wtpsplit>=2.1.7",
-    "onnxruntime",
-    "huggingface_hub>=0.20.0",
-    "modelscope>=1.33.0",
+    "wtpsplit>=2.2.1",
+    "onnxruntime>=1.26.0",
+    "huggingface_hub>=1.14.0",
+    "modelscope>=1.36.3",
 ]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=4.1.0",
-    "wtpsplit>=2.1.7",
-    "onnxruntime",
-    "huggingface_hub>=0.20.0",
-    "modelscope>=1.33.0",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "wtpsplit>=2.2.1",
+    "onnxruntime>=1.26.0",
+    "huggingface_hub>=1.14.0",
+    "modelscope>=1.36.3",
 ]
 
 [project.urls]

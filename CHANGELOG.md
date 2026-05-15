@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.16 - 2026-05-15
+
+### Dependencies
+- Bump core deps: ``pysubs2 >=1.8.1``, ``praatio >=6.2.2``, ``tgt >=1.5``, ``lingua-language-detector >=2.1.1``
+- Bump optional ``[splitting]`` and ``[dev]``: ``wtpsplit >=2.2.1``, ``modelscope >=1.36.3``, and **``huggingface_hub >=1.14.0`` (major: 0.x → 1.x)**
+- Bump dev test stack: ``pytest 8 → 9``, ``pytest-cov 4 → 7``
+- **``onnxruntime`` version split via PEP 508 environment markers**: ``>=1.23.2`` on Python ``<3.11`` (last cp310-supporting release), ``>=1.26.0`` on Python ``>=3.11``. Required because ``onnxruntime`` dropped Python 3.10 wheels starting at ``1.24.0``; CI matrix still includes 3.10
+
 ## 0.4.14 - 2026-04-27
 
 ### Internal

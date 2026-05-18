@@ -78,7 +78,9 @@ class CaptionStandardizer:
     # Chinese/Japanese punctuation (for line break priority)
     # Note: '' (U+2018/2019 curly quotes) excluded — they appear in English
     # contractions (they're, can't, it's) and must NOT trigger word splitting.
-    CJK_PUNCTUATION = r"[，。、？！：；·…—～""（）【】〔〕〖〗《》〈〉「」『』〘〙〚〛]"
+    CJK_PUNCTUATION = (
+        r"[，。、？！：；·…—～" "（）【】〔〕〖〗《》〈〉「」『』〘〙〚〛]"
+    )
 
     # English/Western punctuation
     EN_PUNCTUATION = r"[,.!?;:\-–—«»‹›]"
@@ -166,11 +168,15 @@ class CaptionStandardizer:
                     # Gap too small or overlap
                     # Target: prev_end_new + min_gap = new_seg.start
                     # => prev_duration_new = new_seg.start - min_gap - prev_seg.start
-                    target_prev_duration = new_seg.start - self.config.min_gap - prev_seg.start
+                    target_prev_duration = (
+                        new_seg.start - self.config.min_gap - prev_seg.start
+                    )
 
                     if target_prev_duration >= self.config.min_duration:
                         # Safe to shorten previous subtitle (still meets min duration)
-                        result[-1] = self._copy_segment(prev_seg, duration=target_prev_duration)
+                        result[-1] = self._copy_segment(
+                            prev_seg, duration=target_prev_duration
+                        )
                     else:
                         # Shortening previous would go below min duration, delay current start
                         new_start = prev_end + self.config.min_gap
@@ -179,14 +185,20 @@ class CaptionStandardizer:
                             0.1,  # Ensure at least some duration
                             new_seg.duration - duration_diff,
                         )
-                        new_seg = self._copy_segment(new_seg, start=new_start, duration=new_duration)
+                        new_seg = self._copy_segment(
+                            new_seg, start=new_start, duration=new_duration
+                        )
 
             # B. Min duration check
             if new_seg.duration < self.config.min_duration:
                 # Check if extending would overlap with next subtitle
-                next_start = segments[i + 1].start if i + 1 < len(segments) else float("inf")
+                next_start = (
+                    segments[i + 1].start if i + 1 < len(segments) else float("inf")
+                )
                 max_extend = next_start - new_seg.start - self.config.min_gap
-                new_duration = min(self.config.min_duration, max(max_extend, new_seg.duration))
+                new_duration = min(
+                    self.config.min_duration, max(max_extend, new_seg.duration)
+                )
                 new_seg = self._copy_segment(new_seg, duration=new_duration)
 
             # C. Max duration check — NO hard truncation here.
@@ -231,7 +243,9 @@ class CaptionStandardizer:
             if words and len(words) >= 2:
                 sub_segs = self._split_with_alignment(seg, words, max_text_len, max_dur)
             else:
-                sub_segs = self._split_without_alignment(seg, text, max_text_len, max_dur)
+                sub_segs = self._split_without_alignment(
+                    seg, text, max_text_len, max_dur
+                )
 
             result.extend(sub_segs)
 
@@ -292,7 +306,9 @@ class CaptionStandardizer:
                 else:
                     groups.append(current_group)
                     current_group = [word]
-                current_chars = sum(len(w.symbol) for w in current_group) + max(0, len(current_group) - 1)
+                current_chars = sum(len(w.symbol) for w in current_group) + max(
+                    0, len(current_group) - 1
+                )
             else:
                 current_group.append(word)
                 current_chars = new_len
@@ -305,7 +321,9 @@ class CaptionStandardizer:
         # we'd re-create the over-long cue we just worked to split).
         min_orphan_len = int(max_text_len * 0.25)
         if len(groups) >= 2:
-            last_chars = sum(len(w.symbol) for w in groups[-1]) + max(0, len(groups[-1]) - 1)
+            last_chars = sum(len(w.symbol) for w in groups[-1]) + max(
+                0, len(groups[-1]) - 1
+            )
             merged_span = (
                 groups[-1][-1].start + groups[-1][-1].duration - groups[-2][0].start
             )
@@ -359,14 +377,16 @@ class CaptionStandardizer:
             available = max(0.0, parent_end - seg_start)
             duration = min(seg_floor, available) if available > 0 else seg_floor
 
-            result.append(self._copy_segment(
-                seg,
-                text=text,
-                start=seg_start,
-                duration=duration,
-                alignment={"word": list(group)},
-                translation=next(slice_iter, None),
-            ))
+            result.append(
+                self._copy_segment(
+                    seg,
+                    text=text,
+                    start=seg_start,
+                    duration=duration,
+                    alignment={"word": list(group)},
+                    translation=next(slice_iter, None),
+                )
+            )
 
         return result if result else [seg]
 
@@ -490,8 +510,12 @@ class CaptionStandardizer:
         original time range — never more (would push into the next sup) and
         never less (would silently drop captions under dubbed audio).
         """
-        n_by_text = max(1, math.ceil(len(text) / max_text_len)) if max_text_len > 0 else 1
-        n_by_dur = max(1, math.ceil(seg.duration / max_duration)) if max_duration > 0 else 1
+        n_by_text = (
+            max(1, math.ceil(len(text) / max_text_len)) if max_text_len > 0 else 1
+        )
+        n_by_dur = (
+            max(1, math.ceil(seg.duration / max_duration)) if max_duration > 0 else 1
+        )
         n_chunks = max(n_by_text, n_by_dur)
 
         if n_chunks <= 1:
@@ -542,13 +566,15 @@ class CaptionStandardizer:
                 ratio = len(chunk) / total_chars
                 chunk_duration = round(available * ratio, 4)
 
-            result.append(self._copy_segment(
-                seg,
-                text=chunk,
-                start=current_start,
-                duration=chunk_duration,
-                translation=trans_slice,
-            ))
+            result.append(
+                self._copy_segment(
+                    seg,
+                    text=chunk,
+                    start=current_start,
+                    duration=chunk_duration,
+                    translation=trans_slice,
+                )
+            )
             current_start = round(current_start + chunk_duration + gap, 4)
 
         return result
@@ -579,7 +605,10 @@ class CaptionStandardizer:
 
     def _format_texts(self, segments: List[Supervision]) -> List[Supervision]:
         """Apply text formatting to all subtitles."""
-        return [self._copy_segment(seg, text=self._smart_split_text(seg.text or "")) for seg in segments]
+        return [
+            self._copy_segment(seg, text=self._smart_split_text(seg.text or ""))
+            for seg in segments
+        ]
 
     def _smart_split_text(self, text: str) -> str:
         """
@@ -626,7 +655,9 @@ class CaptionStandardizer:
                 break
 
             # Find best split point
-            split_pos = self._find_split_point(remaining, self.config.max_chars_per_line)
+            split_pos = self._find_split_point(
+                remaining, self.config.max_chars_per_line
+            )
 
             lines.append(remaining[:split_pos].rstrip())
             remaining = remaining[split_pos:].lstrip()
@@ -799,6 +830,194 @@ class CaptionStandardizer:
 
         return min(idx, n)
 
+    # Word-boundary safety helpers for translation splitting.
+    # Latin word chars (letters, digits, apostrophe) form indivisible runs:
+    # cutting between two such chars splits a real word (``permissions`` →
+    # ``perm|issions``) or a contraction (``don't`` → ``don|'t``) or a
+    # number+unit (``100ms`` → ``100|ms``). These must be forbidden.
+    _CJK_LO = "一"
+    _CJK_HI = "鿿"
+
+    @staticmethod
+    def _is_latin_word_char(ch: str) -> bool:
+        if not ch:
+            return False
+        return ch.isascii() and (ch.isalpha() or ch.isdigit() or ch == "'")
+
+    @staticmethod
+    def _is_cjk_char(ch: str) -> bool:
+        if not ch:
+            return False
+        return CaptionStandardizer._CJK_LO <= ch <= CaptionStandardizer._CJK_HI
+
+    @staticmethod
+    def _boundary_score(s: str, i: int) -> int:
+        """Score a candidate split position ``i`` (Python slice index).
+
+        ``s[:i]`` ends with ``s[i-1]``, ``s[i:]`` starts with ``s[i]``.
+        Higher = better. Score 0 means forbidden (would split a Latin word).
+
+        Ordering:
+            4 — right after sentence-ending punctuation (. ! ? 。！？)
+            3 — right after clause punctuation (, ; : 、，；：—–)
+            2 — at whitespace (either side)
+            1 — at a CJK boundary (either neighbor is CJK)
+            0 — forbidden (Latin-word internal)
+
+        Note: callers must not pass ``i = 0`` or ``i = len(s)``; those are
+        not splits but edges. The scanner in :py:meth:`_find_safe_split`
+        already filters them out, so they cannot accidentally short-circuit
+        a real boundary in the middle of the string.
+        """
+        n = len(s)
+        # Defensive: edges should never be evaluated, but if they are,
+        # treat them as the lowest acceptable score so they cannot beat
+        # any real punctuation/whitespace boundary inside the string.
+        if i <= 0 or i >= n:
+            return 1
+        prev, nxt = s[i - 1], s[i]
+        if CaptionStandardizer._is_latin_word_char(
+            prev
+        ) and CaptionStandardizer._is_latin_word_char(nxt):
+            return 0
+        if prev in ".!?。！？":
+            return 4
+        if prev in ",;:、，；：—–":
+            return 3
+        if prev.isspace() or nxt.isspace():
+            return 2
+        if CaptionStandardizer._is_cjk_char(prev) or CaptionStandardizer._is_cjk_char(
+            nxt
+        ):
+            return 1
+        # Mixed punctuation / other non-word chars — accept at low priority.
+        return 1
+
+    @staticmethod
+    def _find_safe_split(s: str, target: int, lo: int) -> int:
+        """Find a split position in ``[lo, len(s)]`` closest to ``target``
+        that does NOT cut inside a Latin word.
+
+        Strategy: symmetric outward scan from ``target``. Track the best
+        candidate by ``_boundary_score``; expand the radius until either a
+        top-tier boundary (sentence punct) is hit or both ends are exhausted.
+
+        If the whole searchable range is Latin-word-internal (e.g.
+        ``"aaaaaaaa"`` with no break opportunity), returns ``len(s)`` so the
+        caller leaves the entire remaining translation on the current chunk
+        rather than emitting a forbidden cut.
+        """
+        n = len(s)
+        if target >= n:
+            return n
+        if target <= lo:
+            target = lo
+
+        best_pos: Optional[int] = None
+        best_score = -1
+        radius = 0
+        # Inclusive bounds for scanning. ``lo`` is the minimum valid cut
+        # (cursor + 1) — anything below would emit an empty slice.
+        max_left_reach = target - lo
+        max_right_reach = n - target
+
+        while True:
+            candidates = (
+                (target,) if radius == 0 else (target - radius, target + radius)
+            )
+            for pos in candidates:
+                # ``lo <= pos <= n-1`` — exclude ``pos == n`` (end of string)
+                # so it never wins over a real boundary in the middle. The
+                # "give up and keep whole" fallback is handled explicitly
+                # below when no acceptable score was found.
+                if pos < lo or pos >= n:
+                    continue
+                score = CaptionStandardizer._boundary_score(s, pos)
+                if score > best_score:
+                    best_pos, best_score = pos, score
+                    if score >= 4:
+                        return best_pos
+            # Exit when:
+            # 1) Both sides exhausted (no further candidates possible).
+            # 2) We already have a non-forbidden boundary and have scanned
+            #    a reasonable window (>= 20 chars on each side).
+            if radius >= max_left_reach and radius >= max_right_reach:
+                # If even an unbounded scan found nothing acceptable
+                # (score still 0), refuse to cut: return n so the whole
+                # remaining translation stays on the current chunk.
+                if best_score <= 0:
+                    return n
+                return best_pos if best_pos is not None else n
+            if best_score >= 1 and radius >= 20:
+                return best_pos  # type: ignore[return-value]
+            radius += 1
+
+    @staticmethod
+    def _effective_token_count(s: str) -> int:
+        """Count meaning-carrying tokens in a translation slice.
+
+        Each CJK character counts as one token; each maximal run of Latin
+        word chars (letters/digits/apostrophe) counts as one token.
+        Whitespace and punctuation are skipped.
+
+        Used by :py:meth:`_merge_short_tail_slices` to decide whether a
+        slice is too small to stand on its own (e.g. ``"ok."`` and
+        ``"了。"`` each carry only 1 token — visually they read as a
+        dangling fragment).
+        """
+        if not s:
+            return 0
+        count = 0
+        in_latin = False
+        for ch in s:
+            if CaptionStandardizer._is_cjk_char(ch):
+                count += 1
+                in_latin = False
+            elif CaptionStandardizer._is_latin_word_char(ch):
+                if not in_latin:
+                    count += 1
+                    in_latin = True
+            else:
+                in_latin = False
+        return count
+
+    @staticmethod
+    def _merge_short_tail_slices(
+        slices: List[Optional[str]], min_tokens: int = 2
+    ) -> List[Optional[str]]:
+        """Fold slices that carry fewer than ``min_tokens`` tokens into
+        the most recent non-None slice on the left.
+
+        Why: severe chunk-ratio imbalance (e.g. ``[long_zh, "了"]`` ⇒
+        ratio ~9:1) often pushes the translation cut to land near the
+        end, leaving a 1-token tail like ``"ok."`` or ``"了。"`` on its
+        own. Such a tail reads as a dangling fragment when rendered —
+        users complained explicitly that the dangling char + punct
+        should have stayed with the previous chunk.
+
+        Walks left-to-right and accumulates short slices into the
+        previous slot, replacing the original position with ``None``.
+        Cascading short slices collapse leftward, so three single-token
+        slices end up merged into the first slot.
+        """
+        if len(slices) <= 1:
+            return list(slices)
+        result: List[Optional[str]] = list(slices)
+        for i in range(1, len(result)):
+            cur = result[i]
+            if cur is None:
+                continue
+            if CaptionStandardizer._effective_token_count(cur) >= min_tokens:
+                continue
+            j = i - 1
+            while j >= 0 and result[j] is None:
+                j -= 1
+            if j < 0:
+                continue
+            result[j] = (result[j] or "") + cur
+            result[i] = None
+        return result
+
     @staticmethod
     def _split_translation_proportionally(
         translation: Optional[str], text_chunks: List[str]
@@ -807,8 +1026,14 @@ class CaptionStandardizer:
 
         Preserves total character count so bilingual data is never silently
         dropped when the source text is split into sub-segments. Split points
-        are snapped to Unicode grapheme-cluster boundaries so combining marks
-        and emoji ZWJ sequences never get torn apart.
+        are snapped to:
+
+        1. **Word-safe boundaries** — never cut between two Latin
+           letters/digits/apostrophe (no ``permissions`` → ``perm|issions``).
+           Punctuation is preferred over whitespace, whitespace over
+           CJK-boundary, CJK-boundary over other.
+        2. **Unicode grapheme clusters** — combining marks and emoji ZWJ
+           sequences stay together.
 
         Degenerate cases:
 
@@ -816,9 +1041,16 @@ class CaptionStandardizer:
           value goes on the first slot and the rest are None.
         - Translation is meaningfully shorter than the number of chunks
           (``len(translation) < 2 * n``) → place the whole translation on the
-          first chunk rather than dribbling out 1-char fragments. The original
-          complaint was data loss, not fragmentation, and 1-char slices make
-          bilingual rendering unreadable.
+          first chunk rather than dribbling out 1-char fragments.
+        - The remaining translation has no safe boundary (e.g. one giant
+          Latin token) → keep it whole on the current chunk and emit ``None``
+          for the rest. Better a long single line than a broken word.
+
+        Post-process: slices carrying fewer than 2 effective tokens (a
+        single CJK char or a single Latin word, regardless of punctuation)
+        are folded into the previous slice. Prevents dangling tails like
+        ``"ok."`` or ``"了。"`` from landing on their own chunk under
+        severe ratio imbalance — see :py:meth:`_merge_short_tail_slices`.
         """
         n = len(text_chunks)
         if n == 0:
@@ -843,14 +1075,18 @@ class CaptionStandardizer:
         for i, chunk in enumerate(text_chunks):
             if i == n - 1:
                 out.append(translation[cursor:] or None)
-            else:
-                ratio = len(chunk) / total
-                end = min(cursor + max(1, int(round(trans_len * ratio))), trans_len)
-                end = CaptionStandardizer._advance_to_grapheme_boundary(translation, end)
-                slice_ = translation[cursor:end]
-                out.append(slice_ or None)
-                cursor = end
-        return out
+                continue
+            ratio = len(chunk) / total
+            target = cursor + max(1, int(round(trans_len * ratio)))
+            target = min(target, trans_len)
+            end = CaptionStandardizer._find_safe_split(
+                translation, target, lo=cursor + 1
+            )
+            end = CaptionStandardizer._advance_to_grapheme_boundary(translation, end)
+            slice_ = translation[cursor:end]
+            out.append(slice_ or None)
+            cursor = end
+        return CaptionStandardizer._merge_short_tail_slices(out)
 
     def apply_margins(
         self,
@@ -886,7 +1122,11 @@ class CaptionStandardizer:
             return []
 
         # Resolve margins: parameter > config > 0.0 (no adjustment)
-        sm = start_margin if start_margin is not None else (self.config.start_margin or 0.0)
+        sm = (
+            start_margin
+            if start_margin is not None
+            else (self.config.start_margin or 0.0)
+        )
         em = end_margin if end_margin is not None else (self.config.end_margin or 0.0)
 
         # Sort by start time
@@ -914,10 +1154,14 @@ class CaptionStandardizer:
             if result:
                 prev_end = result[-1].start + result[-1].duration
                 if new_start < prev_end + self.config.min_gap:
-                    new_start = self._resolve_collision(prev_end, new_start, first_word_start, sm)
+                    new_start = self._resolve_collision(
+                        prev_end, new_start, first_word_start, sm
+                    )
 
             new_duration = new_end - new_start
-            result.append(self._copy_segment(seg, start=new_start, duration=new_duration))
+            result.append(
+                self._copy_segment(seg, start=new_start, duration=new_duration)
+            )
 
         return result
 
@@ -1058,7 +1302,9 @@ class CaptionValidator:
                 gap = seg.start - prev_end
                 if gap >= 0 and gap < self.config.min_gap - 1e-6:
                     result.gaps_too_small += 1
-                    result.warnings.append(f"Segment {i} (id={seg.id}): gap {gap:.3f}s < min {self.config.min_gap}s")
+                    result.warnings.append(
+                        f"Segment {i} (id={seg.id}): gap {gap:.3f}s < min {self.config.min_gap}s"
+                    )
 
             # CPL check
             if max_line_len > self.config.max_chars_per_line:
@@ -1078,7 +1324,11 @@ class CaptionValidator:
         result.avg_cps = total_cps / len(segments)
 
         # Determine if validation passed
-        result.valid = result.segments_too_short == 0 and result.segments_too_long == 0 and result.gaps_too_small == 0
+        result.valid = (
+            result.segments_too_short == 0
+            and result.segments_too_long == 0
+            and result.gaps_too_small == 0
+        )
 
         return result
 
@@ -1152,4 +1402,6 @@ def apply_margins_to_captions(
     standardizer.config.start_margin = start_margin
     standardizer.config.end_margin = end_margin
     standardizer.config.margin_collision_mode = collision_mode
-    return standardizer.apply_margins(segments, start_margin=start_margin, end_margin=end_margin)
+    return standardizer.apply_margins(
+        segments, start_margin=start_margin, end_margin=end_margin
+    )

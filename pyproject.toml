@@ -47,6 +47,11 @@ splitting = [
     "onnxruntime>=1.26.0; python_version >= '3.11'",
     "huggingface_hub>=1.14.0",
     "modelscope>=1.36.3",
+    # Chinese word segmentation — used by CaptionStandardizer to avoid
+    # cutting Chinese multi-char words across cue boundaries. The
+    # ``_refine_groups_for_cjk_word_safety`` helper imports it lazily and
+    # falls back to a no-op when unavailable, so this is opt-in.
+    "jieba>=0.42.1",
 ]
 dev = [
     "pytest>=9.0.3",
@@ -56,6 +61,7 @@ dev = [
     "onnxruntime>=1.26.0; python_version >= '3.11'",
     "huggingface_hub>=1.14.0",
     "modelscope>=1.36.3",
+    "jieba>=0.42.1",
 ]
 
 [project.urls]

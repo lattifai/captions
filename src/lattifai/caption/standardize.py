@@ -316,6 +316,15 @@ class CaptionStandardizer:
         if current_group:
             groups.append(current_group)
 
+        # Snap cue boundaries off the middle of Chinese multi-char words.
+        # E.g. raw splitter may end one group with "组" and start the next
+        # with "件，" — but jieba says "组件" is a single word, so we shift
+        # the cut one word LEFT (giving "组" to the next group). No-op if
+        # jieba is not installed or no CJK words are detected.
+        groups = self._refine_groups_for_cjk_word_safety(
+            seg.text or "", groups, max_text_len
+        )
+
         # Prevent orphans: merge last group into previous if too short — but
         # only when the merged group still fits the duration budget (otherwise
         # we'd re-create the over-long cue we just worked to split).
@@ -398,6 +407,145 @@ class CaptionStandardizer:
             )
 
         return result if result else [seg]
+
+    def _refine_groups_for_cjk_word_safety(
+        self, seg_text: str, groups: List[List], max_text_len: int
+    ) -> List[List]:
+        """Shift cue boundaries so they don't fall inside a Chinese word.
+
+        ``_split_with_alignment`` treats each CJK character as one word
+        (because that's how the aligner emits them), so the raw splitter
+        happily cuts ``组件`` between ``组`` and ``件``. jieba can tell us
+        ``组件`` is a single token; we use that to nudge the boundary one
+        word LEFT (i.e. ``组`` joins the next group) whenever it lands
+        inside a 2+ char CJK word.
+
+        Falls back to a no-op if:
+
+        - ``jieba`` is not installed (CJK word protection is opt-in via
+          the standard ``jieba`` install — graceful degradation when
+          missing).
+        - ``seg_text`` is empty.
+        - No 2+ char CJK words are detected by jieba.
+        - A boundary shift would empty the previous group (refuse to
+          collapse a slot — the alignment word would be lost).
+        - A boundary shift would push the next group past ``max_text_len``
+          by more than 25% (refuse to create an unreasonably long cue;
+          the original char-internal cut is cosmetically bad but at
+          least respects budgets).
+
+        Strategy: snap LEFT only. Moving the boundary right would either
+        require overflowing the prev group's char budget (already
+        triggered the split) or, in cascades, push every downstream
+        boundary further right. Snapping left shrinks prev group and
+        gives the orphan char to the next group — the next group may
+        grow slightly, but the subsequent split logic handles it.
+        """
+        if not seg_text or len(groups) < 2:
+            return groups
+        try:
+            import jieba
+        except ImportError:
+            return groups
+
+        # Identify 2+ char CJK words. jieba.cut returns tokens in order;
+        # walk them with a char cursor to recover spans.
+        word_spans: List[tuple] = []
+        cursor = 0
+        for tok in jieba.cut(seg_text, HMM=False):
+            n = len(tok)
+            if n >= 2 and all(self._is_cjk_char(c) for c in tok):
+                word_spans.append((cursor, cursor + n))
+            cursor += n
+        if not word_spans:
+            return groups
+
+        # Map each word (across all groups) to its char position in
+        # ``seg_text`` by walking text.find in order. This mirrors how
+        # ``_slice_text_by_word_groups`` recovers char offsets.
+        all_words: List = []
+        for g in groups:
+            all_words.extend(g)
+        word_char_starts: List[int] = []
+        cursor = 0
+        for w in all_words:
+            sym = getattr(w, "symbol", "")
+            if not sym:
+                word_char_starts.append(cursor)
+                continue
+            found = seg_text.find(sym, cursor)
+            if found < 0:
+                # Text/alignment drift — refuse to refine.
+                return groups
+            word_char_starts.append(found)
+            cursor = found + len(sym)
+        word_char_starts.append(len(seg_text))  # sentinel for "past last word"
+
+        # Boundary i = absolute word index where group i+1 starts.
+        boundaries: List[int] = []
+        cum = 0
+        for g in groups[:-1]:
+            cum += len(g)
+            boundaries.append(cum)
+
+        # Snap each boundary left if it falls inside a CJK word.
+        prev_b = 0
+        new_boundaries: List[int] = []
+        for bi, b in enumerate(boundaries):
+            cut_char = word_char_starts[b]
+            covering = None
+            for lo, hi in word_spans:
+                if lo < cut_char < hi:
+                    covering = (lo, hi)
+                    break
+            if covering is None:
+                new_boundaries.append(b)
+                prev_b = b
+                continue
+            # Find word index whose char_start == lo (left edge of the
+            # CJK word). Walk back from current b.
+            target_lo = covering[0]
+            new_b = b
+            for idx in range(b - 1, prev_b - 1, -1):
+                if idx < 0:
+                    break
+                if word_char_starts[idx] == target_lo:
+                    new_b = idx
+                    break
+            # Safety: never collapse the prev group below 1 word.
+            if new_b <= prev_b:
+                new_boundaries.append(b)
+                prev_b = b
+                continue
+            # Safety: refuse if next group would exceed 125% of budget.
+            # Compute next group's char length under the new boundary.
+            next_end = (
+                boundaries[bi + 1] if bi + 1 < len(boundaries) else len(all_words)
+            )
+            next_words = all_words[new_b:next_end]
+            next_chars = sum(len(getattr(w, "symbol", "")) for w in next_words) + max(
+                0, len(next_words) - 1
+            )
+            if next_chars > int(max_text_len * 1.25):
+                new_boundaries.append(b)
+                prev_b = b
+                continue
+            new_boundaries.append(new_b)
+            prev_b = new_b
+
+        if new_boundaries == boundaries:
+            return groups
+
+        # Rebuild groups from new boundaries.
+        new_groups: List[List] = []
+        prev = 0
+        for nb in new_boundaries:
+            if nb > prev:
+                new_groups.append(all_words[prev:nb])
+            prev = nb
+        if prev < len(all_words):
+            new_groups.append(all_words[prev:])
+        return new_groups
 
     @staticmethod
     def _slice_text_by_word_groups(text: str, groups: List[List]) -> List[str]:

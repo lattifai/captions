@@ -677,3 +677,185 @@ def test_short_head_two_token_threshold():
         # Could also still merge depending on tokens — accept either
         # as long as no_short_tail invariant holds.
         pass
+
+
+# ------------------------------------------------------------------
+# PR2 — Chinese word-boundary protection in `_split_with_alignment`.
+# Uses jieba to detect 2+ char Chinese words and prevents cue
+# boundaries from landing inside them.
+# ------------------------------------------------------------------
+
+
+def _make_cjk_aligned_seg(text, translation=None, per_char_dur=0.5):
+    """Build a Supervision with per-CJK-char word alignment."""
+    from lattifai.caption.supervision import AlignmentItem, Supervision
+
+    chars = list(text)
+    words = [
+        AlignmentItem(symbol=c, start=i * per_char_dur, duration=per_char_dur)
+        for i, c in enumerate(chars)
+    ]
+    return Supervision(
+        id="sup",
+        start=0.0,
+        duration=len(chars) * per_char_dur,
+        text=text,
+        translation=translation,
+        alignment={"word": words},
+        language="zh",
+    )
+
+
+def _make_standardizer(max_chars=10, max_duration=4.0):
+    from lattifai.caption.standardize import CaptionStandardizer
+
+    s = CaptionStandardizer(
+        min_duration=0.01,
+        max_duration=max_duration,
+        min_gap=0.0,
+        max_lines=1,
+        max_chars_per_line=max_chars,
+    )
+    s.config.start_margin = 0.0
+    s.config.end_margin = 0.0
+    return s
+
+
+def _split_boundaries_inside_words(text, sub_texts, min_word_len=2):
+    """Identify whether any sub-segment boundary falls inside a Chinese
+    word identified by jieba. Returns list of (boundary_char_pos, word).
+    Empty list = clean cuts."""
+    import jieba
+
+    # jieba word spans by character position
+    word_spans = []
+    cursor = 0
+    for tok in jieba.cut(text, HMM=False):
+        if len(tok) >= min_word_len and any("一" <= c <= "鿿" for c in tok):
+            word_spans.append((cursor, cursor + len(tok), tok))
+        cursor += len(tok)
+
+    # Boundaries are cumulative char positions at the end of each sub_text
+    # (excluding the last one which is the end of the full text).
+    boundaries = []
+    cum = 0
+    for st in sub_texts[:-1]:
+        cum += len(st)
+        boundaries.append(cum)
+
+    violations = []
+    for b in boundaries:
+        for lo, hi, tok in word_spans:
+            if lo < b < hi:
+                violations.append((b, tok))
+                break
+    return violations
+
+
+def test_chinese_two_char_word_not_cut_xiangmu():
+    """Regression: dub karaoke ASS observed Chinese 2-char words cut
+    between adjacent cues. With max_chars=10 and per-CJK alignment,
+    a group fits 5 CJK chars (each char = 1 + separator). Construct
+    text where the 5/6 boundary falls inside a 2-char word like '项目'."""
+    text = "为了完成项目我们需要组件支持以及更多功能问题"  # '项目' at chars 4-5
+    seg = _make_cjk_aligned_seg(text)
+    result = _make_standardizer(max_chars=10).process([seg])
+
+    sub_texts = [r.text for r in result]
+    assert "".join(sub_texts) == text
+    violations = _split_boundaries_inside_words(text, sub_texts)
+    assert not violations, f"Chinese word cut by cue boundary: {violations}"
+
+
+def test_chinese_two_char_word_not_cut_zujian():
+    """Same shape, different word — '组件' wedged at a 10-char boundary."""
+    text = "我们今天最终需要创建组件来支持这一新的工作流程"  # '组件' near char 10
+    seg = _make_cjk_aligned_seg(text)
+    result = _make_standardizer(max_chars=10).process([seg])
+
+    sub_texts = [r.text for r in result]
+    assert "".join(sub_texts) == text
+    violations = _split_boundaries_inside_words(text, sub_texts)
+    assert not violations, f"Chinese word cut: {violations}"
+
+
+def test_chinese_multi_char_word_not_cut():
+    """Multi-char words like '人工智能' (4 chars) must not be cut."""
+    text = "现在我们大家都在讨论人工智能的最新进展以及未来应用场景"
+    seg = _make_cjk_aligned_seg(text)
+    result = _make_standardizer(max_chars=10).process([seg])
+
+    sub_texts = [r.text for r in result]
+    assert "".join(sub_texts) == text
+    violations = _split_boundaries_inside_words(text, sub_texts)
+    assert not violations, f"Chinese word cut: {violations}"
+
+
+def test_chinese_word_protection_preserves_alignment():
+    """When the cue boundary shifts to avoid cutting a word, the
+    sub-segment's alignment must still match its text exactly."""
+    text = "为了完成项目我们需要组件支持以及更多功能问题"
+    seg = _make_cjk_aligned_seg(text)
+    result = _make_standardizer(max_chars=10).process([seg])
+
+    for r in result:
+        word_syms = "".join(w.symbol for w in r.alignment["word"])
+        assert word_syms == r.text, (
+            f"text {r.text!r} drifted from alignment {word_syms!r}"
+        )
+
+
+def test_chinese_word_protection_does_not_break_pathological():
+    """If a single jieba 'word' exceeds max_chars, the splitter must
+    still produce non-empty output without infinite-looping."""
+    # Construct text with a 12-char run that jieba may or may not split.
+    text = "这是一段非常非常非常非常非常非常长的中文文本内容描述"
+    seg = _make_cjk_aligned_seg(text)
+    result = _make_standardizer(max_chars=10).process([seg])
+
+    assert sum(len(r.text) for r in result) == len(text)
+    assert all(r.text for r in result)
+
+
+def test_mixed_zh_en_word_protection():
+    """Mixed Latin/CJK: both English words and 2-char Chinese words
+    must be protected at cue boundaries."""
+    text = "请大家使用 Tailwind 框架来构建组件样式系统"
+    from lattifai.caption.supervision import AlignmentItem, Supervision
+
+    # Each CJK char and each contiguous Latin run is one alignment item.
+    tokens = []
+    cur_run = ""
+    for ch in text:
+        is_cjk = "一" <= ch <= "鿿"
+        if is_cjk or ch.isspace():
+            if cur_run:
+                tokens.append(cur_run)
+                cur_run = ""
+            if not ch.isspace():
+                tokens.append(ch)
+        else:
+            cur_run += ch
+    if cur_run:
+        tokens.append(cur_run)
+
+    per = 0.3
+    words = []
+    t = 0.0
+    for tok in tokens:
+        words.append(AlignmentItem(symbol=tok, start=t, duration=per * len(tok)))
+        t += per * len(tok)
+    seg = Supervision(
+        id="mix",
+        start=0.0,
+        duration=t,
+        text=text,
+        alignment={"word": words},
+        language="zh",
+    )
+    result = _make_standardizer(max_chars=10).process([seg])
+
+    sub_texts = [r.text for r in result]
+    assert "".join(sub_texts) == text
+    violations = _split_boundaries_inside_words(text, sub_texts)
+    assert not violations, f"Word cut at cue boundary: {violations}"

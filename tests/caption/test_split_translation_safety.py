@@ -380,11 +380,197 @@ def test_short_tail_does_not_break_degenerate_path():
     assert out == ["ok", None]
 
 
-def test_pure_cjk_one_char_per_chunk_collapses():
-    """4-chunk split of a 4-CJK-char translation: each 1-token slice
-    collapses leftward until no slice has < 2 tokens."""
-    chunks = ["a", "b", "c", "d"]
-    trans = "我们今天"
+# ------------------------------------------------------------------
+# Codex review follow-ups: curly apostrophe, non-BMP CJK, exact
+# cascade placement, and end-to-end `process()` integration.
+# ------------------------------------------------------------------
+
+
+def test_curly_apostrophe_in_contraction_not_cut():
+    """Dub-flow English translations almost always use ’ (U+2019, curly
+    apostrophe), not the ASCII '. The old protection only matched ASCII
+    and would happily cut ``doesn’t`` into ``doesn`` / ``’t`` when no
+    nearby whitespace candidate outscored the boundary.
+
+    Constructed case: contraction wedged between CJK characters with no
+    surrounding whitespace, so the splitter has no whitespace fallback
+    and the curly apostrophe boundary is the only score-1 candidate."""
+    chunks = ["aa", "bb"]
+    trans = "我们doesn’t很好"
+    out = split(trans, chunks)
+    assert _joined(out) == trans
+    for s in out:
+        if s and ("doesn" in s or "’t" in s):
+            assert "doesn’t" in s, f"curly-apostrophe contraction broken: {out}"
+
+
+def test_curly_apostrophe_score_is_forbidden():
+    """Unit-test the boundary scorer directly: between a Latin letter
+    and a curly apostrophe (and vice versa) must score 0 (forbidden),
+    just like the ASCII apostrophe case."""
+    from lattifai.caption.standardize import CaptionStandardizer
+
+    s = "don’t"
+    # Position 3 sits between 'n' and '’' — splitting here would yield
+    # "don" + "’t", breaking the contraction.
+    assert CaptionStandardizer._boundary_score(s, 3) == 0, (
+        f"score at 'n|’' should be 0, got {CaptionStandardizer._boundary_score(s, 3)}"
+    )
+    assert CaptionStandardizer._boundary_score(s, 4) == 0, (
+        f"score at '’|t' should be 0, got {CaptionStandardizer._boundary_score(s, 4)}"
+    )
+
+
+def test_non_bmp_cjk_treated_as_cjk_in_classifier():
+    """Han Extension B (U+20000+) chars must be recognized by the CJK
+    classifier so they count as tokens and so the boundary scorer
+    treats them as CJK rather than 'other'."""
+    from lattifai.caption.standardize import CaptionStandardizer
+
+    # U+20000 (CJK Ext-B start) and U+2A700 (Ext-C start)
+    assert CaptionStandardizer._is_cjk_char("𠀀"), "U+20000 should classify as CJK"
+    assert CaptionStandardizer._is_cjk_char("\U0002a700"), (
+        "U+2A700 should classify as CJK"
+    )
+    # And token counting must agree.
+    assert CaptionStandardizer._effective_token_count("𠀀𠀁") == 2
+
+
+def test_non_bmp_cjk_short_tail_merges():
+    """Non-BMP CJK chars count as tokens, so a slice carrying only a
+    single Ext-B char is still a 1-token tail and must merge."""
+    # 5 Latin chars + 1 Ext-B char + period — at ratio close to 9:1
+    # the splitter may try to leave "𠀀." as its own slice.
+    chunks = ["very long chinese here", "嗯"]
+    trans = "starting with latin and one non-bmp 𠀀."
     out = split(trans, chunks)
     assert _joined(out) == trans
     _assert_no_short_tail(out)
+
+
+def test_merge_cascades_exactly_into_first_slot():
+    """Pin the cascade policy: three single-token slots collapse into
+    slot 0; slots 1 and 2 become None."""
+    chunks = ["a" * 30, "b" * 1, "c" * 1]
+    trans = "very long english sentence and ok yes."
+    out = split(trans, chunks)
+    assert _joined(out) == trans
+    # With chunk lengths 30:1:1, slots 1 and 2 will land on 1-token
+    # tails (e.g. "ok " / "yes."), both of which must fold back into
+    # slot 0.
+    assert out[1] is None and out[2] is None
+    assert out[0] == trans
+
+
+def test_cjk_only_translation_one_char_per_chunk_under_explicit_path():
+    """Sanity: when the degenerate ``trans_len < 2*n`` path doesn't
+    apply (long enough trans), 1-char CJK tails still get merged."""
+    chunks = ["a", "b", "c"]
+    # 8 CJK chars across 3 chunks (8 >= 2*3=6, so we enter the main path)
+    trans = "我们今天非常开心"
+    out = split(trans, chunks)
+    assert _joined(out) == trans
+    _assert_no_short_tail(out)
+
+
+# ------------------------------------------------------------------
+# End-to-end `process()` integration: real Supervision + word
+# alignment + translation. Verifies that supervision count, per-cue
+# text, per-cue alignment, and translation slots all stay consistent
+# after the new splitter + short-tail merge fire under the real flow.
+# ------------------------------------------------------------------
+
+
+def _make_aligned_seg(text, translation, per_char_dur=0.5):
+    """Build a Supervision whose word alignment is one item per CJK char."""
+    from lattifai.caption.supervision import AlignmentItem, Supervision
+
+    chars = list(text)
+    words = [
+        AlignmentItem(symbol=c, start=i * per_char_dur, duration=per_char_dur)
+        for i, c in enumerate(chars)
+    ]
+    return Supervision(
+        id="sup",
+        start=0.0,
+        duration=len(chars) * per_char_dur,
+        text=text,
+        translation=translation,
+        alignment={"word": words},
+        language="zh",
+    )
+
+
+def _make_standardizer_for_split(max_chars=10, max_duration=4.0):
+    from lattifai.caption.standardize import CaptionStandardizer
+
+    s = CaptionStandardizer(
+        min_duration=0.01,
+        max_duration=max_duration,
+        min_gap=0.0,
+        max_lines=1,
+        max_chars_per_line=max_chars,
+    )
+    s.config.start_margin = 0.0
+    s.config.end_margin = 0.0
+    return s
+
+
+def test_process_aligned_cue_keeps_text_and_alignment_consistent():
+    """Each sub-seg's text must match its word-alignment symbols,
+    even after short-tail merge redistributes the translation."""
+    text = "我们今天非常开心地讨论这个问题然后得出结论"  # 20 CJK chars
+    trans = "We had a really happy conversation about this question today."
+    seg = _make_aligned_seg(text, trans)
+    result = _make_standardizer_for_split().process([seg])
+
+    assert len(result) >= 2
+    # Per-cue: text concatenation must equal source text (no drops, no dupes)
+    assert "".join(r.text for r in result) == text
+    # Per-cue: each character in r.text must appear as a word.symbol in same order
+    for r in result:
+        word_syms = "".join(w.symbol for w in r.alignment["word"])
+        assert word_syms == r.text, (
+            f"text {r.text!r} drifted from alignment {word_syms!r}"
+        )
+
+
+def test_process_aligned_cue_translation_slots_match_count():
+    """Number of supervisions out == number of translation slots: no cue
+    can borrow the next cue's translation because slice_iter desynced."""
+    text = "我们今天非常开心地讨论问题然后认真得出最终的结论好嗯"  # 25 chars
+    trans = "We had a happy chat about this question and came to a final conclusion."
+    seg = _make_aligned_seg(text, trans)
+    result = _make_standardizer_for_split().process([seg])
+
+    # Reconstruct the translation by joining non-None per-cue translations.
+    rejoined = "".join(r.translation or "" for r in result)
+    assert rejoined == trans, (
+        f"translation reassembly diverged: {rejoined!r} vs {trans!r}"
+    )
+
+
+def test_process_aligned_cue_no_latin_word_split_in_translation():
+    """End-to-end: after process() splits a long aligned cue, no
+    sub-seg's translation cuts a Latin word."""
+    text = "我们今天非常开心地讨论这个问题然后得出最终结论"  # ~22 chars
+    trans = (
+        "We discussed this question today and reached our final conclusion together."
+    )
+    seg = _make_aligned_seg(text, trans)
+    result = _make_standardizer_for_split().process([seg])
+
+    translations = [r.translation for r in result]
+    _assert_no_latin_word_split(translations)
+
+
+def test_process_aligned_cue_no_short_tail_translation():
+    """End-to-end: no sub-seg ends up with a translation that is just
+    1 effective token (e.g. ``"ok."`` / ``"了。"``)."""
+    text = "我们讨论这个问题然后得出最终结论好"  # 17 chars, last char is 单字
+    trans = "We discussed this question and reached the final conclusion ok."
+    seg = _make_aligned_seg(text, trans)
+    result = _make_standardizer_for_split().process([seg])
+
+    translations = [r.translation for r in result]
+    _assert_no_short_tail(translations)

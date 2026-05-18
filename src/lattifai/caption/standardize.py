@@ -342,6 +342,15 @@ class CaptionStandardizer:
         trans_slices = self._split_translation_proportionally(
             getattr(seg, "translation", None), group_texts
         )
+        # Hard invariant: slice count must match text-chunk count so each
+        # sub-segment gets its OWN translation slot. A future regression
+        # that violated this would silently make supervision[i] borrow
+        # supervision[i+1]'s translation via the ``next(..., None)`` fallback
+        # below. Fail loud now if the contract breaks.
+        assert len(trans_slices) == len(group_texts), (
+            f"translation slice count {len(trans_slices)} != "
+            f"text chunk count {len(group_texts)}"
+        )
 
         # Create sub-segments from word groups
         result: List[Supervision] = []
@@ -543,6 +552,9 @@ class CaptionStandardizer:
 
         trans_slices = self._split_translation_proportionally(
             getattr(seg, "translation", None), chunks
+        )
+        assert len(trans_slices) == len(chunks), (
+            f"translation slice count {len(trans_slices)} != chunk count {len(chunks)}"
         )
 
         # Distribute seg.duration proportionally. Reserve ``min_gap`` between
@@ -833,22 +845,47 @@ class CaptionStandardizer:
     # Word-boundary safety helpers for translation splitting.
     # Latin word chars (letters, digits, apostrophe) form indivisible runs:
     # cutting between two such chars splits a real word (``permissions`` →
-    # ``perm|issions``) or a contraction (``don't`` → ``don|'t``) or a
-    # number+unit (``100ms`` → ``100|ms``). These must be forbidden.
-    _CJK_LO = "一"
-    _CJK_HI = "鿿"
+    # ``perm|issions``), a contraction (``don't`` / ``don’t`` →
+    # ``don|'t`` / ``don|’t``), or a number+unit (``100ms`` → ``100|ms``).
+    # All these are forbidden. The curly apostrophe (U+2019) is the
+    # default contraction mark from most LLM translators, so it must be
+    # treated identically to ASCII ``'``.
+    #
+    # CJK ranges: Unified Ideographs + Extensions A-G. Non-BMP Extension
+    # blocks (B-G) cover historical/rare characters used in academic and
+    # archival captions — they must be recognized so they count as
+    # tokens and the boundary scorer treats them as CJK.
+    _CJK_RANGES = (
+        (0x4E00, 0x9FFF),  # CJK Unified Ideographs (BMP)
+        (0x3400, 0x4DBF),  # Extension A
+        (0x20000, 0x2A6DF),  # Extension B
+        (0x2A700, 0x2B73F),  # Extension C
+        (0x2B740, 0x2B81F),  # Extension D
+        (0x2B820, 0x2CEAF),  # Extension E
+        (0x2CEB0, 0x2EBEF),  # Extension F
+        (0x30000, 0x3134F),  # Extension G
+    )
 
     @staticmethod
     def _is_latin_word_char(ch: str) -> bool:
         if not ch:
             return False
-        return ch.isascii() and (ch.isalpha() or ch.isdigit() or ch == "'")
+        # Curly apostrophe (U+2019) is the default contraction mark from
+        # most modern translators (Gemini, Claude). Treat it identically
+        # to ASCII ``'`` so ``don’t`` and ``don't`` are both protected.
+        if ch == "'" or ch == "’":
+            return True
+        return ch.isascii() and (ch.isalpha() or ch.isdigit())
 
     @staticmethod
     def _is_cjk_char(ch: str) -> bool:
         if not ch:
             return False
-        return CaptionStandardizer._CJK_LO <= ch <= CaptionStandardizer._CJK_HI
+        cp = ord(ch)
+        for lo, hi in CaptionStandardizer._CJK_RANGES:
+            if lo <= cp <= hi:
+                return True
+        return False
 
     @staticmethod
     def _boundary_score(s: str, i: int) -> int:

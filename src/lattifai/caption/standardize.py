@@ -896,10 +896,20 @@ class CaptionStandardizer:
 
         Ordering:
             4 — right after sentence-ending punctuation (. ! ? 。！？)
-            3 — right after clause punctuation (, ; : 、，；：—–)
+            3 — right after clause punctuation (, ; : 、，；：—–) OR
+                right after a closing bracket/quote (closes a phrase,
+                making the slot natural to break against)
             2 — at whitespace (either side)
             1 — at a CJK boundary (either neighbor is CJK)
             0 — forbidden (Latin-word internal)
+
+        Closing-bracket additions: ``)`` ``]`` ``」`` ``』`` ``》``
+        ``〉`` ``】`` ``〕`` ``〗`` ``）`` (ASCII + CJK closers, plus the
+        fullwidth ``）``). Cutting right after a closing bracket is a
+        natural reading boundary — e.g. ``function(arg)|后续`` or
+        ``作品《设计》|出版了``. Opening brackets are intentionally NOT
+        included: cutting right after an opener would orphan the bracket
+        with no matching close on the same cue.
 
         Note: callers must not pass ``i = 0`` or ``i = len(s)``; those are
         not splits but edges. The scanner in :py:meth:`_find_safe_split`
@@ -919,7 +929,7 @@ class CaptionStandardizer:
             return 0
         if prev in ".!?。！？":
             return 4
-        if prev in ",;:、，；：—–":
+        if prev in ",;:、，；：—–)]」』》〉】〕〗）":
             return 3
         if prev.isspace() or nxt.isspace():
             return 2
@@ -976,8 +986,13 @@ class CaptionStandardizer:
                         return best_pos
             # Exit when:
             # 1) Both sides exhausted (no further candidates possible).
-            # 2) We already have a non-forbidden boundary and have scanned
-            #    a reasonable window (>= 20 chars on each side).
+            # 2) We already have a strong-enough boundary (>= score 2,
+            #    i.e. whitespace or better) and have scanned a reasonable
+            #    window (>= 20 chars on each side). Earlier versions of
+            #    this exit checked ``score >= 1``, which let a generic
+            #    CJK boundary at radius 5 short-circuit the scan and
+            #    miss a sentence period sitting just past radius 20.
+            #    Whitespace is the lowest tier worth settling for early.
             if radius >= max_left_reach and radius >= max_right_reach:
                 # If even an unbounded scan found nothing acceptable
                 # (score still 0), refuse to cut: return n so the whole
@@ -985,7 +1000,7 @@ class CaptionStandardizer:
                 if best_score <= 0:
                     return n
                 return best_pos if best_pos is not None else n
-            if best_score >= 1 and radius >= 20:
+            if best_score >= 2 and radius >= 20:
                 return best_pos  # type: ignore[return-value]
             radius += 1
 
@@ -1023,23 +1038,31 @@ class CaptionStandardizer:
         slices: List[Optional[str]], min_tokens: int = 2
     ) -> List[Optional[str]]:
         """Fold slices that carry fewer than ``min_tokens`` tokens into
-        the most recent non-None slice on the left.
+        the closest non-None neighbor.
 
         Why: severe chunk-ratio imbalance (e.g. ``[long_zh, "了"]`` ⇒
-        ratio ~9:1) often pushes the translation cut to land near the
-        end, leaving a 1-token tail like ``"ok."`` or ``"了。"`` on its
-        own. Such a tail reads as a dangling fragment when rendered —
-        users complained explicitly that the dangling char + punct
-        should have stayed with the previous chunk.
+        ratio ~9:1) often pushes the translation cut to land near one
+        end, leaving a 1-token slice like ``"ok."`` or ``"了。"`` on its
+        own. Such a fragment reads as a dangling piece when rendered —
+        the original user report was that ``"了。"`` should have stayed
+        with the previous chunk.
 
-        Walks left-to-right and accumulates short slices into the
-        previous slot, replacing the original position with ``None``.
-        Cascading short slices collapse leftward, so three single-token
-        slices end up merged into the first slot.
+        Two passes:
+
+        1. Forward — fold short slices into the previous non-None slice.
+           Cascading short slices (e.g. three 1-token slots) collapse
+           leftward into the first slot.
+        2. Head-merge — if slice 0 ends up short AND a non-None
+           neighbor to the RIGHT exists, prepend slice 0 into that
+           neighbor. This covers the symmetric ``[tiny_head, big_tail]``
+           case (e.g. chunks ratio 1:9 with a translation that starts
+           with a 1-token phrase like ``"Ok."``), which the forward
+           pass alone cannot fix because slot 0 has no left neighbor.
         """
         if len(slices) <= 1:
             return list(slices)
         result: List[Optional[str]] = list(slices)
+        # Pass 1: forward fold of short slices into the previous slot.
         for i in range(1, len(result)):
             cur = result[i]
             if cur is None:
@@ -1053,6 +1076,19 @@ class CaptionStandardizer:
                 continue
             result[j] = (result[j] or "") + cur
             result[i] = None
+        # Pass 2: head-merge. Slot 0 might still be short — fold it
+        # into the next non-None slot if one exists.
+        head = result[0]
+        if (
+            head is not None
+            and CaptionStandardizer._effective_token_count(head) < min_tokens
+        ):
+            k = 1
+            while k < len(result) and result[k] is None:
+                k += 1
+            if k < len(result):
+                result[k] = head + (result[k] or "")
+                result[0] = None
         return result
 
     @staticmethod

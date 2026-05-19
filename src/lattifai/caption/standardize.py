@@ -1274,14 +1274,28 @@ class CaptionStandardizer:
     # list-style sentences in Chinese translation.
     # ------------------------------------------------------------------
 
-    # Sentence-class: terminate a clause-level idea (period, question,
-    # exclamation, ellipsis). ``…`` is one codepoint; multi-char ``...``
-    # would need separate handling and is not common in modern captions.
-    _PUNCT_SENTENCE = frozenset(".!?。！？…")
-    # Clause-class: separate sub-clauses within a sentence. ``、`` is the
-    # CJK enumeration comma, which translators routinely use in place of
-    # ``，`` for list items — treat it as comma-equivalent.
-    _PUNCT_CLAUSE = frozenset(",;:，、；：")
+    # Sentence-class: terminate a clause-level idea. Covers ASCII /
+    # CJK fullwidth / Devanagari (Hindi, Marathi, Sanskrit) / Arabic /
+    # Japanese fullwidth period. ``…`` is one codepoint; ``...`` is
+    # handled by the same-class run collapse in :py:meth:`_scan_punct_
+    # tokens`. Spanish opening marks ``¿`` / ``¡`` are NOT here — they
+    # are sentence-OPENERS, not anchors, so they belong with the
+    # content (not a split point).
+    _PUNCT_SENTENCE = frozenset(
+        ".!?"           # ASCII (en/es/fr/de/pt/it/ru/nl/vi/id/tr/ko)
+        "。！？．"      # CJK fullwidth (zh/ja/ko/zh-TW)
+        "…"             # Common ellipsis (U+2026)
+        "।॥"            # Devanagari Danda + Double Danda (hi/mr/sa)
+        "؟"             # Arabic Question Mark (ar/fa/ur, U+061F)
+    )
+    # Clause-class: separate sub-clauses within a sentence. ``、`` is
+    # the CJK enumeration comma; ``،`` and ``؛`` are Arabic / Persian
+    # / Urdu reversed comma / semicolon (U+060C / U+061B).
+    _PUNCT_CLAUSE = frozenset(
+        ",;:"           # ASCII
+        "，、；："      # CJK fullwidth
+        "،؛"            # Arabic comma + semicolon
+    )
     # Dash-class: includes ZH double em-dash sequence handled per-token
     # in :py:meth:`_scan_punct_tokens` (a maximal run of dash chars
     # collapses into one token so ``——`` is not split mid-mark).
@@ -1304,8 +1318,22 @@ class CaptionStandardizer:
     # cost is that ASCII straight openers (rare in CJK translation
     # output) may be over-consumed. CJK and Latin-typographic
     # translation rarely uses ASCII straight quotes.
-    _PUNCT_OPENING_WRAPPER = frozenset("“‘([{「『《〈【〔〖（［｛")
-    _PUNCT_CLOSING_WRAPPER = frozenset("”’)]}」』》〉】〕〗）］｝")
+    # Opening wrappers — covers ASCII, CJK, and European (German low
+    # double / single quote ``„`` / ``‚``, French / Russian / Spanish
+    # guillemets ``«`` / ``‹``). Spanish opening marks ``¿`` / ``¡``
+    # are NOT here because they precede content directly (no boundary
+    # gap to ignore).
+    _PUNCT_OPENING_WRAPPER = frozenset(
+        "“‘([{"             # ASCII / Latin
+        "「『《〈【〔〖（［｛"  # CJK
+        "«‹„‚"               # European low / angle quotes
+    )
+    # Closing wrappers — mirrors opening set with closing counterparts.
+    _PUNCT_CLOSING_WRAPPER = frozenset(
+        "”’)]}"             # ASCII / Latin
+        "」』》〉】〕〗）］｝"  # CJK
+        "»›"                # European angle quotes
+    )
     _PUNCT_AMBIGUOUS_WRAPPER = frozenset("\"'")
     # Used to allow whitespace + any wrapper between a punctuation
     # token and the chunk boundary when checking whether a boundary
@@ -1342,16 +1370,20 @@ class CaptionStandardizer:
     def _scan_punct_tokens(s: str) -> List[tuple]:
         """Return ``[(class, start, end)]`` for every punctuation token.
 
-        A token covers a maximal run of same-class punctuation so the
-        ZH double em-dash ``——`` (two ``—`` codepoints) is reported as
-        one ``('dash', i, i+2)`` rather than two single-dash tokens —
-        this keeps the boundary-cut math correct (``slice_end = hi``,
-        not ``pos + 1``) and matches reader intuition (``——`` is one
-        mark, not two).
+        A token covers a maximal run of SAME-CLASS punctuation chars so:
 
-        Sentence/clause classes do NOT collapse runs — ``?!`` is two
-        sentence tokens by design (translator may render it as ``？！``
-        with the same two tokens, preserving the match).
+        - ZH double em-dash ``——`` (two ``—`` codepoints) reads as one
+          ``('dash', i, i+2)`` token.
+        - ASCII three-dot ellipsis ``...`` (3 ``.`` codepoints) collapses
+          to one ``('sentence', i, i+3)`` token, aligning to ZH ``…``
+          (single U+2026 codepoint, also one sentence token). Without
+          this, ``...`` produced 3 sentence tokens while ``…`` produced
+          1, causing class-count mismatch and unnecessary fallback.
+        - ``！！`` ``?!`` ``。。`` collapse to one sentence token each;
+          since both source and translation tend to mirror the burst,
+          this still matches. (If a translator picked ``！`` while the
+          source used ``!!``, count-collapse keeps the snap working
+          instead of falling back on a 2-vs-1 mismatch.)
         """
         tokens: List[tuple] = []
         i = 0
@@ -1362,10 +1394,12 @@ class CaptionStandardizer:
                 i += 1
                 continue
             j = i + 1
-            if cls == "dash":
-                # Collapse consecutive dash chars (handles ``——``).
-                while j < n and CaptionStandardizer._classify_punct(s[j]) == "dash":
-                    j += 1
+            # Collapse same-class run for ALL classes (sentence / clause /
+            # dash). Cross-class adjacent tokens (e.g. ``，——``) remain
+            # SEPARATE because the inner classify call returns a
+            # different class.
+            while j < n and CaptionStandardizer._classify_punct(s[j]) == cls:
+                j += 1
             tokens.append((cls, i, j))
             i = j
         return tokens

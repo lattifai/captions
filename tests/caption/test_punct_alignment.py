@@ -104,6 +104,25 @@ def test_sentence_punct_inside_supervision_aligns():
     assert out == ["等。", "走！"]
 
 
+def test_ascii_three_dots_align_to_zh_ellipsis():
+    """Gemini-flagged blocker: ``...`` (3 ASCII periods) in source must
+    align to ``…`` (U+2026, 1 codepoint) in translation. Without
+    same-class run collapse, source produces 3 sentence tokens and
+    ZH produces 1 → count mismatch → unnecessary fallback. With
+    collapse, both sides have 1 sentence token."""
+    out = split("Wait... go.", "等…走。", ["Wait... ", "go."])
+    _assert_lossless("等…走。", out)
+    assert out == ["等…", "走。"]
+
+
+def test_multiple_exclamations_collapse_to_one_token():
+    """``Stop!!`` ↔ ``停止！！`` — two `!` chars collapse to one
+    sentence token on each side, matching."""
+    out = split("Stop!! Go!", "停止！！走！", ["Stop!! ", "Go!"])
+    _assert_lossless("停止！！走！", out)
+    assert out == ["停止！！", "走！"]
+
+
 def test_ellipsis_single_codepoint_sentence_class():
     """Unicode ellipsis ``…`` (U+2026) is one char and must be classified
     as sentence-class so EN ``…`` aligns to ZH ``…``."""
@@ -198,6 +217,61 @@ def test_emoji_zwj_in_translation_preserved():
     assert "".join(out) == trans
     assert "🎵" in out[0]
     assert "🎶" in out[1]
+
+
+def test_hindi_danda_aligns_to_en_period():
+    """Devanagari ``।`` (Danda, U+0964) is Hindi/Marathi/Sanskrit
+    sentence terminator. Translation target with ``।`` interior must
+    align to EN ``.`` interior anchors."""
+    out = split(
+        "Hello. Goodbye later.",
+        "नमस्ते। बाद में अलविदा।",
+        ["Hello. ", "Goodbye later."],
+    )
+    assert out is not None
+    # Interior `।` becomes the snap anchor (with trailing space pulled
+    # into the left slice). The right slice carries the rest.
+    assert out[0].rstrip().endswith("।")
+    assert "बाद में अलविदा" in out[1]
+
+
+def test_arabic_punctuation_aligns():
+    """Arabic uses reversed-direction punct: ``،`` (U+060C clause
+    comma), ``؟`` (question, U+061F). Source EN comma aligns to
+    Arabic comma; source EN question aligns to Arabic question."""
+    out = split(
+        "Hello, world?",
+        "مرحبا، عالم؟",
+        ["Hello, ", "world?"],
+    )
+    assert out is not None
+    assert out[0].endswith("، ") or out[0].endswith("،")
+    assert "عالم" in out[1]
+
+
+def test_german_low_open_quote_not_consumed_into_left_slice():
+    """German low opening quote ``„`` (U+201E) is classified as an
+    OPENING wrapper, so when it sits right after a clause comma on
+    the translation side, it MUST start the right slice (not be
+    swallowed by the left)."""
+    out = split(
+        "He said, hello world today.",
+        "Er sagte, „Hallo Welt heute.",
+        ["He said, ", "hello world today."],
+    )
+    assert out is not None
+    assert out[0] == "Er sagte, "
+    assert out[1].startswith("„"), (
+        f"German low-open quote leaked into left slice: {out!r}"
+    )
+
+
+def test_french_guillemets_are_wrappers_not_anchors():
+    """French ``«`` / ``»`` (angle quotes) are wrappers, not
+    sentence/clause anchors. A translation that uses only guillemets
+    around words and lacks real interior punct must fall back."""
+    out = split("Hello world.", "« Bonjour monde »", ["Hello ", "world."])
+    assert out is None
 
 
 def test_mixed_cjk_latin_translation_aligns():

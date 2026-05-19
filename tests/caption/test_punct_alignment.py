@@ -139,6 +139,80 @@ def test_en_dash_variants_normalize_to_dash_class():
         assert out == ["是——", "走。"], f"failed for {en_dash!r}"
 
 
+def test_opening_quote_after_punct_not_consumed_into_left_slice():
+    """Codex regression: when an OPENING curly quote ``“`` sits
+    right after a clause comma on the translation side, it must NOT
+    be consumed into the left slice — the opening quote belongs to
+    the new quoted clause, so it must start the RIGHT slice.
+
+    Counterpoint to ``test_punct_followed_by_closing_quote_then_space``
+    below: closing wrappers (``”`` curly-right, ``"`` ASCII as
+    pair-closer) ARE consumed; opening wrappers (``“`` curly-left,
+    ``(``, ``[``) are NOT.
+    """
+    out = split(
+        "He said, hello. Then we left.",
+        "他说，“你好。”然后走了。",
+        ["He said, ", "hello. Then we left."],
+    )
+    # Slice 0 ends with the clause comma, NOT with the opening quote;
+    # slice 1 begins with the opening quote so the quoted span
+    # renders intact in the right cue.
+    assert out is not None
+    assert out[0] == "他说，", f"opening quote leaked into left slice: {out!r}"
+    assert out[1].startswith("“"), (
+        f"slice 1 lost its opening quote: {out!r}"
+    )
+
+
+def test_adjacent_clause_then_dash_tokens():
+    """Adjacency: ``,`` followed by ``——`` must remain TWO tokens.
+    The dash-collapse cannot swallow the preceding comma, and the
+    comma cannot merge into the dash token."""
+    out = split("Yes, — no.", "是的，——不。", ["Yes, — ", "no."])
+    assert out is not None
+    assert out[0] == "是的，——"
+    assert out[1] == "不。"
+
+
+def test_adjacent_dash_then_clause_tokens():
+    """Reverse adjacency: ``——`` followed by ``，``. Boundary sits
+    after the comma → snap picks the clause token, not the dash."""
+    out = split(
+        "Yes — but, no.",
+        "是的——但是，不。",
+        ["Yes — but, ", "no."],
+    )
+    assert out is not None
+    assert out[0] == "是的——但是，"
+    assert out[1] == "不。"
+
+
+def test_emoji_zwj_in_translation_preserved():
+    """Emoji (BMP + non-BMP) in translation must not be split or
+    corrupted by the snap — punctuation tokens sit on real punct
+    chars only, so emoji bytes pass through intact."""
+    trans = "好🎵，世🎶。"
+    out = split("Yes, no.", trans, ["Yes, ", "no."])
+    assert out is not None
+    assert "".join(out) == trans
+    assert "🎵" in out[0]
+    assert "🎶" in out[1]
+
+
+def test_mixed_cjk_latin_translation_aligns():
+    """Speaker names stay in Latin inside CJK translation
+    (``Terry Tao`` is one of the glossary keep-as-is patterns in the
+    laidub-translate skill). The snap must align by punctuation,
+    ignoring script transitions."""
+    out = split(
+        "Hi, Terry Tao, the math guy.",
+        "你好，Terry Tao，那个数学家。",
+        ["Hi, ", "Terry Tao, ", "the math guy."],
+    )
+    assert out == ["你好，", "Terry Tao，", "那个数学家。"]
+
+
 def test_punct_followed_by_closing_quote_then_space():
     """``Hello, "world," then left.`` — the chunk boundary may sit AFTER
     ``,"`` (comma + close-quote + space). Wrapper/whitespace chars

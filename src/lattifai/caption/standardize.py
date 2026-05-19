@@ -1291,7 +1291,37 @@ class CaptionStandardizer:
     # punctuation token's end and a chunk boundary. Real captions often
     # close a quoted clause with ``,"`` → the comma is the anchor and
     # the closing quote/space sit between it and the boundary.
-    _PUNCT_WRAPPER = frozenset("\"'“”‘’()[]{}「」『』《》〈〉【】〔〕〖〗（）［］｛｝")
+    # Wrapper character sets, split to handle the asymmetry between
+    # boundary-gap tolerance (any wrapper is fine — quotes/brackets sit
+    # transparently between a punct anchor and the chunk boundary) and
+    # left-slice consumption (must NOT pull an OPENING quote/bracket
+    # into the left slice — that opener belongs to the next quoted
+    # clause and must start the right slice).
+    #
+    # ASCII straight ``"`` and ``'`` are ambiguous (no open/close
+    # distinction). Treat them as closing for consumption so the
+    # common EN ``,"`` / ``,'`` pair-closer pattern still works; the
+    # cost is that ASCII straight openers (rare in CJK translation
+    # output) may be over-consumed. CJK and Latin-typographic
+    # translation rarely uses ASCII straight quotes.
+    _PUNCT_OPENING_WRAPPER = frozenset("“‘([{「『《〈【〔〖（［｛")
+    _PUNCT_CLOSING_WRAPPER = frozenset("”’)]}」』》〉】〕〗）］｝")
+    _PUNCT_AMBIGUOUS_WRAPPER = frozenset("\"'")
+    # Used to allow whitespace + any wrapper between a punctuation
+    # token and the chunk boundary when checking whether a boundary
+    # "sits right after" a punct token in the source text.
+    _PUNCT_WRAPPER_GAP = (
+        _PUNCT_OPENING_WRAPPER | _PUNCT_CLOSING_WRAPPER | _PUNCT_AMBIGUOUS_WRAPPER
+    )
+    # Used to pull trailing closing-wrapper chars into the LEFT slice
+    # after a translation-side punct cut. Excludes opening wrappers so
+    # quoted spans starting AFTER the cut keep their open quote on the
+    # right slice.
+    _PUNCT_TRAILING_CONSUMABLE = _PUNCT_CLOSING_WRAPPER | _PUNCT_AMBIGUOUS_WRAPPER
+    # Back-compat alias for code paths that don't need the open/close
+    # split (e.g. earlier short-tail / boundary scoring helpers that
+    # already treat all wrappers the same).
+    _PUNCT_WRAPPER = _PUNCT_WRAPPER_GAP
 
     @staticmethod
     def _classify_punct(ch: str) -> Optional[str]:
@@ -1505,11 +1535,15 @@ class CaptionStandardizer:
         for tok_idx in chosen:
             _, _lo, hi = trans_tokens[tok_idx]
             end = hi
-            # Pull in closing wrappers immediately attached to the
-            # punctuation (e.g. ``，”`` ``。'`` ``。)``).
+            # Pull in CLOSING wrappers immediately attached to the
+            # punctuation (e.g. ``，”`` ``。'`` ``。)``). Opening
+            # wrappers are deliberately excluded — they belong to the
+            # quoted clause that STARTS in the next slice, not the
+            # one that just ended.
             while (
                 end < len(translation)
-                and translation[end] in CaptionStandardizer._PUNCT_WRAPPER
+                and translation[end]
+                in CaptionStandardizer._PUNCT_TRAILING_CONSUMABLE
             ):
                 end += 1
             # Pull in trailing whitespace so the right slice doesn't

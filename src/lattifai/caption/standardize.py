@@ -348,9 +348,21 @@ class CaptionStandardizer:
         non_empty_groups = [g for g in groups if g]
         group_texts = self._slice_text_by_word_groups(seg.text or "", non_empty_groups)
 
-        trans_slices = self._split_translation_proportionally(
-            getattr(seg, "translation", None), group_texts
+        # Try punctuation-aligned snap first — when EN/ZH punct sequences
+        # match by class and every chunk boundary lands right after a
+        # text-side punctuation token, the resulting bilingual cues are
+        # clause-clean (no mid-clause cuts in ZH). Falls back to
+        # proportional split on any mismatch — see docstring on
+        # :py:meth:`_split_translation_by_punct_alignment` for the
+        # exact criteria.
+        translation = getattr(seg, "translation", None)
+        trans_slices = self._split_translation_by_punct_alignment(
+            seg.text or "", translation, group_texts
         )
+        if trans_slices is None:
+            trans_slices = self._split_translation_proportionally(
+                translation, group_texts
+            )
         # Hard invariant: slice count must match text-chunk count so each
         # sub-segment gets its OWN translation slot. A future regression
         # that violated this would silently make supervision[i] borrow
@@ -698,9 +710,17 @@ class CaptionStandardizer:
         if total_chars <= 0:
             return [seg]
 
-        trans_slices = self._split_translation_proportionally(
-            getattr(seg, "translation", None), chunks
+        # Punct-aligned snap also applies on the no-alignment path —
+        # the chunks here come from ``_split_text_into_chunks`` which
+        # already prefers punctuation as a break, so when the source
+        # has interior punct the chunk boundaries usually land on it
+        # and the snap path engages naturally.
+        translation = getattr(seg, "translation", None)
+        trans_slices = self._split_translation_by_punct_alignment(
+            text, translation, chunks
         )
+        if trans_slices is None:
+            trans_slices = self._split_translation_proportionally(translation, chunks)
         assert len(trans_slices) == len(chunks), (
             f"translation slice count {len(trans_slices)} != chunk count {len(chunks)}"
         )
@@ -1238,6 +1258,234 @@ class CaptionStandardizer:
                 result[k] = head + (result[k] or "")
                 result[0] = None
         return result
+
+    # ------------------------------------------------------------------
+    # Punctuation-aligned translation split (PR3).
+    #
+    # When source text and translation carry the SAME interior
+    # punctuation sequence (by class), snap cue boundaries onto the
+    # mirrored marks instead of proportional char ratio. Falls back to
+    # the proportional path on any mismatch — never silently produces
+    # a wrong alignment.
+    #
+    # Equivalence classes are language-agnostic on the value side: we
+    # accept ASCII and CJK punctuation in either string, so EN ``,`` can
+    # match ZH ``、`` (enumeration comma) — the standard rendering for
+    # list-style sentences in Chinese translation.
+    # ------------------------------------------------------------------
+
+    # Sentence-class: terminate a clause-level idea (period, question,
+    # exclamation, ellipsis). ``…`` is one codepoint; multi-char ``...``
+    # would need separate handling and is not common in modern captions.
+    _PUNCT_SENTENCE = frozenset(".!?。！？…")
+    # Clause-class: separate sub-clauses within a sentence. ``、`` is the
+    # CJK enumeration comma, which translators routinely use in place of
+    # ``，`` for list items — treat it as comma-equivalent.
+    _PUNCT_CLAUSE = frozenset(",;:，、；：")
+    # Dash-class: includes ZH double em-dash sequence handled per-token
+    # in :py:meth:`_scan_punct_tokens` (a maximal run of dash chars
+    # collapses into one token so ``——`` is not split mid-mark).
+    _PUNCT_DASH = frozenset("—–―")
+    # Wrappers: quotation marks, brackets, parens. These are NEVER
+    # anchors but ARE transparent when measuring the gap between a
+    # punctuation token's end and a chunk boundary. Real captions often
+    # close a quoted clause with ``,"`` → the comma is the anchor and
+    # the closing quote/space sit between it and the boundary.
+    _PUNCT_WRAPPER = frozenset("\"'“”‘’()[]{}「」『』《》〈〉【】〔〕〖〗（）［］｛｝")
+
+    @staticmethod
+    def _classify_punct(ch: str) -> Optional[str]:
+        """Return ``'sentence' | 'clause' | 'dash'`` or ``None``.
+
+        Wrappers (quotes, brackets) are deliberately NOT classified —
+        callers must skip them as ignorable noise around real anchors.
+        """
+        if ch in CaptionStandardizer._PUNCT_SENTENCE:
+            return "sentence"
+        if ch in CaptionStandardizer._PUNCT_CLAUSE:
+            return "clause"
+        if ch in CaptionStandardizer._PUNCT_DASH:
+            return "dash"
+        return None
+
+    @staticmethod
+    def _scan_punct_tokens(s: str) -> List[tuple]:
+        """Return ``[(class, start, end)]`` for every punctuation token.
+
+        A token covers a maximal run of same-class punctuation so the
+        ZH double em-dash ``——`` (two ``—`` codepoints) is reported as
+        one ``('dash', i, i+2)`` rather than two single-dash tokens —
+        this keeps the boundary-cut math correct (``slice_end = hi``,
+        not ``pos + 1``) and matches reader intuition (``——`` is one
+        mark, not two).
+
+        Sentence/clause classes do NOT collapse runs — ``?!`` is two
+        sentence tokens by design (translator may render it as ``？！``
+        with the same two tokens, preserving the match).
+        """
+        tokens: List[tuple] = []
+        i = 0
+        n = len(s)
+        while i < n:
+            cls = CaptionStandardizer._classify_punct(s[i])
+            if cls is None:
+                i += 1
+                continue
+            j = i + 1
+            if cls == "dash":
+                # Collapse consecutive dash chars (handles ``——``).
+                while j < n and CaptionStandardizer._classify_punct(s[j]) == "dash":
+                    j += 1
+            tokens.append((cls, i, j))
+            i = j
+        return tokens
+
+    @staticmethod
+    def _strip_trailing_sentence_token(s: str, tokens: List[tuple]) -> List[tuple]:
+        """Drop the LAST sentence-class token if only wrappers/whitespace
+        follow it in ``s`` — that token marks the supervision-final
+        terminator and cannot serve as a split anchor (there is no
+        ``next clause`` to cut into).
+
+        Idempotent. Clause/dash tokens at the end are kept (a trailing
+        comma with nothing after is unusual and we don't want to drop a
+        legitimate interior anchor on heuristics).
+        """
+        if not tokens:
+            return tokens
+        cls, _lo, hi = tokens[-1]
+        if cls != "sentence":
+            return tokens
+        for ch in s[hi:]:
+            if not (ch.isspace() or ch in CaptionStandardizer._PUNCT_WRAPPER):
+                return tokens
+        return tokens[:-1]
+
+    @staticmethod
+    def _is_ignorable_between_punct_and_boundary(ch: str) -> bool:
+        """Chars that may sit between a punctuation token's end and a
+        chunk boundary without disqualifying the snap: whitespace and
+        wrappers (closing quote, closing bracket, etc.).
+        """
+        return ch.isspace() or ch in CaptionStandardizer._PUNCT_WRAPPER
+
+    @staticmethod
+    def _split_translation_by_punct_alignment(
+        text: str, translation: Optional[str], text_chunks: List[str]
+    ) -> Optional[List[str]]:
+        """Snap translation splits to mirrored punctuation in ``text``.
+
+        Returns the per-chunk translation slices ONLY when:
+
+        1. ``text`` and ``translation`` produce identical interior
+           punctuation-class sequences (sentence/clause/dash),
+           ignoring the supervision-final terminator on each side.
+        2. Every chunk boundary in ``text`` sits right after a
+           punctuation token (whitespace/wrappers between are OK).
+        3. The boundary-to-token mapping is strictly increasing — no
+           two boundaries collapse onto the same anchor.
+
+        Returns ``None`` otherwise so the caller falls back to
+        :py:meth:`_split_translation_proportionally`. The returned
+        list always satisfies ``"".join(out) == translation`` and
+        ``len(out) == len(text_chunks)`` — both are invariants for
+        bilingual data integrity.
+        """
+        n_chunks = len(text_chunks)
+        if n_chunks < 2 or not text or not translation:
+            return None
+
+        text_tokens = CaptionStandardizer._strip_trailing_sentence_token(
+            text, CaptionStandardizer._scan_punct_tokens(text)
+        )
+        trans_tokens = CaptionStandardizer._strip_trailing_sentence_token(
+            translation, CaptionStandardizer._scan_punct_tokens(translation)
+        )
+
+        if not text_tokens or not trans_tokens:
+            return None
+        if len(text_tokens) != len(trans_tokens):
+            return None
+        if [t[0] for t in text_tokens] != [t[0] for t in trans_tokens]:
+            return None
+
+        # Cumulative char positions of each chunk boundary in ``text``.
+        bounds: List[int] = []
+        cum = 0
+        for c in text_chunks[:-1]:
+            cum += len(c)
+            bounds.append(cum)
+
+        # Each boundary must map to a text-token whose end is followed
+        # ONLY by ignorable chars up to the boundary. Search high→low so
+        # boundaries near the END of text snap to the LAST candidate
+        # token, not an earlier one with a long trailing run of spaces.
+        chosen: List[int] = []
+        for b in bounds:
+            match = None
+            for idx in range(len(text_tokens) - 1, -1, -1):
+                _, _lo, hi = text_tokens[idx]
+                if hi > b:
+                    continue
+                gap = text[hi:b]
+                if all(
+                    CaptionStandardizer._is_ignorable_between_punct_and_boundary(ch)
+                    for ch in gap
+                ):
+                    match = idx
+                    break
+                # No further LOWER index can satisfy the "right-after"
+                # contract for this boundary either: a punct sitting
+                # even further left would have an even longer non-
+                # ignorable gap. Bail out.
+                return None
+            if match is None:
+                return None
+            chosen.append(match)
+
+        # Strictly increasing: each boundary must map to a DISTINCT
+        # token and in order. Two boundaries snapping to the same comma
+        # would silently drop one cue's translation.
+        for i in range(1, len(chosen)):
+            if chosen[i] <= chosen[i - 1]:
+                return None
+
+        # Bound check: we cannot use more text-token indices than the
+        # ZH side provides (already guaranteed by len equality above,
+        # but reasserted for safety).
+        if chosen[-1] >= len(trans_tokens):
+            return None
+
+        # Slice translation: each boundary cuts AFTER the trans token,
+        # then consumes any trailing wrapper chars (close-quote pinned
+        # to the punctuation) and trailing whitespace so the NEXT slice
+        # starts on real content — never on a stray ``，`` or `` ``.
+        slices: List[str] = []
+        cursor = 0
+        for tok_idx in chosen:
+            _, _lo, hi = trans_tokens[tok_idx]
+            end = hi
+            # Pull in closing wrappers immediately attached to the
+            # punctuation (e.g. ``，”`` ``。'`` ``。)``).
+            while (
+                end < len(translation)
+                and translation[end] in CaptionStandardizer._PUNCT_WRAPPER
+            ):
+                end += 1
+            # Pull in trailing whitespace so the right slice doesn't
+            # carry a leading space.
+            while end < len(translation) and translation[end].isspace():
+                end += 1
+            slices.append(translation[cursor:end])
+            cursor = end
+        slices.append(translation[cursor:])
+
+        # Hard invariants — these are bilingual data-integrity bets.
+        assert "".join(slices) == translation, "punct-aligned slices lost data"
+        assert len(slices) == n_chunks, (
+            f"punct-aligned slice count {len(slices)} != n_chunks {n_chunks}"
+        )
+        return slices
 
     @staticmethod
     def _split_translation_proportionally(

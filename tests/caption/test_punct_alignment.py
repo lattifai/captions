@@ -21,8 +21,6 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-import pytest
-
 from lattifai.caption.standardize import CaptionStandardizer
 from lattifai.caption.supervision import AlignmentItem, Supervision
 
@@ -207,11 +205,24 @@ def test_count_mismatch_falls_back():
 
 
 def test_class_mismatch_falls_back():
-    """EN clause vs ZH sentence at the same position — they're not
-    interchangeable (a period implies sentence break, a comma implies
-    in-clause pause)."""
-    out = split("A: B", "甲，乙", ["A: ", "B"])
+    """Clause vs sentence at the same position — they're not
+    interchangeable (a period implies a sentence break, a comma
+    implies an in-clause pause). EN ``,`` vs ZH ``。`` would split
+    very different things, so we refuse to align."""
+    # EN has one clause-class comma; ZH has one sentence-class period
+    # in the same interior position. Class sequences differ → fallback.
+    out = split("A, B is fine", "甲。乙没问题", ["A, ", "B is fine"])
     assert out is None
+
+
+def test_colon_in_en_matches_zh_comma_clause_class():
+    """``:`` and ``，`` are both clause-class in our equivalence model
+    (per code-review consensus): they share the "in-clause separator"
+    role. ``Yeah: go.`` ↔ ``是的，走。`` should snap, not fall back.
+    Documents this deliberate design choice."""
+    out = split("Yeah: go.", "是的，走。", ["Yeah: ", "go."])
+    _assert_lossless("是的，走。", out)
+    assert out == ["是的，", "走。"]
 
 
 def test_class_order_mismatch_falls_back():

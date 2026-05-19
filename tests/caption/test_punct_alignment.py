@@ -298,6 +298,77 @@ def test_brackets_alone_are_not_anchors():
 
 
 # ------------------------------------------------------------------
+# Length-balance sanity check — punct count/class match alone is not
+# sufficient. Translators sometimes preserve the punctuation count
+# while redistributing the information content (reorder, compress one
+# clause, expand another). When the per-slice relative length skews
+# from the primary's by more than ~3x, the punct-alignment is no
+# longer reliable and we must defer to the proportional splitter.
+# ------------------------------------------------------------------
+
+
+def test_length_balance_short_first_long_second_falls_back():
+    """``Hi. Then we went on a very long journey across the continent.``
+    The first primary chunk is 4 chars; the second is ~57 chars (ratio
+    ~1:14). The translation snaps to ``你好。`` (3 chars) + ``然后我们走遍整个大陆。``
+    (11 chars) — that's 1:3.7. The first cue gets ~3x its primary
+    share, which is too imbalanced for the snap to be trustworthy.
+    Must fall back."""
+    out = split(
+        "Hi. Then we went on a very long journey across the continent.",
+        "你好。然后我们走遍整个大陆。",
+        ["Hi. ", "Then we went on a very long journey across the continent."],
+    )
+    assert out is None, (
+        f"length imbalance went undetected — snap returned {out!r}"
+    )
+
+
+def test_length_balance_reordered_clauses_falls_back():
+    """Reordered translation — punct count matches (3 marks each), but
+    information density was redistributed so the per-cue share is
+    inverted. Must fall back."""
+    # text: long first clause, short middle, medium last → 23 : 11 : 17
+    # trans: short first, short middle, long last → 3 : 3 : 11
+    # cue 0 trans share = 3/17 ≈ 0.18 vs primary 23/51 ≈ 0.45 → 0.4x
+    # cue 2 trans share = 11/17 ≈ 0.65 vs primary 17/51 ≈ 0.33 → 1.97x
+    # 1.97 / 0.4 ≈ 4.9x skew → detected.
+    out = split(
+        "Even though it's hard, we did it, with much effort.",
+        "虽然，那个，确实费了挺大的功夫。",
+        ["Even though it's hard, ", "we did it, ", "with much effort."],
+    )
+    assert out is None
+
+
+def test_length_balance_proportional_translation_accepts():
+    """Balanced case — primary 14:12:41 (≈0.21:0.18:0.61) and trans
+    relative shares come out close enough (within 3x). Must NOT fall
+    back; snap path is correct here."""
+    out = split(
+        "I think that, in the end, this is what we really wanted to achieve.",
+        "我觉得，归根到底，这就是我们真正想要实现的。",
+        ["I think that, ", "in the end, ", "this is what we really wanted to achieve."],
+    )
+    assert out == ["我觉得，", "归根到底，", "这就是我们真正想要实现的。"]
+
+
+def test_length_balance_compression_within_threshold_accepts():
+    """Translation is uniformly compressed (CJK is denser than Latin)
+    — every cue is ~2x smaller on the trans side, but the RELATIVE
+    shares match. Must accept (the absolute-ratio difference is
+    information-preserving compression, not reorder)."""
+    out = split(
+        "Yes, indeed, perfectly.",
+        "对，没错，完美。",
+        ["Yes, ", "indeed, ", "perfectly."],
+    )
+    # Each cue carries proportionally similar share — snap path OK.
+    assert out is not None
+    assert "".join(out) == "对，没错，完美。"
+
+
+# ------------------------------------------------------------------
 # Edge inputs that must not crash.
 # ------------------------------------------------------------------
 

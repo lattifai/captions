@@ -1369,6 +1369,46 @@ class CaptionStandardizer:
         """
         return ch.isspace() or ch in CaptionStandardizer._PUNCT_WRAPPER
 
+    # Punct count + class agreement does NOT prove the translator
+    # preserved relative information density per cue. A reordered or
+    # heavily-redistributed translation can still pass class matching
+    # but produce a snap where one cue gets a 3-char share of an
+    # 11-char total while its corresponding primary chunk holds 4 of
+    # 61 chars. Below ``MAX_LENGTH_SKEW`` is the per-cue tolerance
+    # (primary-share : trans-share). 2.0x picked empirically:
+    # - Typical CJK compression vs Latin holds per-cue RELATIVE shares
+    #   within ~1.3-1.5x of source's (denser CJK is uniform compression,
+    #   so per-cue shares stay proportional).
+    # - Real reorder cases (clause swap, content redistribution to a
+    #   different cue, dropped sub-clause carrying weight) push at
+    #   least one cue past 2x skew.
+    # - User feedback: per-cue length differing "by a lot" is precisely
+    #   the signal that punct match is coincidental — 2x catches this.
+    _PUNCT_ALIGN_MAX_LENGTH_SKEW = 2.0
+
+    @staticmethod
+    def _is_length_balance_acceptable(
+        text_chunks: List[str],
+        translation_slices: List[str],
+        max_skew: float = _PUNCT_ALIGN_MAX_LENGTH_SKEW,
+    ) -> bool:
+        """Each translation slice's share of the total translation
+        should mirror its primary chunk's share of the total primary
+        within ``max_skew``. Returns False when any cue's skew exceeds
+        the threshold — caller treats that as "punct match was
+        coincidental, fall back". Small shares are floored at 0.05 to
+        keep division stable when a slot is near-zero.
+        """
+        total_primary = sum(len(c) for c in text_chunks) or 1
+        total_trans = sum(len(s) for s in translation_slices) or 1
+        for primary, slice_ in zip(text_chunks, translation_slices):
+            expected = len(primary) / total_primary
+            actual = len(slice_) / total_trans
+            denom = max(min(expected, actual), 0.05)
+            if max(expected, actual) / denom > max_skew:
+                return False
+        return True
+
     @staticmethod
     def _split_translation_by_punct_alignment(
         text: str, translation: Optional[str], text_chunks: List[str]
@@ -1485,6 +1525,16 @@ class CaptionStandardizer:
         assert len(slices) == n_chunks, (
             f"punct-aligned slice count {len(slices)} != n_chunks {n_chunks}"
         )
+
+        # Length-balance sanity. Punct count + class match alone does
+        # not prove the translator preserved relative information
+        # density. If any cue's trans share diverges from its primary
+        # chunk share by more than the threshold, the snap is treated
+        # as coincidental (reorder, redistribution) and we fall back.
+        if not CaptionStandardizer._is_length_balance_acceptable(
+            text_chunks, slices
+        ):
+            return None
         return slices
 
     @staticmethod

@@ -672,6 +672,44 @@ class SentenceSplitter:
 
         return results
 
+    @staticmethod
+    def _extract_cue_head_speaker_change(
+        supervisions: List[Supervision],
+    ) -> List[Supervision]:
+        """Strip leading VTT '- ' speaker-change markers into custom field.
+
+        VTT cues conventionally use a leading '- ' to mark a new speaker
+        turn (W3C convention). The dash has no acoustic counterpart and,
+        if left in text, confuses wtpsplit's sentence-boundary detection
+        when supervisions are joined for batch splitting: boundaries get
+        drawn AFTER the dash, leaving it stranded as a stray trailing
+        token on the previous sentence ("…right? -") — corrupting up to
+        20% of supervisions on multi-speaker episodes (validated against
+        Lex Fridman 3402-sup episode: 0 isolated trailing dash → 623
+        without this fix).
+
+        Returns NEW supervision objects (via fastcopy) — input is never
+        mutated. Cleaned text gets the marker recorded as
+        ``custom['vtt_speaker_change'] = True``. Downstream consumers
+        (diarize forward-search, TTS, ASS rendering) all benefit:
+        clean text for prosody + explicit marker for speaker handoff.
+
+        This matches the existing ``>>`` convention already preserved by
+        the YouTube VTT reader (which sets ``sup.speaker = ">>"``); we
+        chose ``custom['vtt_speaker_change']`` here because ``- `` is the
+        standard VTT marker and may co-exist with a real speaker label.
+        """
+        result = []
+        for sup in supervisions:
+            text = sup.text or ""
+            if text.startswith("- "):
+                new_custom = dict(getattr(sup, "custom", None) or {})
+                new_custom["vtt_speaker_change"] = True
+                result.append(fastcopy(sup, text=text[2:], custom=new_custom))
+            else:
+                result.append(sup)
+        return result
+
     def split_sentences(
         self,
         supervisions: List[Supervision],
@@ -682,6 +720,11 @@ class SentenceSplitter:
 
         Preserves speaker information across segment boundaries and keeps
         event supervisions (e.g., [Music], [Applause]) as separate segments.
+
+        Pre-process: leading VTT ``- `` speaker-change markers are stripped
+        and recorded as ``custom['vtt_speaker_change'] = True`` (see
+        :meth:`_extract_cue_head_speaker_change`). This prevents wtpsplit
+        from misplacing the dash to the previous sentence's tail.
 
         Args:
             supervisions: List of Supervision objects to split
@@ -704,6 +747,11 @@ class SentenceSplitter:
             List of Supervision objects with split sentences
         """
         self._init_splitter()
+
+        # Phase 0: Extract VTT cue-head '- ' speaker-change markers so they
+        # don't pollute wtpsplit's input. Operates on a new list — input
+        # supervisions are not mutated.
+        supervisions = self._extract_cue_head_speaker_change(supervisions)
 
         # Phase 1: Segment supervisions by speaker/event boundaries
         texts, speakers, event_indices = self._segment_supervisions(supervisions)

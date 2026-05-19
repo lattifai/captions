@@ -414,3 +414,70 @@ def test_process_mismatch_translation_falls_back_to_proportional():
     result = std.process([seg])
     rejoin = "".join(r.translation or "" for r in result)
     assert rejoin == trans
+
+
+# ------------------------------------------------------------------
+# Source-has-no-interior-punct fallback path — the punct-alignment
+# function returns None (no text-side anchors), so the proportional
+# splitter handles it. The proportional path's ``_find_safe_split``
+# already ranks punct (score 3-4) above whitespace (2) and CJK
+# boundary (1), so it naturally PREFERS a translation-side comma
+# near the proportional target. Tests below pin this behavior so
+# future refactors don't regress it.
+# ------------------------------------------------------------------
+
+
+_proportional = CaptionStandardizer._split_translation_proportionally
+
+
+def test_source_no_punct_translation_has_punct_cut_at_punct():
+    """Source ``okay so I think | this is a great point`` (no interior
+    punct) — chunk boundary at char 16. Translation has a ``，`` early
+    on; punct-alignment returns None (no text anchors), so the
+    proportional splitter takes over and snaps to the comma."""
+    text_chunks = ["okay so I think ", "this is a great point"]
+    trans = "好的，我觉得这观点不错，深思熟虑。"
+    # punct-aligned path: must return None (no text-side tokens).
+    assert split("okay so I think this is a great point", trans, text_chunks) is None
+    # proportional path: should cut at the FIRST comma boundary so
+    # neither slice starts with ``，`` or splits a CJK word mid-phrase.
+    out = _proportional(trans, text_chunks)
+    assert out == ["好的，", "我觉得这观点不错，深思熟虑。"], (
+        f"proportional splitter did not snap to ZH comma: {out!r}"
+    )
+
+
+def test_source_no_punct_translation_with_mid_comma_snaps_there():
+    """Longer source with no interior punct; translation's interior
+    ``，`` sits near the proportional target. The fallback splitter
+    must cut at the ``，``, not by char ratio in the middle of a
+    Chinese clause."""
+    text_chunks = [
+        "okay so I think this might be the way ",
+        "and we will see if it works out well in the end",
+    ]
+    trans = "好的，我觉得这可能就是路子，最后看看能不能行。"
+    out = _proportional(trans, text_chunks)
+    # The fallback prefers the comma boundary nearest to the
+    # char-ratio target; both ZH commas are valid anchors. Either
+    # slice 0 end with ``，`` is acceptable; what matters is that
+    # slice 1 does NOT begin with ``，`` or `` ``.
+    assert out is not None
+    assert out[0] and out[0].endswith("，"), f"slice 0 must end with comma: {out!r}"
+    assert out[1] and out[1][0] not in "，、；：。！？ 　", (
+        f"slice 1 starts with stray punct/space: {out!r}"
+    )
+
+
+def test_source_no_punct_translation_no_punct_word_safe():
+    """Neither side has interior punctuation. Punct-alignment returns
+    None (degenerate), proportional splitter falls back to char-ratio
+    + CJK boundary scoring. Test purely confirms no crash + lossless
+    rejoin — no specific cut position is required."""
+    text_chunks = ["one two three four five six ", "seven eight nine ten eleven twelve"]
+    trans = "一二三四五六七八九十十一十二十三十四十五十六十七十八"
+    assert split(" ".join(text_chunks), trans, text_chunks) is None
+    out = _proportional(trans, text_chunks)
+    assert out is not None
+    assert "".join(s or "" for s in out) == trans
+    assert len(out) == 2

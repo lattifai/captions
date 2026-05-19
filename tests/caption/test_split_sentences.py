@@ -313,8 +313,20 @@ def test_split_sentences_text_integrity():
             origin_text = "".join(
                 [(sup.speaker or "").strip() + sup.text for sup in supervisions]
             ).replace(" ", "")
+            # The splitter strips VTT cue-head `- ` speaker markers into
+            # ``custom['vtt_speaker_change']`` (see sentence_splitter
+            # commit b58abbe). Reassembling without restoring them would
+            # mean split_text < origin_text by one `-` per marker — the
+            # integrity check isn't about whether the marker was moved,
+            # it's about whether *content* was lost. Restore the marker
+            # for the round-trip comparison.
             split_text = "".join(
-                [(sup.speaker or "").strip() + sup.text for sup in splits]
+                [
+                    (sup.speaker or "").strip()
+                    + ("- " if (sup.custom or {}).get("vtt_speaker_change") else "")
+                    + sup.text
+                    for sup in splits
+                ]
             ).replace(" ", "")
 
             if origin_text != split_text:
